@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { collectYandexSuggestions } from '@/lib/parsers/yandexSuggest';
+import { saveKeywords } from '@/lib/supabase/keywords';
+import { isSupabaseConfigured } from '@/lib/supabase/client';
 
 // Схема валидации входных данных
 const requestSchema = z.object({
@@ -24,10 +26,21 @@ export async function POST(request: Request) {
 
     const keywords = await collectYandexSuggestions(parsed.data.queries);
 
+    // Сохраняем в Supabase, если подключён
+    let savedToDb = 0;
+    if (isSupabaseConfigured()) {
+      const result = await saveKeywords(keywords);
+      savedToDb = result.saved;
+      if (result.error) {
+        console.warn('Не удалось сохранить в Supabase:', result.error);
+      }
+    }
+
     return NextResponse.json({
       keywords,
       total: keywords.length,
       queriesProcessed: parsed.data.queries.length,
+      savedToDb,
     });
   } catch (error) {
     console.error('Ошибка при сборе подсказок Yandex:', error);

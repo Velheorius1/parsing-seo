@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useKeywordStore } from '@/lib/store/keywordStore';
 import { SEED_KEYWORDS } from '@/lib/constants/seedKeywords';
 import type { Keyword } from '@/types/parsing';
@@ -9,6 +9,27 @@ export function KeywordCollector() {
   const [input, setInput] = useState(SEED_KEYWORDS.join('\n'));
   const { isLoading, error, progress, setKeywords, setLoading, setError, setProgress, clearAll } =
     useKeywordStore();
+
+  // При загрузке компонента — подтягиваем keywords из Supabase
+  useEffect(() => {
+    async function loadFromDb() {
+      try {
+        const res = await fetch('/api/keywords');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.keywords && data.keywords.length > 0) {
+          const loaded: Keyword[] = data.keywords.map((kw: Keyword) => ({
+            ...kw,
+            collectedAt: new Date(kw.collectedAt),
+          }));
+          setKeywords(loaded);
+        }
+      } catch {
+        // Supabase не подключён — работаем без него
+      }
+    }
+    loadFromDb();
+  }, [setKeywords]);
 
   async function handleCollect() {
     const queries = input
