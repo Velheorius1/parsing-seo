@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Keyword } from '@/types/parsing';
 
 interface ParsedPageResult {
@@ -12,21 +12,30 @@ interface ParsedPageResult {
   metaKeywords: string[];
 }
 
-export function SiteAnalyzer() {
+interface SiteAnalyzerProps {
+  initialUrl?: string;
+}
+
+export function SiteAnalyzer({ initialUrl }: SiteAnalyzerProps) {
   const [url, setUrl] = useState('');
+  const prevInitialUrl = useRef('');
+
+  // Когда initialUrl меняется (клик "Парсить" из SERP) — заполняем поле и запускаем анализ
+  useEffect(() => {
+    if (initialUrl && initialUrl !== prevInitialUrl.current) {
+      prevInitialUrl.current = initialUrl;
+      setUrl(initialUrl);
+      // Автоматически запускаем анализ
+      analyzeUrl(initialUrl);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialUrl]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState<ParsedPageResult | null>(null);
   const [keywords, setKeywords] = useState<Keyword[]>([]);
 
-  async function handleAnalyze() {
-    let targetUrl = url.trim();
-    if (!targetUrl) {
-      setError('Введите URL');
-      return;
-    }
-
-    // Добавляем https:// если нет протокола
+  async function analyzeUrl(targetUrl: string) {
     if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
       targetUrl = 'https://' + targetUrl;
     }
@@ -56,6 +65,15 @@ export function SiteAnalyzer() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function handleAnalyze() {
+    const targetUrl = url.trim();
+    if (!targetUrl) {
+      setError('Введите URL');
+      return;
+    }
+    analyzeUrl(targetUrl);
   }
 
   return (
