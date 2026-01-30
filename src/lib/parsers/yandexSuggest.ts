@@ -8,7 +8,8 @@ const yandexSuggestSchema = z.tuple([
   z.array(z.string()),
 ]);
 
-const YANDEX_SUGGEST_URL = 'https://suggest.yandex.ru/suggest-ff.cgi';
+// Используем yandex.com вместо yandex.ru (yandex.ru может быть заблокирован)
+const YANDEX_SUGGEST_URL = 'https://suggest.yandex.com/suggest-ff.cgi';
 
 // lr=10335 — регион Ташкент
 const DEFAULT_PARAMS = {
