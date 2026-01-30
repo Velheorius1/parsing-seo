@@ -5,8 +5,11 @@ import { useKeywordStore } from '@/lib/store/keywordStore';
 import { SEED_KEYWORDS } from '@/lib/constants/seedKeywords';
 import type { Keyword } from '@/types/parsing';
 
+type SuggestSource = 'google' | 'yandex';
+
 export function KeywordCollector() {
   const [input, setInput] = useState(SEED_KEYWORDS.join('\n'));
+  const [source, setSource] = useState<SuggestSource>('google');
   const { isLoading, error, progress, setKeywords, setLoading, setError, setProgress, clearAll } =
     useKeywordStore();
 
@@ -52,7 +55,11 @@ export function KeywordCollector() {
     setProgress({ completed: 0, total: queries.length });
 
     try {
-      const response = await fetch('/api/suggestions/yandex', {
+      const endpoint = source === 'google'
+        ? '/api/suggestions/google'
+        : '/api/suggestions/yandex';
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ queries }),
@@ -81,6 +88,35 @@ export function KeywordCollector() {
 
   return (
     <div className="space-y-4">
+      {/* Переключатель источника */}
+      <div className="flex items-center gap-4">
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Источник:</span>
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <input
+            type="radio"
+            name="suggest-source"
+            value="google"
+            checked={source === 'google'}
+            onChange={() => setSource('google')}
+            disabled={isLoading}
+            className="accent-blue-600"
+          />
+          <span className="text-sm">Google</span>
+        </label>
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <input
+            type="radio"
+            name="suggest-source"
+            value="yandex"
+            checked={source === 'yandex'}
+            onChange={() => setSource('yandex')}
+            disabled={isLoading}
+            className="accent-blue-600"
+          />
+          <span className="text-sm">Yandex</span>
+        </label>
+      </div>
+
       <div>
         <label
           htmlFor="seed-keywords"

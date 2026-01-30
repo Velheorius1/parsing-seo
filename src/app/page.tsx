@@ -1,6 +1,7 @@
 import { KeywordCollector } from '@/components/parsing/KeywordCollector';
 import { KeywordTable } from '@/components/parsing/KeywordTable';
 import { ExportButton } from '@/components/export/ExportButton';
+import { SiteAnalyzer } from '@/components/parsing/SiteAnalyzer';
 
 export default function Home() {
   return (
@@ -13,10 +14,19 @@ export default function Home() {
       </header>
 
       <main className="space-y-8">
+        {/* Блок анализа сайта по URL */}
+        <section>
+          <h2 className="text-lg font-semibold mb-4">Анализ сайта по URL</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+            Введите URL любого сайта — получите title, H1, meta description и ключевые слова
+          </p>
+          <SiteAnalyzer />
+        </section>
+
         {/* Блок сбора подсказок */}
         <section>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Сбор подсказок Яндекс</h2>
+            <h2 className="text-lg font-semibold">Сбор подсказок</h2>
             <ExportButton />
           </div>
           <KeywordCollector />
