@@ -19,11 +19,19 @@ export default function Home() {
 
   return (
     <div className="min-h-screen p-6 sm:p-10 max-w-5xl mx-auto font-[family-name:var(--font-geist-sans)]">
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold">Parsing SEO</h1>
-        <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">
-          Сбор семантики и анализ конкурентов
-        </p>
+      <header className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Parsing SEO</h1>
+          <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">
+            Сбор семантики и анализ конкурентов
+          </p>
+        </div>
+        <a
+          href="/bulk"
+          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+        >
+          Массовый анализ
+        </a>
       </header>
 
       <main className="space-y-8">
