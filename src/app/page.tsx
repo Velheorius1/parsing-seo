@@ -26,12 +26,20 @@ export default function Home() {
             Сбор семантики и анализ конкурентов
           </p>
         </div>
-        <a
-          href="/bulk"
-          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-        >
-          Массовый анализ
-        </a>
+        <div className="flex gap-2">
+          <a
+            href="/collect"
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+          >
+            Собрать семантику
+          </a>
+          <a
+            href="/bulk"
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+          >
+            Массовый анализ
+          </a>
+        </div>
       </header>
 
       <main className="space-y-8">

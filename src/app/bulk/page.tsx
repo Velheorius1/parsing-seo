@@ -33,7 +33,7 @@ export default function BulkPage() {
   const [selectedSheet, setSelectedSheet] = useState('');
   const [selectedColumn, setSelectedColumn] = useState('');
   const [trackDomain, setTrackDomain] = useState('winch.uz');
-  const [analyzeCount, setAnalyzeCount] = useState(10);
+  const [analyzeCount, setAnalyzeCount] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -102,7 +102,7 @@ export default function BulkPage() {
   async function handleStartAnalysis() {
     if (queries.length === 0) return;
 
-    const selected = queries.slice(0, analyzeCount);
+    const selected = analyzeCount === 0 ? queries : queries.slice(0, analyzeCount);
     setResults([]);
     setSummary(null);
     setError(null);
@@ -347,9 +347,10 @@ export default function BulkPage() {
                   onChange={(e) => setAnalyzeCount(Number(e.target.value))}
                   className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-sm"
                 >
-                  <option value={10}>Первые 10 запросов</option>
-                  <option value={25}>Первые 25 запросов</option>
                   <option value={50}>Первые 50 запросов</option>
+                  <option value={100}>Первые 100 запросов</option>
+                  <option value={200}>Первые 200 запросов</option>
+                  <option value={0}>Все ({queries.length})</option>
                 </select>
               </div>
               <div className="flex items-end">
@@ -362,6 +363,8 @@ export default function BulkPage() {
                 </button>
               </div>
             </div>
+
+            <CostWarning count={analyzeCount === 0 ? queries.length : Math.min(analyzeCount, queries.length)} />
 
             {isAnalyzing && (
               <div className="mt-3">
@@ -513,6 +516,22 @@ function SummaryCard({
     <div className={`p-3 rounded-lg border ${colors[color]}`}>
       <p className="text-2xl font-bold">{value}</p>
       <p className="text-xs">{label}</p>
+    </div>
+  );
+}
+
+function CostWarning({ count }: { count: number }) {
+  const minutes = Math.max(1, Math.ceil(count / 50));
+  return (
+    <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800 rounded-lg text-xs text-yellow-700 dark:text-yellow-400 space-y-1">
+      <p>
+        ~{count} запросов = ~{minutes} мин, ~{count} Serper credits
+      </p>
+      <div className="text-yellow-600 dark:text-yellow-500 space-y-0.5">
+        <p>50 запросов ~ 1 мин, ~50 credits</p>
+        <p>100 запросов ~ 2 мин, ~100 credits</p>
+        <p>200 запросов ~ 4 мин, ~200 credits</p>
+      </div>
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { searchGoogleSerp } from '@/lib/parsers/googleSerp';
 
 const requestSchema = z.object({
-  queries: z.array(z.string().min(1).max(200)).min(1).max(50),
+  queries: z.array(z.string().min(1).max(200)).min(1).max(250),
   trackDomain: z.string().max(100).optional(),
 });
 
