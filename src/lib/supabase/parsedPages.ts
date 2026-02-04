@@ -39,6 +39,38 @@ export async function saveParsedPage(page: ParsedPage): Promise<{ saved: boolean
   return { saved: true };
 }
 
+// Batch сохранение нескольких страниц (upsert по url)
+export async function saveParsedPages(pages: ParsedPage[]): Promise<{ saved: number; error?: string }> {
+  const supabase = getSupabaseServer();
+  if (!supabase) {
+    return { saved: 0, error: 'Supabase не настроен' };
+  }
+
+  if (pages.length === 0) {
+    return { saved: 0 };
+  }
+
+  const rows = pages.map((page) => ({
+    url: page.url,
+    domain: page.domain,
+    title: page.title,
+    h1: page.h1,
+    meta_description: page.metaDescription,
+    meta_keywords: page.metaKeywords,
+  }));
+
+  const { error } = await supabase
+    .from('parsed_pages')
+    .upsert(rows, { onConflict: 'url' });
+
+  if (error) {
+    console.error('Ошибка batch сохранения parsed_pages:', error.message);
+    return { saved: 0, error: error.message };
+  }
+
+  return { saved: pages.length };
+}
+
 // Получить все спарсенные страницы
 export async function getParsedPages(): Promise<{ pages: ParsedPage[]; error?: string }> {
   const supabase = getSupabaseServer();

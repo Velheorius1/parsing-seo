@@ -1,13 +1,15 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { parseSitePage } from '@/lib/parsers/siteParser';
-import { saveParsedPage } from '@/lib/supabase/parsedPages';
+import { crawlSite } from '@/lib/parsers/siteCrawler';
+import { saveParsedPage, saveParsedPages } from '@/lib/supabase/parsedPages';
 import { saveKeywords } from '@/lib/supabase/keywords';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
 import type { Keyword } from '@/types/parsing';
 
 const requestSchema = z.object({
   url: z.string().url('Введите корректный URL'),
+  maxPages: z.number().min(1).max(50).optional().default(1),
 });
 
 export async function POST(request: Request) {
@@ -22,8 +24,47 @@ export async function POST(request: Request) {
       );
     }
 
-    // Парсим страницу
-    const page = await parseSitePage(parsed.data.url);
+    const { url, maxPages } = parsed.data;
+
+    // Режим краулера: несколько страниц
+    if (maxPages > 1) {
+      const crawlResult = await crawlSite(url, maxPages);
+
+      // Сохраняем в Supabase
+      let savedPages = 0;
+      let savedKeywords = 0;
+
+      if (isSupabaseConfigured()) {
+        const pagesResult = await saveParsedPages(crawlResult.pages);
+        savedPages = pagesResult.saved;
+
+        // Сохраняем агрегированные ключи как keywords
+        const keywords: Keyword[] = crawlResult.aggregatedKeywords.map((ak) => ({
+          keyword: ak.keyword,
+          source: 'competitor' as const,
+          baseQuery: url,
+          collectedAt: new Date(),
+        }));
+
+        if (keywords.length > 0) {
+          const kwResult = await saveKeywords(keywords);
+          savedKeywords = kwResult.saved;
+        }
+      }
+
+      return NextResponse.json({
+        mode: 'crawl',
+        domain: crawlResult.domain,
+        pagesCount: crawlResult.pagesCount,
+        pages: crawlResult.pages,
+        aggregatedKeywords: crawlResult.aggregatedKeywords,
+        savedPages,
+        savedKeywords,
+      });
+    }
+
+    // Режим одной страницы (оригинальное поведение)
+    const page = await parseSitePage(url);
 
     // Извлекаем ключевые слова из meta + title + h1
     const extractedKeywords: Keyword[] = [];
@@ -100,6 +141,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
+      mode: 'single',
       page,
       keywords: uniqueKeywords,
       total: uniqueKeywords.length,

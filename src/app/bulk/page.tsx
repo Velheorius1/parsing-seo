@@ -26,6 +26,7 @@ interface BulkResponse {
 }
 
 const BATCH_SIZE = 50;
+const RANGE_SIZE = 100;
 
 export default function BulkPage() {
   const [excelData, setExcelData] = useState<ExcelData | null>(null);
@@ -36,6 +37,12 @@ export default function BulkPage() {
   const [analyzeCount, setAnalyzeCount] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
 
+  // Pagination state
+  const [startFrom, setStartFrom] = useState(1);
+  const [selectedRange, setSelectedRange] = useState<string>('custom');
+  const [lastProcessedIndex, setLastProcessedIndex] = useState<number | null>(null);
+  const [wasInterrupted, setWasInterrupted] = useState(false);
+
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
   const [results, setResults] = useState<BulkResultItem[]>([]);
@@ -43,11 +50,16 @@ export default function BulkPage() {
   const [error, setError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const handleFile = useCallback(async (file: File) => {
     setError(null);
     setResults([]);
     setSummary(null);
+    setStartFrom(1);
+    setSelectedRange('custom');
+    setLastProcessedIndex(null);
+    setWasInterrupted(false);
 
     if (!file.name.match(/\.xlsx?$/i)) {
       setError('Поддерживаются только файлы .xlsx и .xls');
@@ -92,28 +104,64 @@ export default function BulkPage() {
     setSelectedColumn(cols.length > 0 ? cols[0] : '');
   }
 
-  const queries =
+  const allQueries =
     excelData && selectedSheet && selectedColumn
       ? getColumnValues(excelData, selectedSheet, selectedColumn)
       : [];
 
+  // Generate ranges for dropdown
+  const ranges: { value: string; label: string; start: number; end: number }[] = [];
+  for (let i = 0; i < allQueries.length; i += RANGE_SIZE) {
+    const start = i + 1;
+    const end = Math.min(i + RANGE_SIZE, allQueries.length);
+    ranges.push({ value: `${start}-${end}`, label: `Запросы ${start}-${end}`, start, end });
+  }
+
+  // Calculate effective query range based on settings
+  const getEffectiveRange = () => {
+    if (selectedRange !== 'custom' && selectedRange !== 'all') {
+      const range = ranges.find(r => r.value === selectedRange);
+      if (range) return { start: range.start - 1, end: range.end };
+    }
+    const start = Math.max(0, startFrom - 1);
+    const count = analyzeCount === 0 ? allQueries.length : analyzeCount;
+    const end = Math.min(start + count, allQueries.length);
+    return { start, end };
+  };
+
+  const effectiveRange = getEffectiveRange();
+  const queries = allQueries.slice(effectiveRange.start, effectiveRange.end);
   const previewRows = queries.slice(0, 10);
 
-  async function handleStartAnalysis() {
+  async function handleStartAnalysis(continueFrom?: number) {
     if (queries.length === 0) return;
 
-    const selected = analyzeCount === 0 ? queries : queries.slice(0, analyzeCount);
-    setResults([]);
-    setSummary(null);
+    abortControllerRef.current = new AbortController();
+    const startIdx = continueFrom ?? 0;
+    const selected = queries.slice(startIdx);
+
+    // Keep existing results if continuing
+    const existingResults = continueFrom ? [...results] : [];
+    if (!continueFrom) {
+      setResults([]);
+      setSummary(null);
+    }
     setError(null);
     setIsAnalyzing(true);
-    setProgress({ completed: 0, total: selected.length });
+    setWasInterrupted(false);
+    setProgress({ completed: existingResults.length, total: queries.length });
 
-    const allResults: BulkResultItem[] = [];
+    const allResults: BulkResultItem[] = [...existingResults];
     let lastSummary: BulkSummary | null = null;
+    let processedCount = startIdx;
 
     // Process in batches of BATCH_SIZE
     for (let i = 0; i < selected.length; i += BATCH_SIZE) {
+      // Check if aborted
+      if (abortControllerRef.current?.signal.aborted) {
+        break;
+      }
+
       const batch = selected.slice(i, i + BATCH_SIZE);
 
       try {
@@ -124,6 +172,7 @@ export default function BulkPage() {
             queries: batch,
             trackDomain: trackDomain.trim() || undefined,
           }),
+          signal: abortControllerRef.current?.signal,
         });
 
         const data: BulkResponse = await response.json();
@@ -134,11 +183,25 @@ export default function BulkPage() {
 
         allResults.push(...data.results);
         lastSummary = data.summary;
+        processedCount = startIdx + i + batch.length;
 
         setResults([...allResults]);
-        setProgress({ completed: Math.min(i + BATCH_SIZE, selected.length), total: selected.length });
+        setLastProcessedIndex(processedCount);
+        setProgress({ completed: allResults.length, total: queries.length });
+
+        // Update summary after each batch for live feedback
+        const combinedSummary = recalcSummary(allResults, trackDomain.trim());
+        setSummary(combinedSummary);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Ошибка при анализе');
+        // Save progress on error
+        setLastProcessedIndex(processedCount);
+        setWasInterrupted(true);
+
+        if (err instanceof Error && err.name === 'AbortError') {
+          // User cancelled - just stop
+        } else {
+          setError(err instanceof Error ? err.message : 'Ошибка при анализе');
+        }
         break;
       }
     }
@@ -152,6 +215,17 @@ export default function BulkPage() {
     }
 
     setIsAnalyzing(false);
+  }
+
+  function handleStopAnalysis() {
+    abortControllerRef.current?.abort();
+    setWasInterrupted(true);
+  }
+
+  function handleContinueAnalysis() {
+    if (lastProcessedIndex !== null && lastProcessedIndex < queries.length) {
+      handleStartAnalysis(lastProcessedIndex);
+    }
   }
 
   function recalcSummary(items: BulkResultItem[], domain: string): BulkSummary {
@@ -307,16 +381,16 @@ export default function BulkPage() {
             </div>
 
             {/* Preview */}
-            {queries.length > 0 && (
+            {allQueries.length > 0 && (
               <div className="mt-3">
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                  Найдено запросов: <span className="font-semibold">{queries.length}</span>
-                  {previewRows.length < queries.length && ' (показаны первые 10)'}
+                  Всего запросов в файле: <span className="font-semibold">{allQueries.length}</span>
+                  {previewRows.length > 0 && ` (превью первых ${Math.min(10, previewRows.length)} из выбранного диапазона)`}
                 </p>
                 <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 space-y-1">
                   {previewRows.map((q, i) => (
                     <p key={i} className="text-xs text-gray-600 dark:text-gray-400">
-                      {i + 1}. {q}
+                      {effectiveRange.start + i + 1}. {q}
                     </p>
                   ))}
                 </div>
@@ -326,10 +400,49 @@ export default function BulkPage() {
         )}
 
         {/* Step 3: Settings & Run */}
-        {excelData && queries.length > 0 && (
+        {excelData && allQueries.length > 0 && (
           <section>
             <h2 className="text-lg font-semibold mb-3">3. Настройки анализа</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+            {/* Range selector */}
+            {ranges.length > 1 && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2">Диапазон запросов</label>
+                <div className="flex flex-wrap gap-2">
+                  {ranges.map((range) => (
+                    <button
+                      key={range.value}
+                      onClick={() => {
+                        setSelectedRange(range.value);
+                        setStartFrom(range.start);
+                        setAnalyzeCount(range.end - range.start + 1);
+                      }}
+                      disabled={isAnalyzing}
+                      className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                        selectedRange === range.value
+                          ? 'bg-purple-600 text-white border-purple-600'
+                          : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 hover:border-purple-400'
+                      } disabled:opacity-50`}
+                    >
+                      {range.label}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setSelectedRange('custom')}
+                    disabled={isAnalyzing}
+                    className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                      selectedRange === 'custom'
+                        ? 'bg-purple-600 text-white border-purple-600'
+                        : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 hover:border-purple-400'
+                    } disabled:opacity-50`}
+                  >
+                    Свой диапазон
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Домен для отслеживания</label>
                 <input
@@ -337,36 +450,70 @@ export default function BulkPage() {
                   value={trackDomain}
                   onChange={(e) => setTrackDomain(e.target.value)}
                   placeholder="winch.uz"
-                  className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-sm"
+                  disabled={isAnalyzing}
+                  className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-sm disabled:opacity-50"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Анализировать</label>
-                <select
-                  value={analyzeCount}
-                  onChange={(e) => setAnalyzeCount(Number(e.target.value))}
-                  className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-sm"
-                >
-                  <option value={50}>Первые 50 запросов</option>
-                  <option value={100}>Первые 100 запросов</option>
-                  <option value={200}>Первые 200 запросов</option>
-                  <option value={0}>Все ({queries.length})</option>
-                </select>
-              </div>
-              <div className="flex items-end">
-                <button
-                  onClick={handleStartAnalysis}
-                  disabled={isAnalyzing}
-                  className="w-full px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-                >
-                  {isAnalyzing ? 'Анализ...' : 'Начать анализ'}
-                </button>
+              {selectedRange === 'custom' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Начать с запроса #</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={allQueries.length}
+                      value={startFrom}
+                      onChange={(e) => setStartFrom(Math.max(1, Math.min(allQueries.length, Number(e.target.value))))}
+                      disabled={isAnalyzing}
+                      className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-sm disabled:opacity-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Количество</label>
+                    <select
+                      value={analyzeCount}
+                      onChange={(e) => setAnalyzeCount(Number(e.target.value))}
+                      disabled={isAnalyzing}
+                      className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-sm disabled:opacity-50"
+                    >
+                      <option value={50}>50 запросов</option>
+                      <option value={100}>100 запросов</option>
+                      <option value={150}>150 запросов</option>
+                      <option value={200}>200 запросов</option>
+                      <option value={0}>До конца ({Math.max(0, allQueries.length - startFrom + 1)})</option>
+                    </select>
+                  </div>
+                </>
+              )}
+              <div className="flex items-end gap-2">
+                {!isAnalyzing ? (
+                  <button
+                    onClick={() => handleStartAnalysis()}
+                    disabled={queries.length === 0}
+                    className="flex-1 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  >
+                    Начать анализ
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleStopAnalysis}
+                    className="flex-1 px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                  >
+                    Остановить
+                  </button>
+                )}
               </div>
             </div>
 
-            <CostWarning count={analyzeCount === 0 ? queries.length : Math.min(analyzeCount, queries.length)} />
+            {/* Current range info */}
+            <div className="mt-2 text-xs text-gray-500">
+              Будет обработано: запросы {effectiveRange.start + 1} - {effectiveRange.end} ({queries.length} шт.)
+            </div>
 
-            {isAnalyzing && (
+            <CostWarning count={queries.length} />
+
+            {/* Progress bar */}
+            {(isAnalyzing || progress.completed > 0) && (
               <div className="mt-3">
                 <div className="flex items-center gap-3">
                   <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
@@ -378,8 +525,25 @@ export default function BulkPage() {
                     />
                   </div>
                   <span className="text-sm text-gray-500 whitespace-nowrap">
-                    Обработано {progress.completed}/{progress.total}
+                    {progress.completed}/{progress.total}
                   </span>
+                </div>
+              </div>
+            )}
+
+            {/* Continue button after interruption */}
+            {wasInterrupted && lastProcessedIndex !== null && lastProcessedIndex < queries.length && !isAnalyzing && (
+              <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="text-sm text-yellow-700 dark:text-yellow-400">
+                    Обработано {lastProcessedIndex} из {queries.length}. Можно продолжить.
+                  </div>
+                  <button
+                    onClick={handleContinueAnalysis}
+                    className="px-4 py-1.5 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm whitespace-nowrap"
+                  >
+                    Продолжить с #{lastProcessedIndex + 1}
+                  </button>
                 </div>
               </div>
             )}
@@ -393,57 +557,70 @@ export default function BulkPage() {
           </div>
         )}
 
-        {/* Summary */}
-        {summary && (
+        {/* Summary - show even with partial results */}
+        {(summary || results.length > 0) && (
           <section>
-            <h2 className="text-lg font-semibold mb-3">Результаты</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-              <SummaryCard
-                label="В топ-3"
-                value={summary.inTop3}
-                color="green"
-              />
-              <SummaryCard
-                label="В топ-10"
-                value={summary.inTop10}
-                color="yellow"
-              />
-              <SummaryCard
-                label="Не в топе"
-                value={summary.notFound}
-                color="red"
-              />
-              <SummaryCard
-                label="Всего запросов"
-                value={summary.total}
-                color="gray"
-              />
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold">Результаты</h2>
+              {results.length > 0 && (
+                <span className="text-sm text-gray-500">
+                  Обработано: {results.length} из {queries.length}
+                </span>
+              )}
             </div>
-
-            {summary.topCompetitors.length > 0 && (
-              <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
-                <p className="text-sm font-semibold mb-2">Главные конкуренты:</p>
-                <div className="flex flex-wrap gap-2">
-                  {summary.topCompetitors.map((c) => (
-                    <span
-                      key={c.domain}
-                      className="text-xs px-2 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded"
-                    >
-                      {c.domain}{' '}
-                      <span className="text-gray-400">({c.count})</span>
-                    </span>
-                  ))}
+            {summary && (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  <SummaryCard
+                    label="В топ-3"
+                    value={summary.inTop3}
+                    color="green"
+                  />
+                  <SummaryCard
+                    label="В топ-10"
+                    value={summary.inTop10}
+                    color="yellow"
+                  />
+                  <SummaryCard
+                    label="Не в топе"
+                    value={summary.notFound}
+                    color="red"
+                  />
+                  <SummaryCard
+                    label="Обработано"
+                    value={summary.total}
+                    color="gray"
+                  />
                 </div>
-              </div>
+
+                {summary.topCompetitors.length > 0 && (
+                  <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+                    <p className="text-sm font-semibold mb-2">Главные конкуренты:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {summary.topCompetitors.map((c) => (
+                        <span
+                          key={c.domain}
+                          className="text-xs px-2 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded"
+                        >
+                          {c.domain}{' '}
+                          <span className="text-gray-400">({c.count})</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
-            {/* Export */}
-            <button
-              onClick={handleExport}
-              className="mb-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-            >
-              Скачать результаты (Excel)
-            </button>
+            {/* Export - available even with partial results */}
+            {results.length > 0 && (
+              <button
+                onClick={handleExport}
+                className="mb-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+              >
+                Скачать {results.length} результатов (Excel)
+              </button>
+            )}
 
             {/* Results Table */}
             <div className="overflow-x-auto">

@@ -16,8 +16,15 @@ export interface ParsedPage {
   metaKeywords: string[];
 }
 
+export interface ParsedPageWithLinks {
+  page: ParsedPage;
+  links: string[];
+}
+
+const EXCLUDED_EXTENSIONS = /\.(pdf|jpg|jpeg|png|gif|svg|webp|zip|rar|doc|docx|xls|xlsx|ppt|pptx|mp3|mp4|avi|mov)$/i;
+
 // Парсинг одной страницы по URL
-async function fetchAndParse(url: string): Promise<ParsedPage> {
+async function fetchAndParse(url: string): Promise<ParsedPageWithLinks> {
   const response = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (compatible; ParsingSEO/1.0)',
@@ -40,7 +47,8 @@ async function fetchAndParse(url: string): Promise<ParsedPage> {
   const $ = cheerio.load(html);
 
   // Извлекаем домен из URL
-  const domain = new URL(url).hostname;
+  const parsedUrl = new URL(url);
+  const domain = parsedUrl.hostname;
 
   // Title
   const title = $('title').first().text().trim() || null;
@@ -60,17 +68,50 @@ async function fetchAndParse(url: string): Promise<ParsedPage> {
     ? metaKeywordsRaw.split(',').map((k) => k.trim()).filter((k) => k.length > 0)
     : [];
 
+  // Извлекаем внутренние ссылки
+  const links: string[] = [];
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href');
+    if (!href) return;
+
+    try {
+      const resolved = new URL(href, url);
+      // Только тот же домен, без хешей, без файлов
+      if (
+        resolved.hostname === domain &&
+        !EXCLUDED_EXTENSIONS.test(resolved.pathname)
+      ) {
+        resolved.hash = '';
+        links.push(resolved.href);
+      }
+    } catch {
+      // Невалидная ссылка — пропускаем
+    }
+  });
+
+  // Дедупликация ссылок
+  const uniqueLinks = Array.from(new Set(links));
+
   return {
-    url,
-    domain,
-    title,
-    h1,
-    metaDescription,
-    metaKeywords,
+    page: {
+      url,
+      domain,
+      title,
+      h1,
+      metaDescription,
+      metaKeywords,
+    },
+    links: uniqueLinks,
   };
 }
 
-// Публичная функция с rate limiting
+// Публичная функция с rate limiting (обратная совместимость)
 export async function parseSitePage(url: string): Promise<ParsedPage> {
+  const result = await siteLimiter.schedule(() => fetchAndParse(url));
+  return result.page;
+}
+
+// Парсинг страницы с извлечением внутренних ссылок
+export async function parseSitePageWithLinks(url: string): Promise<ParsedPageWithLinks> {
   return siteLimiter.schedule(() => fetchAndParse(url));
 }
