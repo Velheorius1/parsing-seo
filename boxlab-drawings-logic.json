@@ -1,0 +1,450 @@
+{
+  "source": "boxlab.io",
+  "description": "Логика генерации чертежей коробок с сайта boxlab.io",
+  "extractedAt": "2026-02-04",
+  "library": "makerjs",
+  "parameterFormat": {
+    "description": "DIM.Dim(min, default, max, step, type, label)",
+    "types": ["linear", "angular", "percent"]
+  },
+  "categories": {
+    "rigid": {
+      "name": "Жёсткие коробки (Rigid boxes)",
+      "models": {
+        "tray": {
+          "name": "Лоток (Tray)",
+          "url": "https://boxlab.io/catalog/rigid-boxes/tray",
+          "modelPath": "/themes/templater/assets/models/rigid/tray/model.js",
+          "drawTypes": ["all", "cardboard", "paper"],
+          "parameters": {
+            "l": { "min": 30, "default": 300, "max": 800, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 30, "default": 200, "max": 800, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 20, "default": 50, "max": 400, "step": 0.5, "type": "linear", "label": "height" },
+            "t": { "min": 1, "default": 1.5, "max": 3, "step": 0.1, "type": "linear", "label": "thickness" },
+            "f": { "min": 7, "default": 15, "max": 400, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "sf": { "min": 7, "default": 15, "max": 800, "step": 0.5, "type": "linear", "label": "sideFlaps" },
+            "sfb": { "min": 1, "default": 3, "max": 150, "step": 0.5, "type": "linear", "label": "flapsBevel" },
+            "pt": { "min": 0, "default": 0.2, "max": 1, "step": 0.1, "type": "linear", "label": "paperThickness" },
+            "dt": { "min": 0, "default": 50, "max": 100, "step": 1, "type": "percent", "label": "delta" }
+          },
+          "formulas": {
+            "trayParams": {
+              "l": "l",
+              "w": "w",
+              "h": "h",
+              "t": "t",
+              "sf": "sf",
+              "sfb": "sfb",
+              "f": "f",
+              "dt": "dt",
+              "k": "DIM.Units[unit].scale"
+            }
+          }
+        },
+        "standard-box": {
+          "name": "Стандартная коробка / Shoe box",
+          "url": "https://boxlab.io/catalog/rigid-boxes/standard-box",
+          "modelPath": "/themes/templater/assets/models/rigid/standard-box/model.js",
+          "drawTypes": ["all", "cardboardBot", "cardboardTop", "paperBot", "paperTop"],
+          "parameters": {
+            "l": { "min": 40, "default": 300, "max": 800, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 40, "default": 200, "max": 800, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 15, "default": 50, "max": 400, "step": 0.5, "type": "linear", "label": "bottomHeight" },
+            "h2": { "min": 15, "default": 20, "max": 400, "step": 0.5, "type": "linear", "label": "lidHeight" },
+            "t": { "min": 1, "default": 1.5, "max": 3, "step": 0.1, "type": "linear", "label": "thickness" },
+            "g": { "min": 0, "default": 0.5, "max": 3, "step": 0.1, "type": "linear", "label": "gap" },
+            "f": { "min": 7, "default": 15, "max": 400, "step": 0.5, "type": "linear", "label": "bottomFlaps" },
+            "ft": { "min": 7, "default": 15, "max": 400, "step": 0.5, "type": "linear", "label": "lidFlaps" },
+            "sf": { "min": 7, "default": 15, "max": 800, "step": 0.5, "type": "linear", "label": "sideFlaps" },
+            "sfb": { "min": 1, "default": 3, "max": 150, "step": 0.5, "type": "linear", "label": "flapsBevel" },
+            "pt": { "min": 0, "default": 0.2, "max": 1, "step": 0.1, "type": "linear", "label": "paperThickness" },
+            "dt": { "min": 0, "default": 50, "max": 100, "step": 1, "type": "percent", "label": "delta" }
+          },
+          "formulas": {
+            "topParams": {
+              "l": "l + 2*t + 2*g",
+              "w": "w + 2*t + 2*g",
+              "h": "h2",
+              "t": "t",
+              "sf": "sf",
+              "sfb": "sfb",
+              "f": "ft",
+              "dt": "dt"
+            }
+          }
+        },
+        "case3box": {
+          "name": "Коробка-книжка (Book-style box)",
+          "url": "https://boxlab.io/catalog/rigid-boxes/flit-top-box-book-style-box",
+          "modelPath": "/themes/templater/assets/models/rigid/case3box/model.js",
+          "drawTypes": ["all", "case_all", "tray_cardboard", "case_cardboard", "tray_paper", "case_paper", "case_paper_ins"],
+          "parameters": {
+            "l": { "min": 40, "default": 300, "max": 800, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 40, "default": 200, "max": 800, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 20, "default": 50, "max": 400, "step": 0.5, "type": "linear", "label": "height" },
+            "t": { "min": 1, "default": 1.5, "max": 3, "step": 0.1, "type": "linear", "label": "thickness" },
+            "f": { "min": 7, "default": 15, "max": 400, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "sf": { "min": 7, "default": 15, "max": 800, "step": 0.5, "type": "linear", "label": "sideFlaps" },
+            "sfb": { "min": 1, "default": 3, "max": 150, "step": 0.5, "type": "linear", "label": "flapsBevel" },
+            "ledge": { "min": 0, "default": 2, "max": 10, "step": 0.1, "type": "linear", "label": "ledge" },
+            "fc": { "min": 5, "default": 12, "max": 25, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "d": { "min": 2, "default": 4, "max": 10, "step": 0.5, "type": "linear", "label": "distance" },
+            "ac": { "min": 0, "default": 15, "max": 50, "step": 0.5, "type": "linear", "label": "cornersBevel" },
+            "ofs": { "min": 0, "default": 3, "max": 10, "step": 0.5, "type": "linear", "label": "offset" },
+            "pt": { "min": 0, "default": 0.2, "max": 1, "step": 0.1, "type": "linear", "label": "paperThickness" },
+            "dt": { "min": 0, "default": 50, "max": 100, "step": 1, "type": "percent", "label": "delta" },
+            "a1": { "min": 0, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "backPanel" },
+            "a2": { "min": -90, "default": 60, "max": 90, "step": 1, "type": "angular", "label": "openClose" }
+          },
+          "formulas": {
+            "l1": "w + t/2 + pt + ledge",
+            "l2": "h - t*2 + pt*8",
+            "l3": "w + t/2 + pt + ledge",
+            "d": "t * Math.PI"
+          }
+        },
+        "case4box": {
+          "name": "Коробка с магнитом (Magnet box)",
+          "url": "https://boxlab.io/catalog/rigid-boxes/magnet-box",
+          "modelPath": "/themes/templater/assets/models/rigid/case4box/model.js",
+          "drawTypes": ["all", "case_all", "tray_cardboard", "case_cardboard", "tray_paper", "case_paper", "case_paper_ins"],
+          "parameters": {
+            "l": { "min": 40, "default": 300, "max": 800, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 40, "default": 200, "max": 800, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 20, "default": 50, "max": 400, "step": 0.5, "type": "linear", "label": "height" },
+            "ff": { "min": 20, "default": 51.5, "max": 400, "step": 0.5, "type": "linear", "label": "frontFlap" },
+            "t": { "min": 1, "default": 1.5, "max": 3, "step": 0.1, "type": "linear", "label": "thickness" },
+            "f": { "min": 7, "default": 15, "max": 400, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "sf": { "min": 7, "default": 15, "max": 800, "step": 0.5, "type": "linear", "label": "sideFlaps" },
+            "sfb": { "min": 1, "default": 3, "max": 150, "step": 0.5, "type": "linear", "label": "flapsBevel" },
+            "dt": { "min": 0, "default": 50, "max": 100, "step": 1, "type": "percent", "label": "delta" },
+            "ledge": { "min": 0, "default": 2, "max": 10, "step": 0.1, "type": "linear", "label": "ledge" },
+            "fc": { "min": 5, "default": 12, "max": 20, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "d": { "min": 2, "default": 4, "max": 10, "step": 0.5, "type": "linear", "label": "distance" },
+            "ac": { "min": 0, "default": 15, "max": 50, "step": 0.5, "type": "linear", "label": "cornersBevel" },
+            "ofs": { "min": 0, "default": 3, "max": 10, "step": 0.5, "type": "linear", "label": "offset" },
+            "mags": { "min": 0, "default": 2, "max": 3, "step": 1, "type": "linear", "label": "magnetsCount" },
+            "magD": { "min": 2, "default": 10, "max": 20, "step": 0.5, "type": "linear", "label": "magnetDiameter" },
+            "magDist": { "min": 50, "default": 100, "max": 700, "step": 0.5, "type": "linear", "label": "magnetDistance" },
+            "magOfs": { "min": -350, "default": 0, "max": 350, "step": 0.5, "type": "linear", "label": "magnetOffset" },
+            "pt": { "min": 0, "default": 0.2, "max": 5, "step": 0.1, "type": "linear", "label": "paperThickness" },
+            "a1": { "min": 0, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "backPanel" },
+            "a2": { "min": -90, "default": 60, "max": 90, "step": 1, "type": "angular", "label": "openClose" },
+            "a3": { "min": -90, "default": 60, "max": 90, "step": 1, "type": "angular", "label": "frontPanel" }
+          },
+          "formulas": {
+            "caseParams": {
+              "l1": "w + 3*t",
+              "l2": "h + t",
+              "l3": "w + 2*t",
+              "l4": "ff",
+              "w": "l + 2*ledge + 2*t"
+            }
+          }
+        },
+        "case5boxoverlaptop": {
+          "name": "Коробка с магнитом (верхнее закрытие с нахлёстом)",
+          "url": "https://boxlab.io/catalog/rigid-boxes/magnet-box-top-overlap-closure",
+          "modelPath": "/themes/templater/assets/models/rigid/case5boxoverlaptop/model.js",
+          "drawTypes": ["all", "case_all", "tray_cardboard", "case_cardboard", "tray_paper", "case_paper", "case_paper_ins"],
+          "parameters": {
+            "l": { "min": 40, "default": 270, "max": 800, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 40, "default": 200, "max": 800, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 20, "default": 30, "max": 400, "step": 0.5, "type": "linear", "label": "height" },
+            "ff": { "min": 20, "default": 30, "max": 400, "step": 0.5, "type": "linear", "label": "rightFlap" },
+            "t": { "min": 1, "default": 1.5, "max": 3, "step": 0.1, "type": "linear", "label": "thickness" },
+            "f": { "min": 7, "default": 15, "max": 400, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "sf": { "min": 7, "default": 15, "max": 800, "step": 0.5, "type": "linear", "label": "sideFlaps" },
+            "sfb": { "min": 1, "default": 3, "max": 150, "step": 0.5, "type": "linear", "label": "flapsBevel" },
+            "dt": { "min": 0, "default": 50, "max": 100, "step": 1, "type": "percent", "label": "delta" },
+            "ledge": { "min": 0, "default": 2, "max": 10, "step": 0.1, "type": "linear", "label": "ledge" },
+            "fc": { "min": 5, "default": 12, "max": 20, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "d": { "min": 2, "default": 4, "max": 10, "step": 0.5, "type": "linear", "label": "distance" },
+            "ac": { "min": 0, "default": 15, "max": 50, "step": 0.5, "type": "linear", "label": "cornersBevel" },
+            "ofs": { "min": 0, "default": 3, "max": 10, "step": 0.5, "type": "linear", "label": "offset" },
+            "magD": { "min": 2, "default": 10, "max": 20, "step": 0.5, "type": "linear", "label": "magnetDiameter" },
+            "magDist": { "min": 50, "default": 100, "max": 700, "step": 0.5, "type": "linear", "label": "magnetDistance" },
+            "magOfs": { "min": -350, "default": 0, "max": 350, "step": 0.5, "type": "linear", "label": "magnetOffset" },
+            "pt": { "min": 0, "default": 0.2, "max": 1, "step": 0.1, "type": "linear", "label": "paperThickness" },
+            "a1": { "min": 0, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "foldUnfold" },
+            "a2": { "min": -90, "default": 60, "max": 90, "step": 1, "type": "angular", "label": "leftFlap" },
+            "a3": { "min": -90, "default": 60, "max": 90, "step": 1, "type": "angular", "label": "rightFlap" },
+            "a4": { "min": -90, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "a4" }
+          }
+        },
+        "case5boxside": {
+          "name": "Коробка с магнитом (боковое закрытие)",
+          "url": "https://boxlab.io/catalog/rigid-boxes/magnet-box-side-closure",
+          "modelPath": "/themes/templater/assets/models/rigid/case5boxside/model.js",
+          "drawTypes": ["all", "case_all", "tray_cardboard", "case_cardboard", "tray_paper", "case_paper", "case_paper_ins"],
+          "parameters": {
+            "l": { "min": 40, "default": 320, "max": 800, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 40, "default": 200, "max": 800, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 40, "default": 50, "max": 400, "step": 0.5, "type": "linear", "label": "height" },
+            "ff": { "min": 20, "default": 20, "max": 400, "step": 0.5, "type": "linear", "label": "topFlap" },
+            "bf": { "min": 20, "default": 20, "max": 400, "step": 0.5, "type": "linear", "label": "bottomFlap" },
+            "t": { "min": 1, "default": 1.5, "max": 3, "step": 0.1, "type": "linear", "label": "thickness" },
+            "f": { "min": 7, "default": 15, "max": 400, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "sf": { "min": 7, "default": 15, "max": 800, "step": 0.5, "type": "linear", "label": "sideFlaps" },
+            "sfb": { "min": 1, "default": 3, "max": 150, "step": 0.5, "type": "linear", "label": "flapsBevel" },
+            "dt": { "min": 0, "default": 50, "max": 100, "step": 1, "type": "percent", "label": "delta" },
+            "ledge": { "min": 0, "default": 3, "max": 10, "step": 0.1, "type": "linear", "label": "ledge" },
+            "fc": { "min": 5, "default": 12, "max": 20, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "d": { "min": 2, "default": 4, "max": 10, "step": 0.5, "type": "linear", "label": "distance" },
+            "ac": { "min": 0, "default": 15, "max": 50, "step": 0.5, "type": "linear", "label": "cornersBevel" },
+            "ofs": { "min": 0, "default": 3, "max": 10, "step": 0.5, "type": "linear", "label": "offset" },
+            "magD": { "min": 2, "default": 10, "max": 20, "step": 0.5, "type": "linear", "label": "magnetDiameter" },
+            "magDist": { "min": 50, "default": 100, "max": 700, "step": 0.5, "type": "linear", "label": "magnetDistance" },
+            "magOfs": { "min": -350, "default": 0, "max": 350, "step": 0.5, "type": "linear", "label": "magnetOffset" },
+            "pt": { "min": 0, "default": 0.2, "max": 1, "step": 0.1, "type": "linear", "label": "paperThickness" },
+            "a1": { "min": 0, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "foldUnfold" },
+            "a2": { "min": -90, "default": 60, "max": 90, "step": 1, "type": "angular", "label": "openClose" },
+            "a3": { "min": -90, "default": 60, "max": 90, "step": 1, "type": "angular", "label": "frontPanel" },
+            "a4": { "min": -90, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "a4" }
+          }
+        },
+        "case5boxoverlapside": {
+          "name": "Коробка с магнитом (боковое закрытие с нахлёстом)",
+          "url": "https://boxlab.io/catalog/rigid-boxes/magnet-box-side-overlap-closure",
+          "modelPath": "/themes/templater/assets/models/rigid/case5boxoverlapside/model.js",
+          "drawTypes": ["all", "case_all", "tray_cardboard", "case_cardboard", "tray_paper", "case_paper", "case_paper_ins"],
+          "parameters": {
+            "l": { "min": 40, "default": 320, "max": 800, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 40, "default": 200, "max": 800, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 40, "default": 50, "max": 400, "step": 0.5, "type": "linear", "label": "height" },
+            "ff": { "min": 20, "default": 25, "max": 400, "step": 0.5, "type": "linear", "label": "frontFlap" },
+            "t": { "min": 1, "default": 1.5, "max": 3, "step": 0.1, "type": "linear", "label": "thickness" },
+            "f": { "min": 7, "default": 15, "max": 400, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "sf": { "min": 7, "default": 15, "max": 800, "step": 0.5, "type": "linear", "label": "sideFlaps" },
+            "sfb": { "min": 1, "default": 3, "max": 150, "step": 0.5, "type": "linear", "label": "flapsBevel" },
+            "dt": { "min": 0, "default": 50, "max": 100, "step": 1, "type": "percent", "label": "delta" },
+            "ledge": { "min": 0, "default": 2, "max": 10, "step": 0.1, "type": "linear", "label": "ledge" },
+            "fc": { "min": 5, "default": 12, "max": 20, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "d": { "min": 2, "default": 4, "max": 10, "step": 0.5, "type": "linear", "label": "distance" },
+            "ac": { "min": 0, "default": 15, "max": 50, "step": 0.5, "type": "linear", "label": "cornersBevel" },
+            "ofs": { "min": 0, "default": 3, "max": 10, "step": 0.5, "type": "linear", "label": "offset" },
+            "magD": { "min": 2, "default": 10, "max": 20, "step": 0.5, "type": "linear", "label": "magnetDiameter" },
+            "magDist": { "min": 50, "default": 100, "max": 700, "step": 0.5, "type": "linear", "label": "magnetDistance" },
+            "magOfs": { "min": -350, "default": 0, "max": 350, "step": 0.5, "type": "linear", "label": "magnetOffset" },
+            "pt": { "min": 0, "default": 0.2, "max": 1, "step": 0.1, "type": "linear", "label": "paperThickness" },
+            "a1": { "min": 0, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "foldUnfold" },
+            "a2": { "min": -90, "default": 60, "max": 90, "step": 1, "type": "angular", "label": "openClose" },
+            "a3": { "min": -90, "default": 60, "max": 90, "step": 1, "type": "angular", "label": "frontFlap" },
+            "a4": { "min": -90, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "a4" }
+          }
+        },
+        "case3": {
+          "name": "3-х частный футляр (3-part case)",
+          "url": "https://boxlab.io/catalog/rigid-boxes/case-3",
+          "modelPath": "/themes/templater/assets/models/rigid/case3/model.js",
+          "parameters": {
+            "l1": { "min": 10, "default": 200, "max": 800, "step": 0.5, "type": "linear", "label": "backSide" },
+            "l2": { "min": 10, "default": 25, "max": 800, "step": 0.5, "type": "linear", "label": "centralSide" },
+            "l3": { "min": 10, "default": 200, "max": 800, "step": 0.5, "type": "linear", "label": "frontSide" },
+            "w": { "min": 40, "default": 320, "max": 800, "step": 0.5, "type": "linear", "label": "width" },
+            "t": { "min": 1, "default": 1.5, "max": 3, "step": 0.1, "type": "linear", "label": "thickness" },
+            "f": { "min": 5, "default": 12, "max": 25, "step": 0.5, "type": "linear", "label": "insideFlaps" },
+            "d": { "min": 2, "default": 4, "max": 10, "step": 0.5, "type": "linear", "label": "distance" },
+            "ac": { "min": 0, "default": 15, "max": 50, "step": 0.5, "type": "linear", "label": "cornersBevel" },
+            "ofs": { "min": 0, "default": 3, "max": 10, "step": 0.5, "type": "linear", "label": "offset" },
+            "pt": { "min": 0, "default": 0.2, "max": 1, "step": 0.1, "type": "linear", "label": "paperThickness" },
+            "a1": { "min": -90, "default": 80, "max": 90, "step": 1, "type": "angular", "label": "frontSide" },
+            "a2": { "min": -90, "default": 60, "max": 90, "step": 1, "type": "angular", "label": "centralSide" }
+          }
+        }
+      }
+    },
+    "corrugated": {
+      "name": "Гофрокоробки (Corrugated boxes, FEFCO)",
+      "models": {
+        "fefco-0201": {
+          "name": "FEFCO 0201",
+          "url": "https://boxlab.io/catalog/corrugated-boxes/fefco-0201",
+          "modelPath": "/themes/templater/assets/models/fefco/0200/0201/model.js",
+          "parameters": {
+            "l": { "min": 50, "default": 300, "max": 1000, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 50, "default": 200, "max": 1000, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 20, "default": 100, "max": 1000, "step": 0.5, "type": "linear", "label": "height" },
+            "f": { "min": 5, "default": 20, "max": 50, "step": 0.5, "type": "linear", "label": "width" },
+            "fb": { "min": 0, "default": 5, "max": 30, "step": 0.5, "type": "linear", "label": "bevel" },
+            "t": { "min": 1, "default": 3, "max": 5, "step": 0.1, "type": "linear", "label": "thickness" },
+            "a1": { "min": -90, "default": -65, "max": 90, "step": 1, "type": "angular", "label": "leftFlap" },
+            "a2": { "min": -90, "default": -65, "max": 90, "step": 1, "type": "angular", "label": "rightFlap" },
+            "a3": { "min": -90, "default": -90, "max": 90, "step": 1, "type": "angular", "label": "insideFlaps" }
+          },
+          "formulas": {
+            "creaseLine1": "Line([l, 1.5*t], [l, h+t/2])",
+            "creaseLine2": "Line([l+w, 1.5*t], [l+w, h+t/2])",
+            "creaseLine3": "Line([l+w+l, 1.5*t], [l+w+l, h+t/2])",
+            "flaps": "l >= w ? w/2 + 1.5*t : l/2 + 2.5*t"
+          }
+        },
+        "fefco-0427": {
+          "name": "FEFCO 0427",
+          "url": "https://boxlab.io/catalog/corrugated-boxes/fefco-0427",
+          "modelPath": "/themes/templater/assets/models/fefco/0400/0427/model.js",
+          "parameters": {
+            "l": { "min": 50, "default": 300, "max": 1000, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 50, "default": 200, "max": 1000, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 20, "default": 80, "max": 500, "step": 0.5, "type": "linear", "label": "height" },
+            "t": { "min": 1, "default": 3, "max": 5, "step": 0.1, "type": "linear", "label": "thickness" },
+            "v": { "min": 20, "default": 60, "max": 1000, "step": 0.5, "type": "linear", "label": "bevel" },
+            "f": { "min": 5, "default": 140, "max": 250, "step": 0.5, "type": "linear", "label": "length" },
+            "locksL": { "min": 10, "default": 20, "max": 500, "step": 0.5, "type": "linear", "label": "width" },
+            "locksD": { "min": 10, "default": 70, "max": 500, "step": 0.5, "type": "linear", "label": "distance" },
+            "sfHeight": { "min": 10, "default": 100, "max": 500, "step": 0.5, "type": "linear", "label": "height" },
+            "sfBevel": { "min": 0, "default": 20, "max": 500, "step": 0.5, "type": "linear", "label": "bevel" },
+            "sfBevel2": { "min": 0, "default": 20, "max": 500, "step": 0.5, "type": "linear", "label": "bevel2" },
+            "sfRadius": { "min": 0, "default": 20, "max": 500, "step": 0.5, "type": "linear", "label": "radius" },
+            "ifAngle": { "min": 0, "default": 5, "max": 45, "step": 0.5, "type": "angular", "label": "angle" },
+            "ifRadius": { "min": 0, "default": 20, "max": 500, "step": 0.5, "type": "linear", "label": "radius" },
+            "a1": { "min": 0, "default": 100, "max": 100, "step": 1, "type": "angular", "label": "foldUnfold" },
+            "a10": { "min": -90, "default": -40, "max": 90, "step": 1, "type": "angular", "label": "openClose" },
+            "a11": { "min": -90, "default": 10, "max": 90, "step": 1, "type": "angular", "label": "frontFlap" },
+            "a12": { "min": 0, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "sideFlaps" },
+            "a13": { "min": 0, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "insideFlaps" }
+          }
+        },
+        "fefco-0452": {
+          "name": "FEFCO 0452 (Single-wall tray)",
+          "url": "https://boxlab.io/catalog/corrugated-boxes/fefco-0452",
+          "modelPath": "/themes/templater/assets/models/fefco/0400/0452/model.js",
+          "parameters": {
+            "l": { "min": 50, "default": 300, "max": 1000, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 50, "default": 200, "max": 1000, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 20, "default": 100, "max": 1000, "step": 0.5, "type": "linear", "label": "height" },
+            "v": { "min": 0, "default": 0, "max": 1000, "step": 0.5, "type": "linear", "label": "flapsBevel" },
+            "f": { "min": 5, "default": 30, "max": 50, "step": 0.5, "type": "linear", "label": "sideFlaps" },
+            "t": { "min": 1, "default": 3, "max": 5, "step": 0.1, "type": "linear", "label": "thickness" },
+            "a1": { "min": 0, "default": 100, "max": 100, "step": 1, "type": "angular", "label": "foldUnfold" }
+          }
+        },
+        "fefco-0502": {
+          "name": "FEFCO 0502 (Sleeve)",
+          "url": "https://boxlab.io/catalog/corrugated-boxes/fefco-0502",
+          "modelPath": "/themes/templater/assets/models/fefco/0500/0502/model.js",
+          "parameters": {
+            "l": { "min": 50, "default": 300, "max": 1000, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 50, "default": 200, "max": 1000, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 30, "default": 90, "max": 1000, "step": 0.5, "type": "linear", "label": "height" },
+            "f": { "min": 5, "default": 20, "max": 30, "step": 0.5, "type": "linear", "label": "width" },
+            "fb": { "min": 0, "default": 5, "max": 30, "step": 0.5, "type": "linear", "label": "bevel" },
+            "t": { "min": 1, "default": 3, "max": 5, "step": 0.1, "type": "linear", "label": "thickness" },
+            "a1": { "min": -90, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "foldUnfold" }
+          }
+        },
+        "fefco-0955": {
+          "name": "FEFCO 0955 (Podium)",
+          "url": "https://boxlab.io/catalog/corrugated-boxes/fefco-0955",
+          "modelPath": "/themes/templater/assets/models/fefco/0900/0955/model.js",
+          "parameters": {
+            "l": { "min": 50, "default": 300, "max": 1000, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 50, "default": 200, "max": 1000, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 10, "default": 50, "max": 300, "step": 0.5, "type": "linear", "label": "height" },
+            "b": { "min": 0, "default": 15, "max": 100, "step": 0.5, "type": "linear", "label": "bevel" },
+            "t": { "min": 1, "default": 3, "max": 5, "step": 0.1, "type": "linear", "label": "thickness" },
+            "a1": { "min": 0, "default": 90, "max": 90, "step": 1, "type": "angular", "label": "foldUnfold" }
+          }
+        }
+      }
+    },
+    "carton": {
+      "name": "Картонные коробки (Folding carton boxes, ECMA)",
+      "models": {
+        "ecma-a20200101": {
+          "name": "ECMA A20.20.01.01",
+          "url": "https://boxlab.io/catalog/carton-boxes-ecma-code/ecma-a20200101",
+          "modelPath": "/themes/templater/assets/models/thin/ecma-a/a20200101/model.js",
+          "parameters": {
+            "l": { "min": 20, "default": 150, "max": 700, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 20, "default": 80, "max": 700, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 40, "default": 100, "max": 700, "step": 0.5, "type": "linear", "label": "height" },
+            "t": { "min": 0.2, "default": 0.4, "max": 1, "step": 0.1, "type": "linear", "label": "thickness" },
+            "thumb": { "min": 0, "default": 0, "max": 20, "step": 0.1, "type": "linear", "label": "thumbCutout" },
+            "lock": { "min": 5, "default": 10, "max": 20, "step": 0.1, "type": "linear", "label": "locksWidth" },
+            "gf_w": { "min": 5, "default": 10, "max": 20, "step": 0.5, "type": "linear", "label": "glueFlap_width" },
+            "gf_b": { "min": 0, "default": 5, "max": 20, "step": 0.5, "type": "linear", "label": "glueFlap_bevel" },
+            "df_w": { "min": 10, "default": 60, "max": 700, "step": 0.5, "type": "linear", "label": "dustFlap_width" },
+            "df_r": { "min": 0, "default": 5, "max": 700, "step": 0.5, "type": "linear", "label": "dustFlap_radius" },
+            "df_l1": { "min": 0, "default": 3, "max": 30, "step": 0.5, "type": "linear", "label": "dustFlap_L1" },
+            "df_l2": { "min": 0, "default": 6, "max": 30, "step": 0.5, "type": "linear", "label": "dustFlap_bevel1" },
+            "df_l3": { "min": 0, "default": 6, "max": 30, "step": 0.5, "type": "linear", "label": "dustFlap_bevel2" },
+            "df_l4": { "min": 0, "default": 3, "max": 30, "step": 0.5, "type": "linear", "label": "dustFlap_L4" },
+            "tf_w": { "min": 5, "default": 15, "max": 40, "step": 0.5, "type": "linear", "label": "tuckFlap_width" },
+            "tf_r": { "min": 1, "default": 5, "max": 40, "step": 0.5, "type": "linear", "label": "tuckFlap_rounding" },
+            "a1": { "min": -90, "default": 65, "max": 90, "step": 1, "type": "angular", "label": "frontFlap" },
+            "a2": { "min": -90, "default": -65, "max": 90, "step": 1, "type": "angular", "label": "topFlap" },
+            "a3": { "min": -90, "default": -90, "max": 90, "step": 1, "type": "angular", "label": "sideFlaps" }
+          }
+        },
+        "ecma-a20200103": {
+          "name": "ECMA A20.20.01.03",
+          "url": "https://boxlab.io/catalog/carton-boxes-ecma-code/ecma-a20200103",
+          "modelPath": "/themes/templater/assets/models/thin/ecma-a/a20200103/model.js",
+          "parameters": {
+            "l": { "min": 20, "default": 150, "max": 700, "step": 0.5, "type": "linear", "label": "length" },
+            "w": { "min": 10, "default": 70, "max": 700, "step": 0.5, "type": "linear", "label": "width" },
+            "h": { "min": 50, "default": 300, "max": 700, "step": 0.5, "type": "linear", "label": "height" },
+            "t": { "min": 0.2, "default": 0.4, "max": 1, "step": 0.1, "type": "linear", "label": "thickness" },
+            "thumb": { "min": 0, "default": 0, "max": 20, "step": 0.1, "type": "linear", "label": "thumbCutout" },
+            "lock": { "min": 5, "default": 10, "max": 20, "step": 0.1, "type": "linear", "label": "locksWidth" },
+            "gf_w": { "min": 5, "default": 10, "max": 20, "step": 0.5, "type": "linear", "label": "glueFlap_width" },
+            "gf_b": { "min": 0, "default": 5, "max": 20, "step": 0.5, "type": "linear", "label": "glueFlap_bevel" },
+            "df_w": { "min": 10, "default": 60, "max": 700, "step": 0.5, "type": "linear", "label": "dustFlap_width" },
+            "df_r": { "min": 0, "default": 5, "max": 700, "step": 0.5, "type": "linear", "label": "dustFlap_radius" },
+            "df_l1": { "min": 0, "default": 3, "max": 30, "step": 0.5, "type": "linear", "label": "dustFlap_L1" },
+            "df_l2": { "min": 0, "default": 6, "max": 30, "step": 0.5, "type": "linear", "label": "dustFlap_bevel1" },
+            "df_l3": { "min": 0, "default": 6, "max": 30, "step": 0.5, "type": "linear", "label": "dustFlap_bevel2" },
+            "df_l4": { "min": 0, "default": 3, "max": 30, "step": 0.5, "type": "linear", "label": "dustFlap_L4" },
+            "tf_w": { "min": 5, "default": 15, "max": 40, "step": 0.5, "type": "linear", "label": "tuckFlap_width" },
+            "tf_r": { "min": 1, "default": 5, "max": 40, "step": 0.5, "type": "linear", "label": "tuckFlap_rounding" }
+          }
+        }
+      }
+    }
+  },
+  "drawingGeneration": {
+    "library": "makerjs",
+    "description": "Библиотека MakerJS используется для генерации 2D чертежей",
+    "coreModules": [
+      "/themes/templater/assets/js/core/core.js",
+      "/themes/templater/assets/js/core/dimensions.js",
+      "/themes/templater/assets/js/core/drawings.js",
+      "/themes/templater/assets/js/core/core3d.js"
+    ],
+    "mainFunctions": {
+      "Redraw2D": "Генерирует 2D чертежи из параметров модели",
+      "RedrawMin": "Быстрая перерисовка без полной регенерации",
+      "GenerateImposition": "Генерирует раскладку на листе",
+      "Redraw3D": "Генерирует 3D модель для просмотра"
+    },
+    "shapeFunctions": [
+      "Rectangle", "RoundRectangle", "Tag",
+      "FlapS", "TrapezeFlap", "RectFlap", "AngFlap", "RoundFlap", "SquareFlap",
+      "UniFlap", "DustFlap", "TuckFlap", "GlueFlap", "LockFlap", "BevelFlap",
+      "Case3Cardboard", "Case4Cardboard", "Case5Cardboard",
+      "TrayCardboard", "TrayPaper",
+      "RectHandle", "RectHoles", "SquareHoles",
+      "BottomWithLocks", "RectangleSemiCircle"
+    ],
+    "exportFormats": ["PDF", "SVG", "DXF", "JPG"]
+  },
+  "textures": {
+    "types": ["none", "greyboard", "paperTexture"],
+    "properties": {
+      "faceTex": "Текстура лицевой стороны",
+      "backTex": "Текстура обратной стороны",
+      "faceTexTop": "Текстура верхней части (лицо)",
+      "backTexTop": "Текстура верхней части (обратная)",
+      "watermark": "Водяной знак (true для бесплатных аккаунтов)"
+    }
+  },
+  "units": {
+    "supported": ["mm", "cm", "inch"],
+    "default": "mm",
+    "conversion": {
+      "mm_to_cm": 0.1,
+      "mm_to_inch": 0.03937
+    }
+  }
+}
