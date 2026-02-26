@@ -11,3 +11,9 @@ export const apifyLimiter = new Bottleneck({
   minTime: 2000,
   maxConcurrent: 2,
 });
+
+// Тендеры (bicotender) — 1 запрос каждые 2 секунды
+export const tenderLimiter = new Bottleneck({
+  minTime: 2000,
+  maxConcurrent: 1,
+});

@@ -41,3 +41,42 @@ export interface ParsingJob {
 
 // Ответ Yandex Suggest API: ["запрос", ["подсказка1", "подсказка2", ...]]
 export type YandexSuggestResponse = [string, string[]];
+
+// Тендер с площадки (bicotender, etender, xt-xarid)
+export interface Tender {
+  id: string;
+  externalId: string;       // ID на площадке (#251675270)
+  title: string;            // Название тендера
+  organization: string;     // Заказчик
+  price: number | null;     // Сумма в UZS
+  priceFormatted: string;   // "2 688 000 UZS"
+  currency: string;         // UZS
+  deadline: string | null;  // Дедлайн
+  dateStart: string | null; // Дата начала
+  dateEnd: string | null;   // Дата окончания
+  region: string;           // Регион
+  categories: string[];     // Категории (полиграфия, упаковка)
+  source: string;           // bicotender / etender / xt-xarid
+  sourceUrl: string;        // Ссылка на тендер
+  status: 'active' | 'closed' | 'cancelled';
+  matchedKeywords: string[]; // По каким ключам найден
+  collectedAt: Date;
+}
+
+// Параметры поиска тендеров
+export interface TenderSearchParams {
+  keywords: string[];       // Ключевые слова для поиска
+  source?: string;          // Фильтр по площадке
+  minPrice?: number;
+  maxPrice?: number;
+  region?: string;
+}
+
+// Результат поиска тендеров
+export interface TenderSearchResult {
+  tenders: Tender[];
+  total: number;
+  source: string;
+  keyword: string;
+  page: number;
+}
