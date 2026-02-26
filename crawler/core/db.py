@@ -52,6 +52,13 @@ async def upsert_tenders(
     if not tenders:
         return 0
 
+    # Deduplicate by (external_id, source) — keep last occurrence
+    seen = {}
+    for t in tenders:
+        seen[(t.external_id, t.source)] = t
+    tenders = list(seen.values())
+    logger.info("[DB] Deduplicated: %d unique tenders", len(tenders))
+
     if dry_run:
         logger.info("[DB] DRY RUN: would upsert %d tenders", len(tenders))
         return len(tenders)
