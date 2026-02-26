@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { searchTendersMultiKeyword } from '@/lib/parsers/tenderParser';
+import { searchTendersWithStats } from '@/lib/parsers/tenderParser';
 import { saveTenders, getTenders } from '@/lib/supabase/tenders';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
 
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const { keywords, source } = parsed.data;
 
     // Поиск тендеров по всем ключевым словам с дедупликацией
-    const tenders = await searchTendersMultiKeyword(keywords);
+    const { tenders, sourceStats } = await searchTendersWithStats(keywords);
 
     // Сохраняем в Supabase, если подключён
     let savedToDb = 0;
@@ -48,6 +48,7 @@ export async function POST(request: Request) {
       keywords,
       source,
       savedToDb,
+      sourceStats,
     });
   } catch (error) {
     console.error('Ошибка поиска тендеров:', error);

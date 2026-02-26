@@ -21,6 +21,7 @@ interface TenderState {
   isLoading: boolean;
   error: string | null;
   totalFound: number;
+  sourceStats: Record<string, number>;
 
   // Фильтры
   sortBy: 'price-asc' | 'price-desc' | 'deadline' | null;
@@ -49,6 +50,7 @@ export const useTenderStore = create<TenderState>((set, get) => ({
   isLoading: false,
   error: null,
   totalFound: 0,
+  sourceStats: {},
 
   sortBy: null,
   filterSource: null,
@@ -90,7 +92,7 @@ export const useTenderStore = create<TenderState>((set, get) => ({
       return;
     }
 
-    set({ isLoading: true, error: null, tenders: [], totalFound: 0 });
+    set({ isLoading: true, error: null, tenders: [], totalFound: 0, sourceStats: {} });
 
     try {
       const response = await fetch('/api/tenders', {
@@ -108,6 +110,7 @@ export const useTenderStore = create<TenderState>((set, get) => ({
       set({
         tenders: data.tenders || [],
         totalFound: data.total || 0,
+        sourceStats: data.sourceStats || {},
       });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Неизвестная ошибка' });

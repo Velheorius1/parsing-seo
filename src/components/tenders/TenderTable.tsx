@@ -85,13 +85,92 @@ function TenderRow({ tender, index }: { tender: Tender; index: number }) {
   );
 }
 
-export function TenderTable() {
-  const { tenders, isLoading, error, totalFound, sortBy, setSortBy } = useTenderStore();
+// Панель статистики по источникам
+function SourceStatsBar() {
+  const { sourceStats } = useTenderStore();
+  const entries = Object.entries(sourceStats).filter(([, count]) => count > 0);
 
-  // Сортировка
-  const sorted = useMemo(() => {
-    if (!sortBy) return tenders;
-    return [...tenders].sort((a, b) => {
+  if (entries.length === 0) return null;
+
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+
+  return (
+    <div className="mb-4 p-3 bg-gray-800/50 rounded-lg border border-gray-800">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs text-gray-500 uppercase tracking-wider">Источники</span>
+        <span className="text-xs text-gray-400">
+          Просканировано: <span className="text-amber-400 font-medium">{total.toLocaleString('ru-RU')}</span>
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {entries.map(([name, count]) => (
+          <div
+            key={name}
+            className="flex items-center gap-1.5 px-2 py-1 bg-gray-900/80 rounded text-xs border border-gray-700/50"
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-amber-500/70" />
+            <span className="text-gray-400">{name}</span>
+            <span className="text-gray-500">{count.toLocaleString('ru-RU')}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Фильтр по источнику
+function SourceFilter() {
+  const { tenders, filterSource, setFilterSource } = useTenderStore();
+
+  const sources = useMemo(() => {
+    const set = new Set<string>();
+    tenders.forEach(t => set.add(t.source));
+    return Array.from(set).sort();
+  }, [tenders]);
+
+  if (sources.length <= 1) return null;
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-gray-500">Площадка:</span>
+      <button
+        onClick={() => setFilterSource(null)}
+        className={`px-2 py-1 rounded text-xs transition-colors ${
+          filterSource === null
+            ? 'bg-amber-500/20 text-amber-400'
+            : 'bg-gray-800 text-gray-500 hover:text-gray-300'
+        }`}
+      >
+        Все
+      </button>
+      {sources.map((src) => (
+        <button
+          key={src}
+          onClick={() => setFilterSource(filterSource === src ? null : src)}
+          className={`px-2 py-1 rounded text-xs transition-colors ${
+            filterSource === src
+              ? 'bg-amber-500/20 text-amber-400'
+              : 'bg-gray-800 text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          {src}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function TenderTable() {
+  const { tenders, isLoading, error, totalFound, sortBy, setSortBy, filterSource } = useTenderStore();
+
+  // Фильтрация + сортировка
+  const filtered = useMemo(() => {
+    let result = tenders;
+    if (filterSource) {
+      result = result.filter(t => t.source === filterSource);
+    }
+    if (!sortBy) return result;
+    return [...result].sort((a, b) => {
       if (sortBy === 'price-asc') return (a.price ?? 0) - (b.price ?? 0);
       if (sortBy === 'price-desc') return (b.price ?? 0) - (a.price ?? 0);
       if (sortBy === 'deadline') {
@@ -101,7 +180,7 @@ export function TenderTable() {
       }
       return 0;
     });
-  }, [tenders, sortBy]);
+  }, [tenders, sortBy, filterSource]);
 
   // Loading state
   if (isLoading) {
@@ -111,7 +190,7 @@ export function TenderTable() {
           <div key={i} className="h-16 bg-gray-800/50 rounded-lg animate-pulse" />
         ))}
         <p className="text-center text-sm text-gray-500 mt-4">
-          Поиск тендеров... Это может занять до минуты
+          Поиск по 9 источникам... Это может занять до 2 минут
         </p>
       </div>
     );
@@ -138,31 +217,44 @@ export function TenderTable() {
 
   return (
     <div>
-      {/* Header с количеством и сортировкой */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-sm text-gray-400">
-          Найдено: <span className="text-amber-400 font-medium">{totalFound}</span> тендеров
+      {/* Source stats bar */}
+      <SourceStatsBar />
+
+      {/* Header с количеством, фильтром и сортировкой */}
+      <div className="flex flex-col gap-2 mb-3">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-400">
+            Найдено: <span className="text-amber-400 font-medium">{totalFound}</span> тендеров
+            {filterSource && (
+              <span className="text-gray-500 ml-2">
+                (показано: {filtered.length})
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Сортировка:</span>
+            {[
+              { key: 'price-desc' as const, label: 'Цена ↓' },
+              { key: 'price-asc' as const, label: 'Цена ↑' },
+              { key: 'deadline' as const, label: 'Дедлайн' },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setSortBy(sortBy === key ? null : key)}
+                className={`px-2 py-1 rounded text-xs transition-colors ${
+                  sortBy === key
+                    ? 'bg-amber-500/20 text-amber-400'
+                    : 'bg-gray-800 text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500">Сортировка:</span>
-          {[
-            { key: 'price-desc' as const, label: 'Цена ↓' },
-            { key: 'price-asc' as const, label: 'Цена ↑' },
-            { key: 'deadline' as const, label: 'Дедлайн' },
-          ].map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => setSortBy(sortBy === key ? null : key)}
-              className={`px-2 py-1 rounded text-xs transition-colors ${
-                sortBy === key
-                  ? 'bg-amber-500/20 text-amber-400'
-                  : 'bg-gray-800 text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+
+        {/* Source filter */}
+        <SourceFilter />
       </div>
 
       {/* Таблица */}
@@ -179,7 +271,7 @@ export function TenderTable() {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((tender, i) => (
+            {filtered.map((tender, i) => (
               <TenderRow key={tender.id} tender={tender} index={i} />
             ))}
           </tbody>

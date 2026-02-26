@@ -23,3 +23,15 @@ export const xaridLimiter = new Bottleneck({
   minTime: 200,
   maxConcurrent: 5,
 });
+
+// HTML scraping (UNGM, UNDP, TenderZone, etc.) — polite crawling
+export const scrapeLimiter = new Bottleneck({
+  minTime: 2000,
+  maxConcurrent: 2,
+});
+
+// World Bank API
+export const worldBankLimiter = new Bottleneck({
+  minTime: 1000,
+  maxConcurrent: 1,
+});
