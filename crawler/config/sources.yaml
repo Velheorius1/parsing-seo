@@ -1,0 +1,362 @@
+# Tender sources configuration
+# Each source is processed by the adapter matching its 'adapter' type.
+# Adapters: api, html, spa, telegram
+
+sources:
+  # ── UZEX API sources ──────────────────────────────────────────────
+
+  - id: etender
+    name: "ETender UZEX"
+    adapter: api
+    enabled: true
+    url: "https://apietender.uzex.uz/api/Common/TradeList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: {"from": 0, "to": 500}
+    rate_limit: 2
+    timeout: 15
+    id_prefix: "etender"
+    field_map:
+      title: name
+      organization: seller_name
+      price: cost
+      currency: currency_codeabc
+      deadline: end_date
+      date_start: start_date
+      date_end: end_date
+      region: "region_name"
+      external_id: display_no
+      source_url_template: "https://etender.uzex.uz/lots/2/{id}"
+    keywords_fields: [name, seller_name, category_name]
+    pagination:
+      type: offset
+      param: "from"
+      size_param: "to"
+      page_size: 500
+      total_field: "0.total_count"
+
+  - id: etender-discussion
+    name: "ETender Обсуждения"
+    adapter: api
+    enabled: true
+    url: "https://apietender.uzex.uz/api/Common/DiscussionTradeList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: {"from": 0, "to": 500}
+    rate_limit: 2
+    timeout: 15
+    id_prefix: "etender-disc"
+    field_map:
+      title: name
+      organization: seller_name
+      price: cost
+      currency: currency_codeabc
+      deadline: end_date
+      date_start: start_date
+      date_end: end_date
+      region: "region_name"
+      external_id: display_no
+      source_url_template: "https://etender.uzex.uz/lots/2/{id}"
+    keywords_fields: [name, seller_name, category_name]
+
+  - id: xarid-competitions
+    name: "Xarid Конкурсы"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api-purchase.uzex.uz/Common/GetCompetitions"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: {"from": 0, "to": 200}
+    rate_limit: 5
+    timeout: 15
+    id_prefix: "competition"
+    field_map:
+      title: category_name
+      organization: ""
+      price: cost
+      currency: currency_name
+      deadline: end_date_submitting_offers
+      date_end: end_date_submitting_offers
+      region: "customer_region_name"
+      external_id: id
+      source_url_template: "https://xarid.uzex.uz/competitions/view/{id}"
+    keywords_fields: [category_name]
+    pagination:
+      type: offset
+      param: "from"
+      size_param: "to"
+      page_size: 500
+      total_field: "0.total_count"
+
+  - id: xarid-direct
+    name: "Xarid Прямые закупки"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api-purchase.uzex.uz/Common/GetDirectPurchases"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: {"from": 0, "to": 500}
+    rate_limit: 5
+    timeout: 15
+    id_prefix: "direct"
+    field_map:
+      title: category_name
+      organization: customer_name
+      price: contract_sum
+      currency: currency_name
+      deadline: contract_date
+      date_end: contract_date
+      external_id: display_id
+      source_url_template: "https://xarid.uzex.uz/direct-purchases/view/{id}"
+    keywords_fields: [category_name, customer_name, provider_name]
+
+  # ── World Bank API ─────────────────────────────────────────────────
+
+  - id: world-bank
+    name: "World Bank"
+    adapter: api
+    enabled: true
+    url: "https://search.worldbank.org/api/v2/procnotices"
+    method: GET
+    params:
+      format: json
+      countrycode_exact: UZ
+      rows: 200
+      os: 0
+    rate_limit: 1
+    timeout: 15
+    id_prefix: "wb"
+    response_path: "procnotices"
+    country_filter: "Uzbekistan"
+    field_map:
+      title: project_name
+      organization: contact_organization
+      price: ""
+      currency: ""
+      deadline: submission_deadline_date
+      date_start: noticedate
+      date_end: submission_deadline_date
+      region: project_ctry_name
+      external_id: bid_reference_no
+      source_url_template: "https://projects.worldbank.org/en/projects-operations/procurement-detail/{id}"
+    keywords_fields: [project_name, bid_description, notice_text, contact_organization, procurement_group]
+
+  # ── HTML scraping sources ──────────────────────────────────────────
+
+  - id: undp
+    name: "UNDP Procurement"
+    adapter: html
+    enabled: true
+    url: "https://procurement-notices.undp.org/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "undp"
+    country_filter: "UZB"
+    html_selectors:
+      container: "a.vacanciesTableLink.vacanciesTable__row"
+      title: ".vacanciesTable__cell span:nth-child(1)"
+      organization: ".vacanciesTable__cell span:nth-child(3)"
+      deadline: ".vacanciesTable__cell span:nth-child(5)"
+      link: "@href"
+    field_map:
+      title: title
+      organization: ""
+      currency: ""
+      deadline: deadline
+      external_id: ""
+      source_url_template: "https://procurement-notices.undp.org/{link}"
+    keywords_fields: [title]
+
+  - id: ungm
+    name: "UN Global Marketplace"
+    adapter: html
+    enabled: true
+    url: "https://www.ungm.org/Public/Notice/Search"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      X-Requested-With: "XMLHttpRequest"
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    body:
+      PageIndex: 0
+      PageSize: 50
+      Title: ""
+      Description: ""
+      Reference: ""
+      SortField: "DatePublished"
+      SortAscending: false
+      isPagingReset: false
+      NoticeTypes: []
+      UNSPSCs: []
+      Countries: []
+      Agencies: []
+    rate_limit: 0.5
+    timeout: 15
+    id_prefix: "ungm"
+    html_selectors:
+      container: "div.tableRow.dataRow[data-noticeid]"
+      title: ".ungm-title"
+      organization: ".resultAgency span"
+      deadline: ".deadline span"
+      link: "@data-noticeid"
+    field_map:
+      title: title
+      organization: ""
+      currency: ""
+      deadline: deadline
+      external_id: ""
+      source_url_template: "https://www.ungm.org/Public/Notice/{id}"
+    keywords_fields: [title]
+
+  - id: uz-airways
+    name: "Uzbekistan Airways"
+    adapter: html
+    enabled: true
+    url: "https://corp.uzairways.com/ru/press-center/tenders"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+      Accept-Language: "ru,uz;q=0.9"
+    rate_limit: 0.5
+    timeout: 15
+    id_prefix: "uzair"
+    html_selectors:
+      container: ".tender-item"
+      title: ".articles__title, .item-title a, h5 a"
+      deadline: "time[datetime]@datetime"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: ""
+      deadline: deadline
+      source_url_template: "https://corp.uzairways.com{link}"
+    keywords_fields: [title]
+
+  # ── SPA sources (Playwright) ───────────────────────────────────────
+
+  - id: xt-xarid
+    name: "xt-xarid.uz"
+    adapter: spa
+    enabled: true
+    url: "https://xt-xarid.uz"
+    rate_limit: 0.5
+    timeout: 30
+    id_prefix: "xt-xarid"
+    wait_selector: ".v-data-table, [class*=tender], [class*=table], table"
+    html_selectors:
+      container: "tr, .tender-item, .list-item"
+      title: "td:nth-child(2), .tender-title, .title"
+      organization: "td:nth-child(3), .organization"
+      price: "td:nth-child(4), .price, .sum"
+      deadline: "td:nth-child(5), .deadline, .date"
+      link: "a[href]"
+    keywords_fields: []
+
+  - id: agro-uzex
+    name: "agro.uzex.uz"
+    adapter: spa
+    enabled: true
+    url: "https://agro.uzex.uz"
+    rate_limit: 0.5
+    timeout: 30
+    id_prefix: "agro"
+    wait_selector: "app-root, .mat-table, [class*=table], [class*=trade]"
+    html_selectors:
+      container: "tr, .trade-item, .list-item"
+      title: "td:nth-child(2), .trade-title, .title"
+      organization: "td:nth-child(3), .organization, .seller"
+      price: "td:nth-child(4), .price, .cost"
+      deadline: "td:nth-child(5), .deadline, .date"
+      link: "a[href]"
+    keywords_fields: []
+
+  # ── Telegram каналы ──────────────────────────────────────────────
+
+  - id: tg-uz-tenders
+    name: "TG: uz_tenders"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-uzt"
+    telegram_channel: "@uz_tenders"
+    telegram_limit: 100
+    rate_limit: 1.0
+
+  - id: tg-tender-uz
+    name: "TG: tenderuz"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-tuz"
+    telegram_channel: "@tenderuz"
+    telegram_limit: 100
+    rate_limit: 1.0
+
+  - id: tg-goszakupki-uz
+    name: "TG: goszakupki_uz"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-gzuz"
+    telegram_channel: "@goszakupki_uz"
+    telegram_limit: 100
+    rate_limit: 1.0
+
+  # ── Крупные компании (disabled — нужна верификация) ──────────────
+
+  - id: agmk
+    name: "АГМК (Алмалык ГМК)"
+    adapter: html
+    enabled: false
+    url: "https://agmk.uz/tenders"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 1.0
+    timeout: 15
+    id_prefix: "agmk"
+    html_selectors:
+      container: ".tender-item, .news-item, article"
+      title: "h3, .title, a"
+      deadline: ".date, time"
+      link: "a[href]"
+
+  - id: navoi-gmk
+    name: "Навоий ГМК"
+    adapter: html
+    enabled: false
+    url: "https://ngmk.uz/tenders"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 1.0
+    timeout: 15
+    id_prefix: "ngmk"
+    html_selectors:
+      container: ".tender-item, .news-item, article"
+      title: "h3, .title, a"
+      deadline: ".date, time"
+      link: "a[href]"
+
+  # ── Disabled / requires auth ─────────────────────────────────────
+
+  - id: tenderzone
+    name: "TenderZone.uz"
+    adapter: spa
+    enabled: false
+    url: "https://trade.tzone.uz"
+    rate_limit: 0.5
+    timeout: 30
+    id_prefix: "tzone"
+    field_map:
+      title: title
+    keywords_fields: [title]

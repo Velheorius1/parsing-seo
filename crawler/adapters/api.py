@@ -1,0 +1,410 @@
+"""API adapter — fetches tenders from JSON REST APIs."""
+
+import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import httpx
+
+from crawler.adapters.base import BaseAdapter
+from crawler.core.models import RawTender, SourceConfig
+
+logger = logging.getLogger(__name__)
+
+
+def _resolve_path(data: Any, path: str) -> Any:
+    """Navigate nested dict/list via dot-path like 'data.items' or '0.total_count'."""
+    for key in path.split("."):
+        if data is None:
+            return None
+        if isinstance(data, list):
+            try:
+                data = data[int(key)]
+            except (IndexError, ValueError):
+                return None
+        elif isinstance(data, dict):
+            data = data.get(key)
+        else:
+            return None
+    return data
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    """Convert value to float, return None on failure."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_str(value: Any) -> str:
+    """Convert value to string, return empty string for None."""
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+class ApiAdapter(BaseAdapter):
+    """Adapter for JSON API sources (GET/POST with httpx)."""
+
+    def __init__(self, config: SourceConfig) -> None:
+        super().__init__(config)
+
+    async def _fetch_items(self) -> List[RawTender]:
+        """Fetch all items from the API, handling pagination."""
+        cfg = self.config
+        all_items = []  # type: List[Dict[str, Any]]
+
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(cfg.timeout, connect=10.0),
+            headers=cfg.headers,
+        ) as client:
+            if cfg.pagination is not None:
+                all_items = await self._fetch_paginated(client)
+            else:
+                raw = await self._make_request(
+                    client, cfg.url, cfg.method, cfg.params, cfg.body
+                )
+                all_items = self._extract_items(raw)
+
+        tenders = self._convert_all(all_items)
+
+        # Apply country_filter if set (e.g. World Bank returns all countries)
+        if cfg.country_filter:
+            cf = cfg.country_filter.lower()
+            tenders = [
+                t for t in tenders
+                if cf in t.region.lower()
+                or cf in t.source.lower()
+                or cf in t.search_text.lower()
+            ]
+            logger.info(
+                "[%s] Country filter '%s': %d -> %d tenders",
+                cfg.name, cfg.country_filter, len(all_items), len(tenders),
+            )
+
+        return tenders
+
+    async def _fetch_paginated(
+        self, client: httpx.AsyncClient
+    ) -> List[Dict[str, Any]]:
+        """Handle pagination: offset, page, or cursor."""
+        cfg = self.config
+        pag = cfg.pagination
+        if pag is None:
+            return []
+
+        all_items = []  # type: List[Dict[str, Any]]
+        pag_type = pag.type
+
+        if pag_type == "offset":
+            all_items = await self._paginate_offset(client, pag)
+        elif pag_type == "page":
+            all_items = await self._paginate_page(client, pag)
+        elif pag_type == "cursor":
+            all_items = await self._paginate_cursor(client, pag)
+        else:
+            logger.warning(
+                "[%s] Unknown pagination type: %s, fetching single page",
+                cfg.name,
+                pag_type,
+            )
+            raw = await self._make_request(
+                client, cfg.url, cfg.method, cfg.params, cfg.body
+            )
+            all_items = self._extract_items(raw)
+
+        return all_items
+
+    async def _paginate_offset(
+        self, client: httpx.AsyncClient, pag: Any
+    ) -> List[Dict[str, Any]]:
+        """Offset-based pagination (from/to pattern like UZEX APIs)."""
+        cfg = self.config
+        all_items = []  # type: List[Dict[str, Any]]
+        offset = 0
+        page_size = pag.page_size
+
+        for page_num in range(pag.max_pages):
+            await self.rate_limit()
+
+            # Build body/params with pagination
+            body = dict(cfg.body) if cfg.body else {}
+            params = dict(cfg.params) if cfg.params else None
+
+            if cfg.method.upper() == "POST":
+                body[pag.param] = offset
+                if pag.size_param:
+                    body[pag.size_param] = offset + page_size
+            else:
+                if params is None:
+                    params = {}
+                params[pag.param] = offset
+                if pag.size_param:
+                    params[pag.size_param] = offset + page_size
+
+            raw = await self._make_request(
+                client, cfg.url, cfg.method, params, body if cfg.body else None
+            )
+            items = self._extract_items(raw)
+
+            if not items:
+                break
+
+            all_items.extend(items)
+
+            # Check total_field to know when to stop
+            if pag.total_field:
+                total = _resolve_path(raw, pag.total_field)
+                if total is not None:
+                    try:
+                        total_count = int(total)
+                        if offset + page_size >= total_count:
+                            break
+                    except (ValueError, TypeError):
+                        pass
+
+            # If fewer items than page_size, we've reached the end
+            if len(items) < page_size:
+                break
+
+            offset += page_size
+
+        return all_items
+
+    async def _paginate_page(
+        self, client: httpx.AsyncClient, pag: Any
+    ) -> List[Dict[str, Any]]:
+        """Page-number based pagination."""
+        cfg = self.config
+        all_items = []  # type: List[Dict[str, Any]]
+
+        for page_num in range(pag.max_pages):
+            await self.rate_limit()
+
+            body = dict(cfg.body) if cfg.body else {}
+            params = dict(cfg.params) if cfg.params else None
+
+            if cfg.method.upper() == "POST":
+                body[pag.param] = page_num
+                if pag.size_param:
+                    body[pag.size_param] = pag.page_size
+            else:
+                if params is None:
+                    params = {}
+                params[pag.param] = page_num
+                if pag.size_param:
+                    params[pag.size_param] = pag.page_size
+
+            raw = await self._make_request(
+                client, cfg.url, cfg.method, params, body if cfg.body else None
+            )
+            items = self._extract_items(raw)
+
+            if not items:
+                break
+
+            all_items.extend(items)
+
+            if len(items) < pag.page_size:
+                break
+
+        return all_items
+
+    async def _paginate_cursor(
+        self, client: httpx.AsyncClient, pag: Any
+    ) -> List[Dict[str, Any]]:
+        """Cursor-based pagination."""
+        cfg = self.config
+        all_items = []  # type: List[Dict[str, Any]]
+        cursor = None  # type: Optional[str]
+
+        for page_num in range(pag.max_pages):
+            await self.rate_limit()
+
+            body = dict(cfg.body) if cfg.body else {}
+            params = dict(cfg.params) if cfg.params else None
+
+            if cursor is not None:
+                if cfg.method.upper() == "POST":
+                    body[pag.param] = cursor
+                else:
+                    if params is None:
+                        params = {}
+                    params[pag.param] = cursor
+
+            raw = await self._make_request(
+                client, cfg.url, cfg.method, params, body if cfg.body else None
+            )
+            items = self._extract_items(raw)
+
+            if not items:
+                break
+
+            all_items.extend(items)
+
+            # Look for next cursor in response
+            if pag.size_param and isinstance(raw, dict):
+                next_cursor = raw.get(pag.size_param)
+                if next_cursor:
+                    cursor = str(next_cursor)
+                else:
+                    break
+            else:
+                break
+
+        return all_items
+
+    async def _make_request(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        method: str,
+        params: Optional[Dict[str, Any]],
+        body: Optional[Dict[str, Any]],
+    ) -> Any:
+        """Make a single HTTP request and return parsed JSON."""
+        if method.upper() == "POST":
+            resp = await client.post(url, json=body, params=params)
+        else:
+            resp = await client.get(url, params=params)
+
+        resp.raise_for_status()
+        return resp.json()
+
+    def _extract_items(self, raw: Any) -> List[Dict[str, Any]]:
+        """Extract list of items from response, navigating via response_path."""
+        cfg = self.config
+
+        # Navigate to nested data if response_path is set
+        if cfg.response_path:
+            data = _resolve_path(raw, cfg.response_path)
+        else:
+            data = raw
+
+        if data is None:
+            return []
+
+        # World Bank returns dict of dicts: {id: {fields...}}
+        if isinstance(data, dict):
+            return list(data.values())
+
+        if isinstance(data, list):
+            return data
+
+        return []
+
+    def _convert_all(self, items: List[Dict[str, Any]]) -> List[RawTender]:
+        """Convert raw JSON items to RawTender using field_map."""
+        results = []  # type: List[RawTender]
+        for item in items:
+            try:
+                tender = self._convert_item(item)
+                if tender is not None:
+                    results.append(tender)
+            except Exception as exc:
+                logger.debug(
+                    "[%s] Skipping item: %s", self.config.name, str(exc)
+                )
+        return results
+
+    def _convert_item(self, item: Dict[str, Any]) -> Optional[RawTender]:
+        """Convert a single JSON object to RawTender using field_map."""
+        cfg = self.config
+        fm = cfg.field_map
+
+        # Extract fields via field_map
+        title = _safe_str(item.get(fm.title, ""))
+        if not title or len(title) < 3:
+            return None
+
+        organization = _safe_str(item.get(fm.organization, "")) if fm.organization else ""
+        price = _safe_float(item.get(fm.price)) if fm.price else None
+        currency = _safe_str(item.get(fm.currency, "")) if fm.currency else ""
+        if not currency:
+            currency = "UZS"
+
+        deadline = _safe_str(item.get(fm.deadline, "")) if fm.deadline else None
+        if deadline == "":
+            deadline = None
+
+        date_start = _safe_str(item.get(fm.date_start, "")) if fm.date_start else None
+        if date_start == "":
+            date_start = None
+
+        date_end = _safe_str(item.get(fm.date_end, "")) if fm.date_end else None
+        if date_end == "":
+            date_end = None
+
+        region = _safe_str(item.get(fm.region, "")) if fm.region else ""
+
+        # Categories
+        categories = []  # type: List[str]
+        if fm.categories:
+            cat_val = item.get(fm.categories, "")
+            if isinstance(cat_val, list):
+                categories = [str(c) for c in cat_val if c]
+            elif cat_val:
+                categories = [str(cat_val)]
+
+        # External ID
+        ext_id_val = ""
+        if fm.external_id:
+            ext_id_val = _safe_str(item.get(fm.external_id, ""))
+        if not ext_id_val:
+            ext_id_val = _safe_str(item.get("id", ""))
+
+        # Generate prefixed ID
+        tender_id = "%s-%s" % (cfg.id_prefix, ext_id_val)
+
+        # Source URL from template
+        source_url = ""
+        if fm.source_url_template:
+            try:
+                source_url = fm.source_url_template.replace(
+                    "{id}", _safe_str(item.get("id", ext_id_val))
+                ).replace(
+                    "{link}", ext_id_val
+                )
+            except Exception:
+                source_url = ""
+
+        # Search text from keywords_fields
+        search_parts = []  # type: List[str]
+        for kf in cfg.keywords_fields:
+            val = _safe_str(item.get(kf, ""))
+            if val:
+                search_parts.append(val)
+        search_text = " ".join(search_parts)[:2000]
+
+        # Status based on deadline
+        status = "active"
+        if deadline:
+            try:
+                dl = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+                if dl < datetime.utcnow().replace(
+                    tzinfo=dl.tzinfo if dl.tzinfo else None
+                ):
+                    status = "closed"
+            except (ValueError, TypeError):
+                pass
+
+        return RawTender(
+            id=tender_id,
+            external_id=ext_id_val,
+            title=title,
+            organization=organization,
+            price=price,
+            currency=currency,
+            deadline=deadline,
+            date_start=date_start,
+            date_end=date_end,
+            region=region,
+            categories=categories,
+            source=cfg.name,
+            source_url=source_url,
+            status=status,
+            search_text=search_text,
+        )

@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { searchTendersWithStats } from '@/lib/parsers/tenderParser';
-import { saveTenders, getTenders } from '@/lib/supabase/tenders';
+import { saveTenders, queryTenders } from '@/lib/supabase/tenders';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
 
 // Схема валидации входных данных для поиска тендеров
@@ -59,8 +59,9 @@ export async function POST(request: Request) {
   }
 }
 
-// GET — получить сохранённые тендеры из Supabase
-export async function GET() {
+// GET — получить тендеры из Supabase с фильтрами
+// ?keywords=упаковка,печать&source=etender&status=active
+export async function GET(request: NextRequest) {
   try {
     if (!isSupabaseConfigured()) {
       return NextResponse.json(
@@ -69,7 +70,20 @@ export async function GET() {
       );
     }
 
-    const { tenders, error } = await getTenders();
+    const { searchParams } = request.nextUrl;
+    const keywordsParam = searchParams.get('keywords');
+    const source = searchParams.get('source') || undefined;
+    const status = searchParams.get('status') || undefined;
+
+    const keywords = keywordsParam
+      ? keywordsParam.split(',').map((k) => k.trim()).filter(Boolean)
+      : undefined;
+
+    const { tenders, sourceStats, lastCrawledAt, error } = await queryTenders({
+      keywords,
+      source,
+      status,
+    });
 
     if (error) {
       return NextResponse.json(
@@ -81,6 +95,8 @@ export async function GET() {
     return NextResponse.json({
       tenders,
       total: tenders.length,
+      sourceStats,
+      lastCrawledAt,
     });
   } catch (error) {
     console.error('Ошибка получения тендеров:', error);

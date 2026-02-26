@@ -4,6 +4,18 @@ import { useMemo } from 'react';
 import { useTenderStore } from '@/lib/store/tenderStore';
 import type { Tender } from '@/types/parsing';
 
+// Форматирование "X назад"
+function formatTimeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'только что';
+  if (minutes < 60) return `${minutes} мин назад`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}ч назад`;
+  const days = Math.floor(hours / 24);
+  return `${days}д назад`;
+}
+
 // Форматирование цены
 function formatPrice(price: number | null, currency: string): string {
   if (price === null) return '—';
@@ -160,8 +172,32 @@ function SourceFilter() {
   );
 }
 
+// Бейдж "Обновлено X назад" + кнопка обновить
+function LastUpdatedBadge() {
+  const { lastCrawledAt, isRefreshing, refreshTenders, selectedKeywords } = useTenderStore();
+
+  return (
+    <div className="flex items-center gap-3">
+      {lastCrawledAt && (
+        <span className="text-xs text-gray-500">
+          Обновлено: {formatTimeAgo(lastCrawledAt)}
+        </span>
+      )}
+      {selectedKeywords.length > 0 && (
+        <button
+          onClick={refreshTenders}
+          disabled={isRefreshing}
+          className="px-3 py-1 rounded text-xs bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-colors disabled:opacity-50"
+        >
+          {isRefreshing ? 'Обновление...' : 'Обновить'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function TenderTable() {
-  const { tenders, isLoading, error, totalFound, sortBy, setSortBy, filterSource } = useTenderStore();
+  const { tenders, isLoading, isRefreshing, error, totalFound, sortBy, setSortBy, filterSource } = useTenderStore();
 
   // Фильтрация + сортировка
   const filtered = useMemo(() => {
@@ -183,14 +219,14 @@ export function TenderTable() {
   }, [tenders, sortBy, filterSource]);
 
   // Loading state
-  if (isLoading) {
+  if (isLoading && !isRefreshing) {
     return (
       <div className="space-y-3">
         {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="h-16 bg-gray-800/50 rounded-lg animate-pulse" />
         ))}
         <p className="text-center text-sm text-gray-500 mt-4">
-          Поиск по 9 источникам... Это может занять до 2 минут
+          Загрузка тендеров из базы данных...
         </p>
       </div>
     );
@@ -223,13 +259,16 @@ export function TenderTable() {
       {/* Header с количеством, фильтром и сортировкой */}
       <div className="flex flex-col gap-2 mb-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm text-gray-400">
-            Найдено: <span className="text-amber-400 font-medium">{totalFound}</span> тендеров
-            {filterSource && (
-              <span className="text-gray-500 ml-2">
-                (показано: {filtered.length})
-              </span>
-            )}
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-gray-400">
+              Найдено: <span className="text-amber-400 font-medium">{totalFound}</span> тендеров
+              {filterSource && (
+                <span className="text-gray-500 ml-2">
+                  (показано: {filtered.length})
+                </span>
+              )}
+            </div>
+            <LastUpdatedBadge />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">Сортировка:</span>

@@ -19,7 +19,16 @@ interface TenderRow {
   source_url: string;
   status: string;
   matched_keywords: string[];
+  collected_at: string;
   created_at: string;
+}
+
+// Параметры запроса тендеров из БД
+export interface TenderQueryParams {
+  keywords?: string[];
+  source?: string;
+  status?: string;
+  limit?: number;
 }
 
 // Сохранить тендеры в Supabase (upsert по external_id + source)
@@ -68,30 +77,9 @@ export async function saveTenders(tenders: Tender[]): Promise<{ saved: number; e
   return { saved };
 }
 
-// Получить сохранённые тендеры из Supabase
-export async function getTenders(limit?: number): Promise<{ tenders: Tender[]; error?: string }> {
-  const supabase = getSupabaseServer();
-  if (!supabase) {
-    return { tenders: [], error: 'Supabase не настроен' };
-  }
-
-  let query = supabase
-    .from('tenders')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (limit) {
-    query = query.limit(limit);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error('Ошибка загрузки тендеров из Supabase:', error.message);
-    return { tenders: [], error: error.message };
-  }
-
-  const tenders: Tender[] = (data as TenderRow[]).map((row) => ({
+// Маппинг строки БД → Tender
+function rowToTender(row: TenderRow): Tender {
+  return {
     id: row.id,
     externalId: row.external_id,
     title: row.title,
@@ -108,8 +96,64 @@ export async function getTenders(limit?: number): Promise<{ tenders: Tender[]; e
     sourceUrl: row.source_url,
     status: row.status as Tender['status'],
     matchedKeywords: row.matched_keywords,
-    collectedAt: new Date(row.created_at),
-  }));
+    collectedAt: new Date(row.collected_at || row.created_at),
+  };
+}
 
-  return { tenders };
+// Получить тендеры с фильтрами
+export async function queryTenders(
+  params: TenderQueryParams = {},
+): Promise<{ tenders: Tender[]; sourceStats: Record<string, number>; lastCrawledAt: string | null; error?: string }> {
+  const supabase = getSupabaseServer();
+  if (!supabase) {
+    return { tenders: [], sourceStats: {}, lastCrawledAt: null, error: 'Supabase не настроен' };
+  }
+
+  let query = supabase
+    .from('tenders')
+    .select('*')
+    .order('collected_at', { ascending: false });
+
+  if (params.source) {
+    query = query.eq('source', params.source);
+  }
+
+  if (params.status) {
+    query = query.eq('status', params.status);
+  }
+
+  if (params.keywords && params.keywords.length > 0) {
+    query = query.overlaps('matched_keywords', params.keywords);
+  }
+
+  if (params.limit) {
+    query = query.limit(params.limit);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Ошибка загрузки тендеров из Supabase:', error.message);
+    return { tenders: [], sourceStats: {}, lastCrawledAt: null, error: error.message };
+  }
+
+  const rows = data as TenderRow[];
+  const tenders = rows.map(rowToTender);
+
+  // Подсчёт по источникам
+  const sourceStats: Record<string, number> = {};
+  for (const row of rows) {
+    sourceStats[row.source] = (sourceStats[row.source] || 0) + 1;
+  }
+
+  // Последнее время сбора
+  const lastCrawledAt = rows.length > 0 ? (rows[0].collected_at || rows[0].created_at) : null;
+
+  return { tenders, sourceStats, lastCrawledAt };
+}
+
+// Получить сохранённые тендеры из Supabase (обратная совместимость)
+export async function getTenders(limit?: number): Promise<{ tenders: Tender[]; error?: string }> {
+  const result = await queryTenders({ limit });
+  return { tenders: result.tenders, error: result.error };
 }

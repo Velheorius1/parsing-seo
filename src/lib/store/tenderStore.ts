@@ -19,9 +19,11 @@ interface TenderState {
   keywords: string[];
   selectedKeywords: string[];
   isLoading: boolean;
+  isRefreshing: boolean;
   error: string | null;
   totalFound: number;
   sourceStats: Record<string, number>;
+  lastCrawledAt: string | null;
 
   // Фильтры
   sortBy: 'price-asc' | 'price-desc' | 'deadline' | null;
@@ -35,6 +37,7 @@ interface TenderState {
   addKeyword: (keyword: string) => void;
   removeKeyword: (keyword: string) => void;
   searchTenders: () => Promise<void>;
+  refreshTenders: () => Promise<void>;
   setTenders: (tenders: Tender[]) => void;
   setSortBy: (sort: TenderState['sortBy']) => void;
   setFilterSource: (source: string | null) => void;
@@ -48,9 +51,11 @@ export const useTenderStore = create<TenderState>((set, get) => ({
   keywords: DEFAULT_KEYWORDS,
   selectedKeywords: [],
   isLoading: false,
+  isRefreshing: false,
   error: null,
   totalFound: 0,
   sourceStats: {},
+  lastCrawledAt: null,
 
   sortBy: null,
   filterSource: null,
@@ -87,12 +92,43 @@ export const useTenderStore = create<TenderState>((set, get) => ({
   searchTenders: async () => {
     const { selectedKeywords } = get();
 
+    set({ isLoading: true, error: null, tenders: [], totalFound: 0, sourceStats: {} });
+
+    try {
+      const params = new URLSearchParams();
+      if (selectedKeywords.length > 0) {
+        params.set('keywords', selectedKeywords.join(','));
+      }
+
+      const response = await fetch(`/api/tenders?${params.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `Ошибка сервера: ${response.status}`);
+      }
+
+      set({
+        tenders: data.tenders || [],
+        totalFound: data.total || 0,
+        sourceStats: data.sourceStats || {},
+        lastCrawledAt: data.lastCrawledAt || null,
+      });
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Неизвестная ошибка' });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  refreshTenders: async () => {
+    const { selectedKeywords } = get();
+
     if (selectedKeywords.length === 0) {
       set({ error: 'Выберите хотя бы одно ключевое слово' });
       return;
     }
 
-    set({ isLoading: true, error: null, tenders: [], totalFound: 0, sourceStats: {} });
+    set({ isRefreshing: true, error: null });
 
     try {
       const response = await fetch('/api/tenders', {
@@ -115,7 +151,7 @@ export const useTenderStore = create<TenderState>((set, get) => ({
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Неизвестная ошибка' });
     } finally {
-      set({ isLoading: false });
+      set({ isRefreshing: false });
     }
   },
 

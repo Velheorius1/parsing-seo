@@ -1,0 +1,32 @@
+# Gold standard: sources.yaml entry for a new tender source
+# Copy and adjust for each new source
+
+- id: example-source          # Unique ID (lowercase, hyphens)
+  name: "Example Source"       # Display name shown in frontend
+  adapter: api                 # api | html | spa | telegram
+  enabled: true
+  url: "https://api.example.com/tenders"
+  method: POST                 # GET or POST
+  headers:
+    Content-Type: "application/json"
+  body: {"from": 0, "to": 100}  # POST body (null for GET)
+  rate_limit: 2.0              # Requests per second
+  timeout: 15                  # Seconds
+  id_prefix: "example"         # Prefix for tender IDs: "example-123"
+  response_path: "data.items"  # Dot-path to array in JSON (null = root)
+  field_map:
+    title: "name"              # JSON key -> RawTender.title
+    organization: "seller"
+    price: "cost"
+    currency: "currency_code"
+    deadline: "end_date"
+    external_id: "id"
+    source_url_template: "https://example.com/tender/{id}"
+  keywords_fields: [name, seller, category]
+  pagination:
+    type: offset               # offset | page | cursor
+    param: "from"
+    size_param: "to"
+    page_size: 100
+    max_pages: 10
+    total_field: "total_count"
