@@ -1,14 +1,18 @@
 import axios from 'axios';
-import { tenderLimiter } from '@/lib/utils/rateLimiter';
+import { tenderLimiter, xaridLimiter } from '@/lib/utils/rateLimiter';
 import type { Tender, TenderSearchResult } from '@/types/parsing';
 
-// Прямой REST API UZEX (etender.uzex.uz) — без авторизации
-const UZEX_API = 'https://apietender.uzex.uz/api';
-
-// Ссылка на тендер на сайте etender
+// === API endpoints ===
+const ETENDER_API = 'https://apietender.uzex.uz/api';
+const XARID_API = 'https://xarid-api-purchase.uzex.uz';
 const ETENDER_BASE = 'https://etender.uzex.uz';
+const XARID_BASE = 'https://xarid.uzex.uz';
 
-// Интерфейс ответа UZEX API
+// Сколько страниц прямых закупок загружать (20 записей на страницу)
+const DIRECT_PAGES = 30; // ~600 свежих записей (баланс скорость/охват)
+
+// === Типы ===
+
 interface UzexTrade {
   rn: number;
   id: number;
@@ -31,148 +35,308 @@ interface UzexTrade {
   currency_codeabc: string;
 }
 
-/**
- * Форматирование цены для отображения
- */
-function formatPrice(cost: number, currencyCode: string): string {
-  if (!cost) return '';
-  return new Intl.NumberFormat('ru-RU').format(cost) + ' ' + currencyCode;
+interface XaridCompetition {
+  id: number;
+  end_date_submitting_offers: string;
+  customer_region_name: string;
+  customer_district_name: string;
+  category_name: string;
+  cost: number;
+  currency_name: string;
+  rn: number;
+  total_count: number;
 }
 
-/**
- * Форматирование даты из ISO в DD.MM.YYYY
- */
-function formatDate(isoDate: string | null): string | null {
-  if (!isoDate) return null;
+interface XaridDirectPurchase {
+  id: number;
+  display_id: string;
+  category_name: string;
+  provider_name: string;
+  contract_sum: number;
+  currency_name: string;
+  contract_num: string;
+  contract_date: string;
+  typ_direct_purchase_name: string;
+  date_ini: string;
+  status_name: string;
+  customer_name: string;
+  customer_inn: string;
+  customer_type: string;
+  provider_inn: string;
+  rn: number;
+  total_count: number;
+}
+
+// === Утилиты ===
+
+function formatPrice(cost: number, code: string): string {
+  if (!cost) return '';
+  return new Intl.NumberFormat('ru-RU').format(cost) + ' ' + code;
+}
+
+function formatDate(iso: string | null): string | null {
+  if (!iso) return null;
   try {
-    const d = new Date(isoDate);
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const yyyy = d.getFullYear();
-    return `${dd}.${mm}.${yyyy}`;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
   } catch {
     return null;
   }
 }
 
-/**
- * Проверяет совпадение тендера с ключевыми словами.
- * Ищет в названии тендера и имени заказчика.
- */
-function matchesKeywords(trade: UzexTrade, keywords: string[]): string[] {
-  const searchText = `${trade.name} ${trade.seller_name} ${trade.category_name || ''}`.toLowerCase();
-  return keywords.filter(kw => searchText.includes(kw.toLowerCase()));
+function matchText(text: string, keywords: string[]): string[] {
+  const lower = text.toLowerCase();
+  return keywords.filter(kw => lower.includes(kw.toLowerCase()));
 }
 
-/**
- * Конвертирует тендер из формата UZEX API в наш формат Tender
- */
-function convertToTender(trade: UzexTrade, matchedKeywords: string[]): Tender {
-  const currency = trade.currency_codeabc || 'UZS';
+// === Источник 1: ETender ===
+
+async function fetchETender(): Promise<UzexTrade[]> {
+  try {
+    const first = await tenderLimiter.schedule(() =>
+      axios.post<UzexTrade[]>(`${ETENDER_API}/Common/TradeList`, { from: 0, to: 100 }, {
+        headers: { 'Content-Type': 'application/json' }, timeout: 15000,
+      })
+    );
+    const trades = first.data || [];
+    if (trades.length === 0) return [];
+
+    const total = trades[0]?.total_count || trades.length;
+    if (total > 100) {
+      const rest = await tenderLimiter.schedule(() =>
+        axios.post<UzexTrade[]>(`${ETENDER_API}/Common/TradeList`, { from: 100, to: total }, {
+          headers: { 'Content-Type': 'application/json' }, timeout: 30000,
+        })
+      );
+      if (rest.data) trades.push(...rest.data);
+    }
+    return trades;
+  } catch (err) {
+    console.error('[ETender] Error:', (err as Error).message);
+    return [];
+  }
+}
+
+// Также загружаем тендеры на обсуждении
+async function fetchETenderDiscussion(): Promise<UzexTrade[]> {
+  try {
+    const res = await tenderLimiter.schedule(() =>
+      axios.post<UzexTrade[]>(`${ETENDER_API}/Common/DiscussionTradeList`, { from: 0, to: 500 }, {
+        headers: { 'Content-Type': 'application/json' }, timeout: 15000,
+      })
+    );
+    return res.data || [];
+  } catch (err) {
+    console.error('[ETender Discussion] Error:', (err as Error).message);
+    return [];
+  }
+}
+
+function convertETender(t: UzexTrade, matched: string[], isDiscussion = false): Tender {
+  const cur = t.currency_codeabc || 'UZS';
   return {
-    id: `uzex-${trade.id}`,
-    externalId: trade.display_no,
-    title: trade.name,
-    organization: trade.seller_name,
-    price: trade.cost || null,
-    priceFormatted: formatPrice(trade.cost, currency),
-    currency,
-    deadline: formatDate(trade.end_date),
-    dateStart: formatDate(trade.start_date),
-    dateEnd: formatDate(trade.end_date),
-    region: [trade.region_name, trade.district_name].filter(Boolean).join(', '),
-    categories: trade.category_name ? [trade.category_name] : [],
-    source: 'etender.uzex.uz',
-    sourceUrl: `${ETENDER_BASE}/lots/2/${trade.id}`,
-    status: new Date(trade.end_date) > new Date() ? 'active' : 'closed',
-    matchedKeywords,
+    id: `etender-${t.id}`,
+    externalId: t.display_no,
+    title: t.name,
+    organization: t.seller_name,
+    price: t.cost || null,
+    priceFormatted: formatPrice(t.cost, cur),
+    currency: cur,
+    deadline: formatDate(t.end_date),
+    dateStart: formatDate(t.start_date),
+    dateEnd: formatDate(t.end_date),
+    region: [t.region_name, t.district_name].filter(Boolean).join(', '),
+    categories: t.category_name ? [t.category_name] : [],
+    source: isDiscussion ? 'etender (обсуждение)' : 'etender.uzex.uz',
+    sourceUrl: `${ETENDER_BASE}/lots/2/${t.id}`,
+    status: new Date(t.end_date) > new Date() ? 'active' : 'closed',
+    matchedKeywords: matched,
     collectedAt: new Date(),
   };
 }
 
-/**
- * Загружает все активные тендеры из UZEX API.
- * API не поддерживает текстовый поиск — загружаем все и фильтруем локально.
- */
-async function fetchAllTrades(): Promise<UzexTrade[]> {
-  // Сначала получаем первую порцию чтобы узнать total_count
-  const firstBatch = await tenderLimiter.schedule(() =>
-    axios.post<UzexTrade[]>(`${UZEX_API}/common/TradeList`, { from: 0, to: 50 }, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 15000,
-    })
-  );
+// === Источник 2: Xarid Competitions ===
 
-  const trades = firstBatch.data;
-  if (!trades || trades.length === 0) return [];
-
-  const totalCount = trades[0]?.total_count || trades.length;
-
-  // Если есть ещё — догружаем
-  if (totalCount > 50) {
-    const remaining = await tenderLimiter.schedule(() =>
-      axios.post<UzexTrade[]>(`${UZEX_API}/common/TradeList`, { from: 50, to: totalCount }, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 30000,
+async function fetchCompetitions(): Promise<XaridCompetition[]> {
+  try {
+    const first = await xaridLimiter.schedule(() =>
+      axios.post<XaridCompetition[]>(`${XARID_API}/Common/GetCompetitions`, { from: 0, to: 200 }, {
+        headers: { 'Content-Type': 'application/json' }, timeout: 15000,
       })
     );
-    if (remaining.data) {
-      trades.push(...remaining.data);
-    }
-  }
+    const items = first.data || [];
+    if (items.length === 0) return [];
 
-  return trades;
+    const total = items[0]?.total_count || items.length;
+    if (total > 200) {
+      const batches = [];
+      for (let from = 200; from < total; from += 500) {
+        batches.push(
+          xaridLimiter.schedule(() =>
+            axios.post<XaridCompetition[]>(`${XARID_API}/Common/GetCompetitions`, {
+              from, to: Math.min(from + 500, total),
+            }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 })
+          )
+        );
+      }
+      const results = await Promise.all(batches);
+      for (const r of results) if (r.data) items.push(...r.data);
+    }
+    return items;
+  } catch (err) {
+    console.error('[Competitions] Error:', (err as Error).message);
+    return [];
+  }
 }
 
-/**
- * Поиск тендеров по ключевым словам через UZEX API.
- * Загружает все активные тендеры и фильтрует по ключевым словам локально.
- */
-export async function searchTenders(keyword: string): Promise<TenderSearchResult> {
-  const trades = await fetchAllTrades();
-  const tenders: Tender[] = [];
-
-  for (const trade of trades) {
-    const matched = matchesKeywords(trade, [keyword]);
-    if (matched.length > 0) {
-      tenders.push(convertToTender(trade, matched));
-    }
-  }
-
+function convertCompetition(c: XaridCompetition, matched: string[]): Tender {
+  const cur = c.currency_name || 'UZS';
   return {
-    tenders,
-    total: tenders.length,
-    source: 'etender.uzex.uz',
-    keyword,
-    page: 1,
+    id: `competition-${c.id}`,
+    externalId: String(c.id),
+    title: c.category_name || `Конкурс #${c.id}`,
+    organization: '',
+    price: c.cost || null,
+    priceFormatted: formatPrice(c.cost, cur),
+    currency: cur,
+    deadline: formatDate(c.end_date_submitting_offers),
+    dateStart: null,
+    dateEnd: formatDate(c.end_date_submitting_offers),
+    region: [c.customer_region_name, c.customer_district_name].filter(Boolean).join(', '),
+    categories: c.category_name ? [c.category_name] : [],
+    source: 'xarid (конкурс)',
+    sourceUrl: `${XARID_BASE}/competitions/view/${c.id}`,
+    status: new Date(c.end_date_submitting_offers) > new Date() ? 'active' : 'closed',
+    matchedKeywords: matched,
+    collectedAt: new Date(),
   };
 }
 
-/**
- * Поиск тендеров по нескольким ключевым словам.
- * Загружает все тендеры один раз, фильтрует по всем ключам, дедуплицирует.
- */
+// === Источник 3: Xarid Direct Purchases ===
+
+async function fetchDirectPurchases(): Promise<XaridDirectPurchase[]> {
+  try {
+    // Загружаем DIRECT_PAGES страниц параллельно (по 20 записей на страницу)
+    const pageSize = 20;
+    const batches = [];
+    for (let page = 0; page < DIRECT_PAGES; page++) {
+      const from = page * pageSize;
+      const to = from + pageSize;
+      batches.push(
+        xaridLimiter.schedule(() =>
+          axios.post<XaridDirectPurchase[]>(`${XARID_API}/Common/GetDirectPurchases`, {
+            from, to,
+          }, { headers: { 'Content-Type': 'application/json' }, timeout: 15000 })
+            .then(r => r.data || [])
+            .catch(() => [] as XaridDirectPurchase[])
+        )
+      );
+    }
+
+    const results = await Promise.all(batches);
+    const all: XaridDirectPurchase[] = [];
+    for (const batch of results) all.push(...batch);
+    return all;
+  } catch (err) {
+    console.error('[Direct Purchases] Error:', (err as Error).message);
+    return [];
+  }
+}
+
+function convertDirect(d: XaridDirectPurchase, matched: string[]): Tender {
+  const cur = d.currency_name || 'UZS';
+  return {
+    id: `direct-${d.id}`,
+    externalId: d.display_id || String(d.id),
+    title: d.category_name || `Прямая закупка #${d.id}`,
+    organization: d.customer_name,
+    price: d.contract_sum || null,
+    priceFormatted: formatPrice(d.contract_sum, cur),
+    currency: cur,
+    deadline: formatDate(d.contract_date),
+    dateStart: null,
+    dateEnd: formatDate(d.contract_date),
+    region: '',
+    categories: [d.category_name, d.typ_direct_purchase_name].filter(Boolean),
+    source: 'xarid (прямая)',
+    sourceUrl: `${XARID_BASE}/direct-purchases/view/${d.id}`,
+    status: d.status_name?.includes('Опубликован') ? 'active' : 'closed',
+    matchedKeywords: matched,
+    collectedAt: new Date(),
+  };
+}
+
+// === Комбайн: все источники параллельно ===
+
+interface SourceStats {
+  etender: number;
+  etenderDiscussion: number;
+  competitions: number;
+  directPurchases: number;
+  totalMatches: number;
+}
+
 export async function searchTendersMultiKeyword(keywords: string[]): Promise<Tender[]> {
-  const trades = await fetchAllTrades();
+  // Запускаем ВСЕ источники параллельно
+  const [etender, discussion, competitions, directs] = await Promise.all([
+    fetchETender(),
+    fetchETenderDiscussion(),
+    fetchCompetitions(),
+    fetchDirectPurchases(),
+  ]);
+
   const tenderMap = new Map<string, Tender>();
 
-  for (const trade of trades) {
-    const matched = matchesKeywords(trade, keywords);
-    if (matched.length > 0) {
-      const tender = convertToTender(trade, matched);
-      const existing = tenderMap.get(tender.id);
-      if (existing) {
-        // Объединяем ключевые слова
-        for (const kw of matched) {
-          if (!existing.matchedKeywords.includes(kw)) {
-            existing.matchedKeywords.push(kw);
+  function addMatches<T>(
+    items: T[],
+    getText: (item: T) => string,
+    convert: (item: T, matched: string[]) => Tender,
+  ) {
+    for (const item of items) {
+      const matched = matchText(getText(item), keywords);
+      if (matched.length > 0) {
+        const tender = convert(item, matched);
+        const existing = tenderMap.get(tender.id);
+        if (existing) {
+          for (const kw of matched) {
+            if (!existing.matchedKeywords.includes(kw)) existing.matchedKeywords.push(kw);
           }
+        } else {
+          tenderMap.set(tender.id, tender);
         }
-      } else {
-        tenderMap.set(tender.id, tender);
       }
     }
   }
 
+  // ETender (тендеры + обсуждения)
+  addMatches(etender, t => `${t.name} ${t.seller_name} ${t.category_name || ''}`, (t, m) => convertETender(t, m));
+  addMatches(discussion, t => `${t.name} ${t.seller_name} ${t.category_name || ''}`, (t, m) => convertETender(t, m, true));
+
+  // Конкурсы
+  addMatches(competitions, c => c.category_name || '', convertCompetition);
+
+  // Прямые закупки
+  addMatches(directs, d => `${d.category_name || ''} ${d.customer_name || ''} ${d.provider_name || ''}`, convertDirect);
+
+  const stats: SourceStats = {
+    etender: etender.length,
+    etenderDiscussion: discussion.length,
+    competitions: competitions.length,
+    directPurchases: directs.length,
+    totalMatches: tenderMap.size,
+  };
+
+  console.log(
+    `[Комбайн] ETender: ${stats.etender} + Обсуждения: ${stats.etenderDiscussion} | ` +
+    `Конкурсы: ${stats.competitions} | Прямые: ${stats.directPurchases} → ` +
+    `Совпадений: ${stats.totalMatches}`
+  );
+
   return Array.from(tenderMap.values());
+}
+
+export async function searchTenders(keyword: string): Promise<TenderSearchResult> {
+  const tenders = await searchTendersMultiKeyword([keyword]);
+  return { tenders, total: tenders.length, source: 'uzex-combine', keyword, page: 1 };
 }

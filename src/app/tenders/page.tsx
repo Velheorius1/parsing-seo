@@ -27,9 +27,9 @@ export default function TendersPage() {
               </p>
             </div>
             <div className="hidden sm:block text-right">
-              <div className="text-xs text-gray-600">Источник</div>
-              <div className="text-sm text-gray-400">UZEX (etender.uzex.uz)</div>
-              <div className="text-xs text-gray-600 mt-1">Прямой API</div>
+              <div className="text-xs text-gray-600">Источники</div>
+              <div className="text-sm text-gray-400">ETender + Xarid (конкурсы + прямые)</div>
+              <div className="text-xs text-gray-600 mt-1">3 API параллельно</div>
             </div>
           </div>
         </header>
@@ -48,7 +48,7 @@ export default function TendersPage() {
 
         {/* Footer */}
         <footer className="mt-12 pt-6 border-t border-gray-800 text-center text-xs text-gray-600">
-          Данные: UZEX API (etender.uzex.uz) &middot; Прямой доступ &middot; Обновляется при каждом запросе
+          3 источника: ETender API + Xarid Конкурсы (3600+) + Xarid Прямые закупки (431K+) &middot; Обновляется при каждом запросе
         </footer>
       </div>
     </div>

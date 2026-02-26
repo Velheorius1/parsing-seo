@@ -9,7 +9,7 @@ const requestSchema = z.object({
   keywords: z
     .array(z.string().min(1).max(200))
     .min(1)
-    .max(20, 'Максимум 20 ключевых слов за раз'),
+    .max(50, 'Максимум 50 ключевых слов за раз'),
   page: z.number().int().min(1).optional().default(1),
   source: z.string().optional().default('etender.uzex.uz'),
 });
