@@ -251,7 +251,7 @@ sources:
     rate_limit: 0.5
     timeout: 45
     id_prefix: "xt-xarid"
-    wait_selector: ".ui-data-view .ui-list"
+    wait_selector: ".data-view-item"
     html_selectors:
       container: ".data-view-item"
       title: "a.title"

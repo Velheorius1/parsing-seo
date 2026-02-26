@@ -47,6 +47,8 @@ class SpaAdapter(BaseAdapter):
                 await page.wait_for_selector(
                     self.config.wait_selector, timeout=timeout_ms
                 )
+                # Small delay for remaining DOM elements to stabilize
+                await page.wait_for_timeout(1000)
 
                 # Extract from current page
                 page_tenders = await self._extract_page(page)
