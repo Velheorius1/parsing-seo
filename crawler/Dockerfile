@@ -8,14 +8,14 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Install Playwright browsers (Chromium only — smaller image)
 RUN playwright install chromium --with-deps
 
-# Copy crawler code
-COPY . .
+# Copy crawler code into /app/crawler/ (package structure)
+COPY . /app/crawler/
 
 # Setup cron: every 2 hours
 RUN echo "0 */2 * * * cd /app && python -m crawler.main >> /var/log/crawler.log 2>&1" > /etc/cron.d/crawler-cron && \
@@ -26,7 +26,7 @@ RUN echo "0 */2 * * * cd /app && python -m crawler.main >> /var/log/crawler.log 
 RUN mkdir -p /var/log && touch /var/log/crawler.log
 
 # Entrypoint: run once immediately, then start cron daemon
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-CMD ["/entrypoint.sh"]
+CMD ["/app/entrypoint.sh"]
