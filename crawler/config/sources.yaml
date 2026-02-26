@@ -247,24 +247,24 @@ sources:
     name: "xt-xarid.uz"
     adapter: spa
     enabled: true
-    url: "https://xt-xarid.uz"
+    url: "https://xt-xarid.uz/procedure/tender"
     rate_limit: 0.5
-    timeout: 30
+    timeout: 45
     id_prefix: "xt-xarid"
-    wait_selector: ".v-data-table, [class*=tender], [class*=table], table"
+    wait_selector: ".ui-data-view .ui-list"
     html_selectors:
-      container: "tr, .tender-item, .list-item"
-      title: "td:nth-child(2), .tender-title, .title"
-      organization: "td:nth-child(3), .organization"
-      price: "td:nth-child(4), .price, .sum"
-      deadline: "td:nth-child(5), .deadline, .date"
-      link: "a[href]"
+      container: ".data-view-item"
+      title: "a.title"
+      organization: ".description span"
+      price: "span[style]"
+      deadline: ".props time.iac-date"
+      link: "a.title"
     keywords_fields: []
 
   - id: agro-uzex
     name: "agro.uzex.uz"
     adapter: spa
-    enabled: true
+    enabled: false  # Site times out — unreachable
     url: "https://agro.uzex.uz"
     rate_limit: 0.5
     timeout: 30

@@ -131,7 +131,14 @@ class SpaAdapter(BaseAdapter):
                     else:
                         source_url = self.config.url.rstrip("/") + "/" + href
 
+        # Extract external_id from URL if possible (e.g. /procedure/6680886/core → 6680886)
         external_id = str(idx)
+        if source_url:
+            import re
+
+            id_match = re.search(r"/(\d{4,})", source_url)
+            if id_match:
+                external_id = id_match.group(1)
         tender_id = "%s-%s" % (self.config.id_prefix, external_id)
 
         search_text = " ".join(
