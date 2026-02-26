@@ -4,32 +4,169 @@
 
 ---
 
-## 📍 ТЕКУЩЕЕ СОСТОЯНИЕ (ЧИТАЙ ПЕРВЫМ)
+## ТЕКУЩЕЕ СОСТОЯНИЕ
+Фаза: Тендерный модуль — MVP готов
+Дата обновления: 25 февраля 2026
 
-### ✅ Работает (НЕ ЛОМАТЬ)
-- Yandex Suggest парсер (`src/lib/parsers/yandexSuggest.ts`)
-- Rate limiting 1 req/sec (`src/lib/utils/rateLimiter.ts`)
-- API endpoint `/api/suggestions/yandex`
-- Zustand store для keywords
-- UI: KeywordCollector, KeywordTable, ExportButton
-- CSV экспорт с BOM для кириллицы
-- Supabase интеграция (keywords сохраняются)
-- Парсинг сайта по URL (`src/lib/parsers/siteParser.ts`, `/api/parse`)
-- UI: SiteAnalyzer на главной
+### Что работает
+- SEO: Yandex Suggest, парсинг сайта по URL, SiteAnalyzer, CSV экспорт, Supabase
+- **Тендеры /tenders**: страница мониторинга (dark theme, amber)
+- **UZEX API парсер** (`src/lib/parsers/tenderParser.ts`) — прямой REST без авторизации
+  - Endpoint: `POST https://apietender.uzex.uz/api/common/TradeList`
+  - Загружает все активные тендеры, фильтрует по ключевым словам локально
+  - Двуязычные ключевые слова (рус + узб): 27 штук
+- **API**: `/api/tenders` (POST search + GET saved)
+- **UI**: TenderKeywords (chips) + TenderTable (сортировка, статусы)
 - **Production:** https://parsing-seo.vercel.app
 
-### ⚠️ ВАЖНО: Фокус на Google, не Yandex
-90% трафика в Узбекистане — Google. Yandex Suggest оставляем как опцию, но приоритет — Google.
+### Что не работает / в процессе
+- Supabase для тендеров — таблица не создана (fetch failed), работает без сохранения
+- Мало совпадений (3 из ~430 тендеров) — нужно расширить ключевые слова
+- Только 1 источник (UZEX etender) — нет xt-xarid, e-auksion, dxarid
 
-### 🎯 Следующие работы (по приоритету)
-1. **Google Suggest** — подсказки Google вместо/рядом с Yandex
-2. **Google SERP** — топ-10 по запросу (кто ранжируется)
-3. **Парсинг сайта по URL** — ✅ сделано (одна страница)
+### Следующие шаги
+- Создать таблицу `tenders` в Supabase + RLS
+- Добавить cron (ежечасный парсинг + Telegram-алерты)
+- Подключить xt-xarid.uz (основная госплощадка)
+- Расширить ключевые слова на узбекском
 
-### 🚫 НЕ ДЕЛАТЬ СЕЙЧАС
-- Авторизация
-- Мультипроекты
-- Тарифы и оплата
+---
+
+## 📋 План: Мониторинг тендеров Узбекистана
+
+**Цель:** не пропускать релевантные тендеры (упаковка, полиграфия, гофра, коробка, печать, этикетка) и быстро реагировать.
+
+**Закон:** ЗРУ-684 от 22.04.2021 «О государственных закупках» — все госзакупки обязаны публиковаться на электронных площадках.
+
+---
+
+### Карта площадок (исследование 25.02.2026)
+
+#### Приоритет 1 — Госзакупки (основной объём)
+
+| Площадка | URL | Что парсить | Примечание |
+|----------|-----|-------------|------------|
+| **XT-Xarid** | xt-xarid.uz | Прямые закупки бюджетных организаций | Основная площадка госзакупок, заменила старый xarid.uz |
+| **UZEX Тендер** | etender.uzex.uz | Конкурсы через товарную биржу | Часть UZEX ecosystem |
+| **UZEX E-Аукцион** | e-auksion.uzex.uz | Электронные аукционы | Обратные аукционы — цена снижается |
+| **UZEX DXarid** | dxarid.uzex.uz | Госзакупки через биржу | Прямые закупки |
+| **UZEX EXarid** | exarid.uzex.uz | Электронные закупки | Каталог товаров |
+| **UZEX Shop** | shop.uzex.uz | Онлайн-магазин биржи | B2G каталог |
+| **UZEX EShop** | eshop.uzex.uz | Электронный магазин | Малые закупки |
+| **Cooperation.uz** | cooperation.uz | Кооперация и закупки | Новая площадка, растёт |
+| **E-Birja** | e-birja.uz | Электронная биржа | Торговая площадка |
+
+#### Приоритет 2 — Международные организации (высокие бюджеты)
+
+| Организация | URL тендеров | Сфера |
+|-------------|-------------|-------|
+| **UNDP** | procurement-notices.undp.org (фильтр UZ) | Развитие, инфраструктура |
+| **UNICEF** | supply.unicef.org | Образование, здравоохранение |
+| **World Bank** | projects.worldbank.org/en/projects-operations/procurement | Крупные инфраструктурные проекты |
+| **ADB** | adb.org/projects/tenders | Азиатский банк развития |
+| **EBRD** | ecepp.ebrd.com | Европейский банк реконструкции |
+| **IsDB** | isdb.org/procurement | Исламский банк развития |
+| **GIZ** | ausschreibungen.giz.de | Германское агентство (офис в Ташкенте) |
+| **JICA** | jica.go.jp/english/procurement | Японское агентство (офис в Ташкенте) |
+| **KOICA** | koica.go.kr | Корейское агентство |
+| **USAID** | sam.gov (+ usaid.gov) | Американское агентство |
+| **EU** | ted.europa.eu | Тендеры Евросоюза |
+
+**Агрегаторы международных тендеров:**
+- UNGM (ungm.org) — единая система закупок ООН
+- dgMarket (dgmarket.com) — агрегатор тендеров развивающихся стран
+- DevelopmentAid (developmentaid.org) — тендеры + гранты
+- TendersInfo (tenders.info) — глобальный агрегатор
+
+#### Приоритет 3 — Крупные компании (прямые закупки)
+
+| Компания | Сектор | Тендеры на сайте |
+|----------|--------|-----------------|
+| **АГМК** (agmk.uz) | Горнодобыча | Активные тендеры |
+| **Uzbekistan Airways** (uzairways.com) | Авиация | 80+ тендеров |
+| **Узбекнефтегаз** (ung.uz) | Нефтегаз | Регулярные закупки |
+| **НМАК Узбекистон** (uzbekistanairways.com) | Авиация | Тендеры |
+| **Навоийский ГМК** (ngmk.uz) | Горнодобыча | Крупные закупки |
+| **Узтрансгаз** (uztransgaz.uz) | Газ | Тендеры |
+| **Нацэлектросети** (npes.uz) | Энергетика | 22+ тендера |
+| **LUKOIL Uzbekistan** (lukoil.uz) | Нефтегаз | Тендеры |
+| **Узхимпром** (uzkimyosanoat.uz) | Химия | Закупки |
+| **Узметкомбинат** (uzmetkombinat.uz) | Металлургия | Тендеры |
+| **Узбекистон темир йуллари** (railway.uz) | ЖД | Регулярные закупки |
+| **UzAuto Motors** (uzautomotors.com) | Автопром | Тендеры |
+| **Artel** (artelelectronics.com) | Электроника | Закупки |
+| **Uztelecom** (uztelecom.uz) | Телеком | Тендеры |
+| **COSCOM/Ucell** (ucell.uz) | Телеком | Закупки |
+| **Beeline Uzbekistan** (beeline.uz) | Телеком | Тендеры |
+
+#### Приоритет 4 — Агрегаторы и частные площадки
+
+| Площадка | URL | Объём |
+|----------|-----|-------|
+| **TenderZone** | tenderzone.uz | 157K+ тендеров, агрегатор |
+| **Bicotender** | bicotender.uz | 20K+ по УЗ, 106 полиграфия |
+| **zakupki.prom.uz** | zakupki.prom.uz | Промышленные закупки |
+| **tender.uz** | tender.uz | Информационный портал |
+
+**Telegram-каналы (мониторить):**
+- @prom_zakupki — промышленные закупки
+- @newtenderzone_bot — бот TenderZone
+- @tenders_uzbekistan — общий канал тендеров
+
+#### Информационные порталы (вторичные)
+
+| Портал | URL | Что там |
+|--------|-----|---------|
+| **openbudget.uz** | openbudget.uz | Открытый бюджет — планы закупок |
+| **data.gov.uz** | data.gov.uz | Открытые данные — статистика |
+| **norma.uz** | norma.uz | Законодательство о закупках |
+| **lex.uz** | lex.uz | Нормативные акты |
+
+---
+
+### Ключевые слова для фильтрации
+
+```
+упаковка, полиграфия, гофра, коробка, печать, этикетка,
+типография, книга, каталог, брошюра, блокнот, календарь,
+packaging, printing, cardboard, label, box, qadoqlash, bosma
+```
+
+---
+
+### Фазы реализации
+
+**Фаза 1 — Парсер приоритетных площадок**
+- xt-xarid.uz + etender.uzex.uz + e-auksion.uzex.uz + cooperation.uz
+- Ежечасный cron: парсинг новых лотов
+- Фильтр по ключевым словам
+- Supabase: хранение лотов (ID, тема, заказчик, сумма, дедлайн, ссылка, площадка)
+
+**Фаза 2 — Telegram-алерты**
+- Новый тендер → моментальный алерт в Telegram
+- Формат: площадка, тема, сумма, заказчик, дедлайн, ссылка
+- Интеграция в Brain Bot (скилл `/тендеры`)
+
+**Фаза 3 — Расширение на международные + крупные компании**
+- UNDP, UNICEF, World Bank — парсинг по фильтру Uzbekistan
+- Сайты АГМК, Uzbekistan Airways, НМАК — парсинг разделов тендеров
+- TenderZone/Bicotender как бэкап-агрегаторы
+
+**Фаза 4 — Дашборд с историей + аналитикой**
+- Архив тендеров: кто выигрывал, по каким ценам
+- Аналитика конкурентов
+- Фильтры по площадкам, категориям, суммам
+
+**Фаза 5 — Интеграция в Newcalc**
+- Тендер пришёл → кнопка → автосоздание расчёта с параметрами из лота
+
+**Фаза 6 — Еженедельный PDF-дайджест**
+- Автосборка отчёта по релевантным тендерам за неделю
+- Отправка в Telegram для планёрки
+
+**Фаза 7 (идея) — AI-скоринг «стоит ли участвовать»**
+- Модель анализирует тендер + прошлые победы/поражения
+- Оценка шансов + рекомендация по цене
 
 ---
 
@@ -116,39 +253,58 @@ npm run dev   # localhost:3000
 
 ---
 
+## Ключевые файлы
+> Читай напрямую через Read/Grep. НЕ запускай Explore агентов.
+
+| Файл | Что там |
+|------|---------|
+| `src/lib/parsers/tenderParser.ts` | UZEX API парсер |
+| `src/lib/parsers/siteParser.ts` | Парсинг сайта по URL |
+| `src/lib/store/tenderStore.ts` | Zustand + 27 ключевых слов |
+| `src/app/tenders/page.tsx` | UI мониторинга тендеров |
+| `src/app/api/tenders/route.ts` | API тендеров |
+
 ## 📁 СТРУКТУРА (актуальная)
 
 ```
 src/
 ├── app/
 │   ├── layout.tsx              # Root + QueryProvider
-│   ├── page.tsx                # Dashboard
+│   ├── page.tsx                # Dashboard (+ навигация на /tenders)
+│   ├── tenders/page.tsx        # Мониторинг тендеров (dark theme)
 │   └── api/
 │       ├── keywords/route.ts   # GET из БД
 │       ├── parse/route.ts      # POST парсинг URL
+│       ├── tenders/route.ts    # POST поиск + GET сохранённые
 │       └── suggestions/yandex/ # POST сбор подсказок
 ├── components/
 │   ├── parsing/
 │   │   ├── KeywordCollector.tsx
 │   │   ├── KeywordTable.tsx
-│   │   └── SiteAnalyzer.tsx    # Анализ сайта по URL
+│   │   └── SiteAnalyzer.tsx
+│   ├── tenders/
+│   │   ├── TenderKeywords.tsx  # Чипы выбора ключевых слов
+│   │   └── TenderTable.tsx     # Таблица результатов
 │   └── export/
 │       └── ExportButton.tsx
 ├── lib/
 │   ├── parsers/
-│   │   ├── yandexSuggest.ts    # ✅ Работает
-│   │   └── siteParser.ts      # ✅ Работает
+│   │   ├── yandexSuggest.ts
+│   │   ├── siteParser.ts
+│   │   └── tenderParser.ts     # UZEX API (прямой REST)
 │   ├── supabase/
 │   │   ├── client.ts
 │   │   ├── keywords.ts
-│   │   └── parsedPages.ts
+│   │   ├── parsedPages.ts
+│   │   └── tenders.ts          # saveTenders, getTenders
 │   ├── store/
-│   │   └── keywordStore.ts
+│   │   ├── keywordStore.ts
+│   │   └── tenderStore.ts      # Zustand + 27 ключевых слов
 │   └── utils/
-│       ├── rateLimiter.ts      # ✅ Работает
-│       └── csvExport.ts        # ✅ Работает
+│       ├── rateLimiter.ts      # + tenderLimiter
+│       └── csvExport.ts
 └── types/
-    └── parsing.ts
+    └── parsing.ts              # + Tender, TenderSearchResult
 ```
 
 ---
@@ -232,5 +388,5 @@ import { yandexLimiter, siteLimiter } from '@/lib/utils/rateLimiter';
 
 ---
 
-*Версия: 2.0*
-*Обновлено: Январь 2026*
+*Версия: 3.0*
+*Обновлено: 25 февраля 2026*
