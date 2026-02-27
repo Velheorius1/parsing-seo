@@ -83,23 +83,39 @@ async def run(
         logger.warning("No sources to crawl")
         return {}
 
-    # Create adapters
-    adapters: List[BaseAdapter] = []
+    # Create adapters — separate Telegram (sequential) from others (parallel)
+    parallel_adapters: List[BaseAdapter] = []
+    telegram_adapters: List[BaseAdapter] = []
     for src in sources:
         try:
-            adapters.append(_create_adapter(src))
+            adapter = _create_adapter(src)
+            if src.adapter == AdapterType.TELEGRAM:
+                telegram_adapters.append(adapter)
+            else:
+                parallel_adapters.append(adapter)
         except ValueError as exc:
             logger.warning("Skipping source %s: %s", src.id, str(exc))
 
-    # Fetch all in parallel
-    tasks = [_fetch_source(a) for a in adapters]
+    # Fetch non-Telegram in parallel
+    tasks = [_fetch_source(a) for a in parallel_adapters]
     results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Fetch Telegram sequentially (shared SQLite session file)
+    tg_results = []  # type: List[object]
+    for tg_adapter in telegram_adapters:
+        try:
+            tg_results.append(await tg_adapter.fetch())
+        except Exception as exc:
+            tg_results.append(exc)
+
+    all_adapters = parallel_adapters + telegram_adapters
+    all_results = list(results) + tg_results
 
     # Collect results and stats
     all_tenders: List[RawTender] = []
     stats: Dict[str, int] = {}
 
-    for adapter, result in zip(adapters, results):
+    for adapter, result in zip(all_adapters, all_results):
         sid = adapter.config.id
         if isinstance(result, Exception):
             logger.error("[%s] Exception: %s", sid, str(result))
