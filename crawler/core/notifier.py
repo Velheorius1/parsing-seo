@@ -35,20 +35,53 @@ def _stem(word: str) -> str:
     return word
 
 
+def _word_start_match(text: str, stem: str) -> int:
+    """Find stem at word boundary (start of word). Return index or -1."""
+    start = 0
+    while True:
+        idx = text.find(stem, start)
+        if idx == -1:
+            return -1
+        # Stem must be at start of a word: preceded by non-alpha or string start
+        if idx == 0 or not text[idx - 1].isalpha():
+            return idx
+        start = idx + 1
+
+
+# False positive patterns: if stem is followed by these strings, skip the match
+_FALSE_POSITIVES = {
+    "календар": ["кун", " дн", " день"],  # "календарных дней" = time, not product
+}
+
+
 def _find_matching_keyword(tender: RawTender, keywords: List[str]) -> Optional[str]:
     """Return first matching keyword or None.
 
-    Uses stem-based matching: 'упаковка' matches 'упаковки', 'упаковку', etc.
+    Uses stem-based matching with word-boundary check to avoid
+    false positives like 'зонт' in 'горизонтал'.
     """
     text = (tender.search_text + " " + tender.title).lower()
     for kw in keywords:
-        # Exact substring first
-        if kw in text:
-            return kw
-        # Stem match
-        stem = _stem(kw)
-        if len(stem) >= _MIN_STEM and stem in text:
-            return kw
+        stem = _stem(kw) if len(kw) > _MIN_STEM else kw
+
+        if len(stem) < _MIN_STEM:
+            # Short keywords: exact match only
+            if _word_start_match(text, kw) >= 0:
+                return kw
+            continue
+
+        idx = _word_start_match(text, stem)
+        if idx < 0:
+            continue
+
+        # Check false positive exclusions
+        excl = _FALSE_POSITIVES.get(stem)
+        if excl:
+            after = text[idx + len(stem):idx + len(stem) + 10]
+            if any(after.startswith(fp) for fp in excl):
+                continue
+
+        return kw
     return None
 
 
