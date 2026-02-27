@@ -50,7 +50,7 @@ def _word_start_match(text: str, stem: str) -> int:
 
 # False positive patterns: if stem is followed by these strings, skip the match
 _FALSE_POSITIVES = {
-    "календар": ["кун", " дн", " день"],  # "календарных дней" = time, not product
+    "календар": [" кун", "кун ", " дн", " день"],  # "календарных дней/кун" = time, not product
 }
 
 
