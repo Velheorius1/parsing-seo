@@ -58,9 +58,15 @@ class TelegramAdapter(BaseAdapter):
             )
             return []
 
+        import os
+
         from telethon import TelegramClient
 
+        # Resolve session path relative to crawler package dir
         session_path = settings.telegram_session
+        if not os.path.isabs(session_path):
+            pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            session_path = os.path.join(pkg_dir, session_path)
         client = TelegramClient(
             session_path,
             settings.telegram_api_id,
