@@ -5,30 +5,35 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Тендерный модуль — MVP готов
-Дата обновления: 25 февраля 2026
+Фаза: Production — 4,730 тендеров, 12 источников, Telegram-алерты
+Дата обновления: 27 февраля 2026
 
 ### Что работает
 - SEO: Yandex Suggest, парсинг сайта по URL, SiteAnalyzer, CSV экспорт, Supabase
 - **Тендеры /tenders**: страница мониторинга (dark theme, amber)
-- **UZEX API парсер** (`src/lib/parsers/tenderParser.ts`) — прямой REST без авторизации
-  - Endpoint: `POST https://apietender.uzex.uz/api/common/TradeList`
-  - Загружает все активные тендеры, фильтрует по ключевым словам локально
-  - Двуязычные ключевые слова (рус + узб): 27 штук
-- **API**: `/api/tenders` (POST search + GET saved)
-- **UI**: TenderKeywords (chips) + TenderTable (сортировка, статусы)
+- **Config-Driven Python Crawler** на VPS (46.62.155.190):
+  - API (httpx): ETender (416), Xarid Competitions (4061), Xarid Direct (19), World Bank (2), ETender Discussion (162)
+  - HTML (BeautifulSoup): UZ Airways (9), UNDP (0), UNGM (0)
+  - SPA (Playwright): xt-xarid.uz (50)
+  - **Telegram (Telethon)**: @TENDERS_BeelineUZB, @goszakupki_uz, @davlatxaridlar, @tenderweekcom, @Tenderuzbekistan1
+- **Telegram-алерты (Фаза 2)**: бот @tender_alerts_uz_bot отправляет новые тендеры по 37 ключевым словам (стемминг RU)
+- **4,730 тендеров в Supabase** — production, cron каждые 2 часа
+- **Docker**: Playwright image + cron на VPS `/opt/parsing-seo/crawler/`
+- **URL-шаблоны**: все 10 источников проверены, ETender исправлен `/lots/2/` → `/lot/`
 - **Production:** https://parsing-seo.vercel.app
 
 ### Что не работает / в процессе
-- Supabase для тендеров — таблица не создана (fetch failed), работает без сохранения
-- Мало совпадений (3 из ~430 тендеров) — нужно расширить ключевые слова
-- Только 1 источник (UZEX etender) — нет xt-xarid, e-auksion, dxarid
+- agro.uzex.uz — отключён (сайт недоступен)
+- UNGM: 403 Forbidden (0 результатов)
+- UNDP: 200 OK но 0 тендеров по UZB
+- @davlatxaridlar: регуляторика, не тендеры
+- АГМК, Навоий ГМК — disabled (сайты не отвечают)
 
 ### Следующие шаги
-- Создать таблицу `tenders` в Supabase + RLS
-- Добавить cron (ежечасный парсинг + Telegram-алерты)
-- Подключить xt-xarid.uz (основная госплощадка)
-- Расширить ключевые слова на узбекском
+- Фаза 3: Расширить на международные организации (UNICEF, ADB, EBRD)
+- Интеграция алертов в Brain Bot (скилл `/тендеры`)
+- Проверить agro.uzex.uz периодически
+- Добавить фильтр по региону/сумме в алертах
 
 ---
 
@@ -258,11 +263,18 @@ npm run dev   # localhost:3000
 
 | Файл | Что там |
 |------|---------|
-| `src/lib/parsers/tenderParser.ts` | UZEX API парсер |
-| `src/lib/parsers/siteParser.ts` | Парсинг сайта по URL |
-| `src/lib/store/tenderStore.ts` | Zustand + 27 ключевых слов |
-| `src/app/tenders/page.tsx` | UI мониторинга тендеров |
-| `src/app/api/tenders/route.ts` | API тендеров |
+| `crawler/config/sources.yaml` | **Конфиг всех источников** (добавь строку = новый источник) |
+| `crawler/main.py` | Entrypoint crawler (CLI + cron) |
+| `crawler/core/runner.py` | Загрузка YAML, dispatch адаптеров, asyncio.gather |
+| `crawler/core/models.py` | Pydantic: SourceConfig, RawTender, AdapterType |
+| `crawler/core/db.py` | Supabase upsert (service_role, batch 500) |
+| `crawler/adapters/api.py` | API адаптер (httpx, pagination, field_map) |
+| `crawler/adapters/html.py` | HTML адаптер (BS4, CSS selectors) |
+| `crawler/adapters/spa.py` | SPA адаптер (Playwright headless) |
+| `crawler/adapters/telegram_adapter.py` | Telegram адаптер (Telethon) |
+| `src/lib/supabase/tenders.ts` | queryTenders + saveTenders (TS frontend) |
+| `src/lib/store/tenderStore.ts` | Zustand (GET + refresh) |
+| `src/app/api/tenders/route.ts` | API (GET from Supabase, POST refresh) |
 
 ## 📁 СТРУКТУРА (актуальная)
 
