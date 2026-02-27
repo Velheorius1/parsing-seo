@@ -27,7 +27,7 @@ sources:
       date_end: end_date
       region: "region_name"
       external_id: display_no
-      source_url_template: "https://etender.uzex.uz/lots/2/{id}"
+      source_url_template: "https://etender.uzex.uz/lot/{id}"
     keywords_fields: [name, seller_name, category_name]
     pagination:
       type: offset
@@ -58,7 +58,7 @@ sources:
       date_end: end_date
       region: "region_name"
       external_id: display_no
-      source_url_template: "https://etender.uzex.uz/lots/2/{id}"
+      source_url_template: "https://etender.uzex.uz/lot/{id}"
     keywords_fields: [name, seller_name, category_name]
 
   - id: xarid-competitions
