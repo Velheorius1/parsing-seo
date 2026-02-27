@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # Telegram alerts (bot token for sending notifications)
     telegram_bot_token: Optional[str] = None
     telegram_alert_chat_id: Optional[str] = None
-    alert_keywords: str = "упаковка,полиграфия,гофра,коробка,печать,этикетка,типография,книга,книж,каталог,брошюр,блокнот,календар,packaging,printing,cardboard,label,box,qadoqlash,bosma"
+    alert_keywords: str = "упаковка,полиграфия,гофра,коробка,печать,этикетка,типография,книга,книж,каталог,брошюр,блокнот,календар,пакет,конверт,папка,ежедневник,сувенир,журнал,картон,подарочн,зонт,ручка,флешк,power bank,набор,плакат,постер,стенд,вывеск,packaging,printing,cardboard,label,box,qadoqlash,bosma"
 
     # Crawler behaviour
     dry_run: bool = False
