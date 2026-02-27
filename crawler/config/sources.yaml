@@ -281,23 +281,23 @@ sources:
 
   # ── Telegram каналы ──────────────────────────────────────────────
 
-  - id: tg-prom-zakupki
-    name: "TG: prom_zakupki"
+  - id: tg-beeline-tenders
+    name: "TG: Beeline Tenders"
     adapter: telegram
     enabled: true
     url: ""
-    id_prefix: "tg-prom"
-    telegram_channel: "@prom_zakupki"
+    id_prefix: "tg-beel"
+    telegram_channel: "@TENDERS_BeelineUZB"
     telegram_limit: 100
     rate_limit: 1.0
 
-  - id: tg-tender-ministry
-    name: "TG: tenderministry"
+  - id: tg-davlatxaridlar
+    name: "TG: davlatxaridlar"
     adapter: telegram
     enabled: true
     url: ""
-    id_prefix: "tg-tmin"
-    telegram_channel: "@tenderministry"
+    id_prefix: "tg-davl"
+    telegram_channel: "@davlatxaridlar"
     telegram_limit: 100
     rate_limit: 1.0
 
