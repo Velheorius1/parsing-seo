@@ -281,23 +281,23 @@ sources:
 
   # ── Telegram каналы ──────────────────────────────────────────────
 
-  - id: tg-uz-tenders
-    name: "TG: uz_tenders"
+  - id: tg-prom-zakupki
+    name: "TG: prom_zakupki"
     adapter: telegram
     enabled: true
     url: ""
-    id_prefix: "tg-uzt"
-    telegram_channel: "@uz_tenders"
+    id_prefix: "tg-prom"
+    telegram_channel: "@prom_zakupki"
     telegram_limit: 100
     rate_limit: 1.0
 
-  - id: tg-tender-uz
-    name: "TG: tenderuz"
+  - id: tg-tender-ministry
+    name: "TG: tenderministry"
     adapter: telegram
     enabled: true
     url: ""
-    id_prefix: "tg-tuz"
-    telegram_channel: "@tenderuz"
+    id_prefix: "tg-tmin"
+    telegram_channel: "@tenderministry"
     telegram_limit: 100
     rate_limit: 1.0
 
