@@ -5,35 +5,35 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 4,730 тендеров, 12 источников, Telegram-алерты
+Фаза: Production — 4,869+ тендеров, 12 источников, Telegram-алерты с фильтрацией
 Дата обновления: 27 февраля 2026
 
 ### Что работает
 - SEO: Yandex Suggest, парсинг сайта по URL, SiteAnalyzer, CSV экспорт, Supabase
 - **Тендеры /tenders**: страница мониторинга (dark theme, amber)
-- **Config-Driven Python Crawler** на VPS (46.62.155.190):
-  - API (httpx): ETender (416), Xarid Competitions (4061), Xarid Direct (19), World Bank (2), ETender Discussion (162)
-  - HTML (BeautifulSoup): UZ Airways (9), UNDP (0), UNGM (0)
-  - SPA (Playwright): xt-xarid.uz (50)
+- **Config-Driven Python Crawler** на VPS (46.62.155.190, `/opt/parsing-seo/`):
+  - API (httpx): ETender, Xarid Competitions, Xarid Direct, World Bank, ETender Discussion
+  - HTML (BeautifulSoup): UZ Airways, UNDP, UNGM
+  - SPA (Playwright): xt-xarid.uz
   - **Telegram (Telethon)**: @TENDERS_BeelineUZB, @goszakupki_uz, @davlatxaridlar, @tenderweekcom, @Tenderuzbekistan1
-- **Telegram-алерты (Фаза 2)**: бот @tender_alerts_uz_bot отправляет новые тендеры по 37 ключевым словам (стемминг RU)
-- **4,730 тендеров в Supabase** — production, cron каждые 2 часа
-- **Docker**: Playwright image + cron на VPS `/opt/parsing-seo/crawler/`
-- **URL-шаблоны**: все 10 источников проверены, ETender исправлен `/lots/2/` → `/lot/`
+- **Telegram-алерты (Фаза 2)**: бот @tender_alerts_uz_bot, 37 ключевых слов
+  - Word-boundary стемминг (нет ложных: "зонт" в "горизонтал")
+  - False-positive exclusions ("календар кун" = время, не продукт)
+- **URL-шаблоны**: все 10 источников проверены и работают
+- **VPS Python venv**: `/opt/parsing-seo/.venv/` (pydantic-settings, httpx, supabase)
 - **Production:** https://parsing-seo.vercel.app
 
 ### Что не работает / в процессе
 - agro.uzex.uz — отключён (сайт недоступен)
 - UNGM: 403 Forbidden (0 результатов)
 - UNDP: 200 OK но 0 тендеров по UZB
-- @davlatxaridlar: регуляторика, не тендеры
-- АГМК, Навоий ГМК — disabled (сайты не отвечают)
+- "bosma" ключевое слово — ложное срабатывание на "bosma fabrikasi" (пожарка)
 
 ### Следующие шаги
 - Фаза 3: Расширить на международные организации (UNICEF, ADB, EBRD)
 - Интеграция алертов в Brain Bot (скилл `/тендеры`)
-- Проверить agro.uzex.uz периодически
 - Добавить фильтр по региону/сумме в алертах
+- Расширить false-positive exclusions ("bosma" + контекст)
 
 ---
 
