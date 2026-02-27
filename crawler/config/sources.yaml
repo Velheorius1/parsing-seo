@@ -301,6 +301,26 @@ sources:
     telegram_limit: 100
     rate_limit: 1.0
 
+  - id: tg-tenderweek
+    name: "TG: tenderweekcom"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-twk"
+    telegram_channel: "@tenderweekcom"
+    telegram_limit: 100
+    rate_limit: 1.0
+
+  - id: tg-tender-uzbekistan
+    name: "TG: Tender Uzbekistan"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-tuzb"
+    telegram_channel: "@Tenderuzbekistan1"
+    telegram_limit: 100
+    rate_limit: 1.0
+
   - id: tg-goszakupki-uz
     name: "TG: goszakupki_uz"
     adapter: telegram

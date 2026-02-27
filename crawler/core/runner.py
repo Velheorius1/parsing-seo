@@ -132,8 +132,16 @@ async def run(
     logger.info("Crawl complete: %s -> Total: %d", source_log, total)
 
     # Upsert to Supabase
-    upserted = await upsert_tenders(all_tenders, dry_run=dry_run)
-    logger.info("Upserted %d / %d tenders to Supabase", upserted, total)
+    upserted, new_tenders = await upsert_tenders(all_tenders, dry_run=dry_run)
+    logger.info("Upserted %d / %d tenders to Supabase (%d new)", upserted, total, len(new_tenders))
+
+    # Send Telegram alerts for new matching tenders
+    if new_tenders:
+        from crawler.core.notifier import send_alerts
+
+        alerts_sent = await send_alerts(new_tenders, dry_run=dry_run)
+        if alerts_sent:
+            logger.info("Sent %d Telegram alerts", alerts_sent)
 
     return stats
 

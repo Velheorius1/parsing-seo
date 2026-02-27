@@ -1,7 +1,7 @@
 """Supabase upsert logic for tenders."""
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Set, Tuple
 
 from crawler.config.settings import settings
 from crawler.core.models import RawTender
@@ -40,17 +40,48 @@ def _tender_to_row(t: RawTender) -> dict:
     }
 
 
+def _get_existing_keys(
+    client,  # type: ignore[no-untyped-def]
+    tenders: List[RawTender],
+) -> Set[Tuple[str, str]]:
+    """Fetch existing (external_id, source) pairs from DB for the given tenders.
+
+    Returns set of tuples that already exist in the database.
+    """
+    existing = set()  # type: Set[Tuple[str, str]]
+    # Group by source to minimize queries
+    sources = set(t.source for t in tenders)
+    for source in sources:
+        source_ids = [t.external_id for t in tenders if t.source == source]
+        # Query in batches of 500 (Supabase filter limit)
+        for i in range(0, len(source_ids), 500):
+            batch_ids = source_ids[i : i + 500]
+            try:
+                resp = (
+                    client.table(TABLE)
+                    .select("external_id,source")
+                    .eq("source", source)
+                    .in_("external_id", batch_ids)
+                    .execute()
+                )
+                for row in resp.data:
+                    existing.add((row["external_id"], row["source"]))
+            except Exception as exc:
+                logger.warning("[DB] Failed to check existing for %s: %s", source, str(exc))
+    return existing
+
+
 async def upsert_tenders(
     tenders: List[RawTender],
     batch_size: Optional[int] = None,
     dry_run: bool = False,
-) -> int:
+) -> Tuple[int, List[RawTender]]:
     """Upsert tenders into Supabase in batches.
 
-    Returns total upserted count. On dry_run, logs but does not write.
+    Returns (total_upserted, list_of_new_tenders).
     """
     if not tenders:
-        return 0
+        return 0, []
 
     # Deduplicate by (external_id, source) — keep last occurrence
     seen = {}
@@ -61,14 +92,23 @@ async def upsert_tenders(
 
     if dry_run:
         logger.info("[DB] DRY RUN: would upsert %d tenders", len(tenders))
-        return len(tenders)
+        return len(tenders), tenders
 
     if not settings.supabase_url or not settings.supabase_service_role_key:
         logger.warning("[DB] Supabase credentials not set, skipping upsert")
-        return 0
+        return 0, []
+
+    client = _get_client()
+
+    # Find which tenders are NEW (not in DB yet)
+    existing_keys = _get_existing_keys(client, tenders)
+    new_tenders = [
+        t for t in tenders
+        if (t.external_id, t.source) not in existing_keys
+    ]
+    logger.info("[DB] New tenders: %d (existing: %d)", len(new_tenders), len(existing_keys))
 
     size = batch_size or settings.batch_size
-    client = _get_client()
     total = 0
 
     for i in range(0, len(tenders), size):
@@ -88,4 +128,4 @@ async def upsert_tenders(
         except Exception as exc:
             logger.error("[DB] Upsert batch %d failed: %s", i, str(exc))
 
-    return total
+    return total, new_tenders

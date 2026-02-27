@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     telegram_api_hash: Optional[str] = None
     telegram_session: str = "sessions/crawler_session"
 
+    # Telegram alerts (bot token for sending notifications)
+    telegram_bot_token: Optional[str] = None
+    telegram_alert_chat_id: Optional[str] = None
+    alert_keywords: str = "упаковка,полиграфия,гофра,коробка,печать,этикетка,типография,книга,книж,каталог,брошюр,блокнот,календар,packaging,printing,cardboard,label,box,qadoqlash,bosma"
+
     # Crawler behaviour
     dry_run: bool = False
     log_level: str = "INFO"
