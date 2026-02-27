@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Telegram (for Telethon adapter)
     telegram_api_id: Optional[int] = None
     telegram_api_hash: Optional[str] = None
-    telegram_session: str = "crawler_session"
+    telegram_session: str = "sessions/crawler_session"
 
     # Crawler behaviour
     dry_run: bool = False
