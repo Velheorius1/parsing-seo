@@ -5,37 +5,26 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 4,869+ тендеров, 29 источников (22 TG + 7 web), Telegram-алерты с фильтрацией
+Фаза: Production — 5,000+ тендеров, 67 источников (49 enabled), cron каждый час, AI-фильтр Qwen
 Дата обновления: 28 февраля 2026
 
 ### Что работает
-- SEO: Yandex Suggest, парсинг сайта по URL, SiteAnalyzer, CSV экспорт, Supabase
-- **Тендеры /tenders**: страница мониторинга (dark theme, amber)
 - **Config-Driven Python Crawler** на VPS (46.62.155.190, `/opt/parsing-seo/`):
-  - API (httpx): ETender, Xarid Competitions, Xarid Direct, World Bank, ETender Discussion
-  - HTML (BeautifulSoup): UZ Airways, UNDP, UNGM
-  - SPA (Playwright): xt-xarid.uz
-  - **Telegram (Telethon)**: 22 канала — 5 тендерных + 9 министерств + 4 компании + @undp_uzb_tenders и др.
-- **Telegram-алерты (Фаза 2)**: бот @tender_alerts_uz_bot, 37 ключевых слов
-  - Word-boundary стемминг (нет ложных: "зонт" в "горизонтал")
-  - False-positive exclusions ("календар кун" = время, не продукт)
-- **URL-шаблоны**: все 10 источников проверены и работают
-- **VPS Python venv**: `/opt/parsing-seo/.venv/` (pydantic-settings, httpx, supabase)
+  - API (httpx): ETender, Xarid Competitions/Direct, World Bank, ETender Discussion
+  - HTML (BeautifulSoup): 20 источников — банки, компании, gov.uz, SQB, AGMK, Узбекистонмет
+  - SPA (Playwright): xt-xarid.uz (headless Chromium)
+  - Telegram (Telethon): 22 канала — тендерные + министерства + компании
+- **Cron**: `0 * * * *` API/HTML/SPA, `0 */4 * * *` Telegram
+- **AI-фильтр**: Qwen3 через OpenRouter — фильтрует ложные срабатывания перед отправкой алертов
+- **Healthcheck**: тихий алерт в Telegram при новых тендерах или ошибках
+- **Telegram-алерты**: бот @tender_alerts_uz_bot, 37 ключевых слов → AI-фильтр → отправка
+- **Entrypoint**: `python -m crawler` + `scripts/run_crawl.sh` (--no-telegram, --only-telegram)
 - **Production:** https://parsing-seo.vercel.app
 
-### Что не работает / в процессе
-- agro.uzex.uz — отключён (сайт недоступен)
-- UNGM: 403 Forbidden (0 результатов)
-- UNDP: 200 OK но 0 тендеров по UZB
-- "bosma" ключевое слово — ложное срабатывание на "bosma fabrikasi" (пожарка)
-
 ### Следующие шаги
-- **Фаза B:** топ-20 компаний с сайтами тендеров (НГМК, ЛУКОЙЛ, Узтрансгаз, банки)
-- **Фаза C:** международные организации (ADB, EBRD, IsDB, AIIB)
+- **Фаза C:** международные организации (ADB, EBRD, IsDB, AIIB, USAID, GIZ, JICA, KOICA)
 - **Фаза D:** агрегаторы как бэкап (dgMarket, DevelopmentAid)
 - Интеграция алертов в Brain Bot (скилл `/тендеры`)
-- Добавить фильтр по региону/сумме в алертах
-- Расширить false-positive exclusions ("bosma" + контекст)
 
 ---
 
