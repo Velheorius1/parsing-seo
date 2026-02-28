@@ -38,7 +38,8 @@ _RELEVANCE_PROMPT = """Ты фильтр релевантности тендер
 Название: {title}
 Заказчик: {organization}
 
-Ответь ОДНИМ словом: YES или NO"""
+Ответь ОДНИМ словом: YES или NO
+/no_think"""
 
 
 async def _ai_check_relevance(
@@ -63,7 +64,7 @@ async def _ai_check_relevance(
             json={
                 "model": settings.ai_relevance_model,
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 10,
+                "max_tokens": 20,
                 "temperature": 0,
             },
             timeout=15,
@@ -73,7 +74,16 @@ async def _ai_check_relevance(
             return True  # on error, let it through
 
         data = resp.json()
-        answer = data["choices"][0]["message"]["content"].strip().upper()
+        raw_answer = data["choices"][0]["message"]["content"] or ""
+        # Strip Qwen3 thinking tags if present
+        answer = raw_answer.strip()
+        if "<think>" in answer:
+            # Remove <think>...</think> block
+            import re as _re
+            answer = _re.sub(r"<think>.*?</think>", "", answer, flags=_re.DOTALL).strip()
+        answer = answer.upper()
+        if not answer:
+            return True  # empty answer = let it through
         is_relevant = answer.startswith("YES")
         if not is_relevant:
             logger.info("[AI Filter] REJECTED: %s (answer=%s)", tender.title[:60], answer)
