@@ -1195,7 +1195,7 @@ sources:
   - id: navoi-gmk
     name: "Навоий ГМК"
     adapter: html
-    enabled: true
+    enabled: false  # Последние записи 2024 — нет актуальных тендеров
     url: "https://actual.ngmk.uz/ru/home/pressa/603-auctions-and-tenders-.html"
     method: GET
     headers:
@@ -1266,7 +1266,7 @@ sources:
   - id: het-energy-fixed
     name: "Региональные электросети (HET)"
     adapter: html
-    enabled: true
+    enabled: false  # Пустые заголовки, нет актуальных тендеров
     url: "https://www.het.uz/ru/lists/category/11"
     method: GET
     headers:
