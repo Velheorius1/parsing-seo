@@ -1101,8 +1101,8 @@ sources:
   - id: uzsuv
     name: "Узсувтаъминот"
     adapter: html
-    enabled: true
-    url: "https://uzsuv.uz/en/tenderss/"
+    enabled: false  # SPA (Nuxt.js) — needs Playwright SPA adapter
+    url: "https://uzsuv.uz/ru/tenderss"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
@@ -1124,9 +1124,9 @@ sources:
   # — Госорганы —
 
   - id: het-energy
-    name: "Региональные электросети (HET)"
+    name: "Региональные электросети (HET) OLD"
     adapter: html
-    enabled: true
+    enabled: false  # Replaced by het-energy-fixed with correct selectors
     url: "https://www.het.uz/ru/lists/category/11"
     method: GET
     headers:
@@ -1149,8 +1149,8 @@ sources:
   - id: uzcaa
     name: "Агентство гражданской авиации"
     adapter: html
-    enabled: true
-    url: "https://www.uzcaa.uz/ru/tenders"
+    enabled: false  # SSL cert mismatch + 404 on /ru/tenders
+    url: "https://caa.uz/ru/tenders/"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
@@ -1172,36 +1172,142 @@ sources:
   - id: agmk
     name: "АГМК (Алмалык ГМК)"
     adapter: html
-    enabled: false
-    url: "https://agmk.uz/tenders"
+    enabled: true
+    url: "https://agmk.uz/ru/tenders"
     method: GET
     headers:
-      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
     rate_limit: 1.0
     timeout: 15
     id_prefix: "agmk"
     html_selectors:
-      container: ".tender-item, .news-item, article"
-      title: "h3, .title, a"
-      deadline: ".date, time"
-      link: "a[href]"
+      container: ".news-inner__item"
+      title: "p"
+      deadline: ""
+      link: ""
+    field_map:
+      title: title
+      organization: "АГМК (Алмалык ГМК)"
+      deadline: deadline
+      source_url_template: "https://agmk.uz/ru/tenders"
+    keywords_fields: [title]
 
   - id: navoi-gmk
     name: "Навоий ГМК"
     adapter: html
-    enabled: false
-    url: "https://ngmk.uz/tenders"
+    enabled: true
+    url: "https://actual.ngmk.uz/ru/home/pressa/603-auctions-and-tenders-.html"
     method: GET
     headers:
-      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
     rate_limit: 1.0
     timeout: 15
     id_prefix: "ngmk"
     html_selectors:
-      container: ".tender-item, .news-item, article"
-      title: "h3, .title, a"
-      deadline: ".date, time"
-      link: "a[href]"
+      container: "article"
+      title: "h2, h3, a"
+      deadline: ""
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Навоий ГМК"
+      deadline: deadline
+      source_url_template: "https://actual.ngmk.uz{link}"
+    keywords_fields: [title]
+
+  # — Новые источники (Фаза B+) —
+
+  - id: sqb
+    name: "Узпромстройбанк (SQB)"
+    adapter: html
+    enabled: true
+    url: "https://sqb.uz/press-center/tenders-ru/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "sqb"
+    html_selectors:
+      container: ".news-item"
+      title: "div.news-title a"
+      deadline: "div.news-date"
+      link: "div.news-title a@href"
+    field_map:
+      title: title
+      organization: "Узпромстройбанк"
+      deadline: deadline
+      source_url_template: "https://sqb.uz{link}"
+    keywords_fields: [title]
+
+  - id: uzbekistonmet
+    name: "Узбекистон металлургия комбинати"
+    adapter: html
+    enabled: true
+    url: "https://www.uzbekistonmet.uz/ru/lists/category/14"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "uzmet"
+    html_selectors:
+      container: ".news_box"
+      title: "a"
+      deadline: "ul.date_time li"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Узбекистон металлургия комбинати"
+      deadline: deadline
+      source_url_template: "https://www.uzbekistonmet.uz{link}"
+    keywords_fields: [title]
+
+  - id: het-energy-fixed
+    name: "Региональные электросети (HET)"
+    adapter: html
+    enabled: true
+    url: "https://www.het.uz/ru/lists/category/11"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "het2"
+    html_selectors:
+      container: ".news_box"
+      title: "a"
+      deadline: "ul.date_time li"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Региональные электросети"
+      deadline: deadline
+      source_url_template: "https://www.het.uz{link}"
+    keywords_fields: [title]
+
+  - id: gov-eco-tenders
+    name: "Минэкономики (тендеры)"
+    adapter: html
+    enabled: true
+    url: "https://gov.uz/ru/eco/pages/tenderlar"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "goveco"
+    html_selectors:
+      container: "table tbody tr"
+      title: "td"
+      deadline: ""
+      link: "td a@href"
+    field_map:
+      title: title
+      organization: "Минэкономики РУз"
+      deadline: deadline
+      source_url_template: "{link}"
+    keywords_fields: [title]
 
   # ── Disabled / requires auth ─────────────────────────────────────
 
