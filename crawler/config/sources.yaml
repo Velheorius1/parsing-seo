@@ -615,9 +615,9 @@ sources:
     timeout: 20
     id_prefix: "ipbnk"
     html_selectors:
-      container: "a[href*='/about/tenders/']"
-      title: ""
-      deadline: ""
+      container: "a.home-news-card"
+      title: "div.home-news-card__title"
+      deadline: "div.home-news-card__meta"
       link: "@href"
     field_map:
       title: title
@@ -776,10 +776,10 @@ sources:
     timeout: 20
     id_prefix: "nbu"
     html_selectors:
-      container: "div.newsfeed_01_content-wrapp"
-      title: "a"
+      container: "a.newsfeed_01_news-item"
+      title: "div.newsfeed_01_news-title"
       deadline: ""
-      link: "a@href"
+      link: "@href"
     field_map:
       title: title
       organization: "НБУ"
@@ -1003,7 +1003,7 @@ sources:
   - id: ucell
     name: "Ucell (COSCOM)"
     adapter: html
-    enabled: true
+    enabled: false  # 308 redirect to /partners — procurement page removed
     url: "https://ucell.uz/ru/procurement"
     method: GET
     headers:
