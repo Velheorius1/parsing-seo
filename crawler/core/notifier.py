@@ -1,5 +1,9 @@
-"""Telegram alert notifier — sends new matching tenders to a Telegram chat."""
+"""Telegram alert notifier — sends new matching tenders to a Telegram chat.
 
+Pipeline: keyword match → AI relevance check (Qwen via OpenRouter) → send.
+"""
+
+import json
 import logging
 from typing import List, Optional, Tuple
 
@@ -9,6 +13,75 @@ from crawler.config.settings import settings
 from crawler.core.models import RawTender
 
 logger = logging.getLogger(__name__)
+
+# ── AI relevance filter ──────────────────────────────────────────
+
+_RELEVANCE_PROMPT = """Ты фильтр релевантности тендеров для типографии/упаковочной компании в Узбекистане.
+
+Компания производит: упаковка, коробки, этикетки, полиграфия, печатная продукция, каталоги, брошюры, книги, блокноты, календари, пакеты, конверты, папки, сувенирная продукция, стенды, вывески, плакаты.
+
+Оцени тендер — реально ли он связан с продукцией компании?
+
+НЕРЕЛЕВАНТНЫЕ примеры (отклонить):
+- "по пакету №SCEEP/OCB-G10" — "пакет" = номер пакета документов, НЕ упаковка
+- "печать документов", "печать справок" — канцелярская печать, НЕ типография
+- "бульдозеры", "мусоровозы", "экскаваторы" — техника
+- "автотранспорт для нужд проекта" — транспорт
+- "календарных дней" — время, не продукт
+
+РЕЛЕВАНТНЫЕ примеры (пропустить):
+- "печать каталога", "изготовление коробок" — прямой заказ
+- "поставка этикеток", "производство упаковки" — продукция компании
+- "полиграфические услуги", "типографские работы"
+
+Тендер:
+Название: {title}
+Заказчик: {organization}
+
+Ответь ОДНИМ словом: YES или NO"""
+
+
+async def _ai_check_relevance(
+    tender: RawTender,
+    client: httpx.AsyncClient,
+) -> bool:
+    """Check tender relevance via Qwen (OpenRouter). Returns True if relevant."""
+    if not settings.openrouter_api_key:
+        return True  # no key = skip filter, send all
+
+    prompt = _RELEVANCE_PROMPT.format(
+        title=tender.title[:300],
+        organization=tender.organization or "",
+    )
+
+    try:
+        resp = await client.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": "Bearer %s" % settings.openrouter_api_key,
+            },
+            json={
+                "model": settings.ai_relevance_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 10,
+                "temperature": 0,
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            logger.warning("[AI Filter] OpenRouter %d: %s", resp.status_code, resp.text[:100])
+            return True  # on error, let it through
+
+        data = resp.json()
+        answer = data["choices"][0]["message"]["content"].strip().upper()
+        is_relevant = answer.startswith("YES")
+        if not is_relevant:
+            logger.info("[AI Filter] REJECTED: %s (answer=%s)", tender.title[:60], answer)
+        return is_relevant
+
+    except Exception as exc:
+        logger.warning("[AI Filter] Error: %s", str(exc)[:80])
+        return True  # on error, let it through
 
 # Minimum stem length for fuzzy matching (Russian word roots)
 _MIN_STEM = 4
@@ -141,6 +214,21 @@ async def send_alerts(
         for t, kw in matching:
             logger.info("[Alerts] DRY RUN would send: [%s] %s", kw, t.title[:80])
         return len(matching)
+
+    # AI relevance filter — reject false positives via Qwen
+    if settings.openrouter_api_key:
+        filtered = []  # type: List[Tuple[RawTender, str]]
+        async with httpx.AsyncClient(timeout=15) as ai_client:
+            for tender, kw in matching:
+                if await _ai_check_relevance(tender, ai_client):
+                    filtered.append((tender, kw))
+        rejected = len(matching) - len(filtered)
+        if rejected:
+            logger.info("[AI Filter] Passed %d / %d (rejected %d)", len(filtered), len(matching), rejected)
+        matching = filtered
+        if not matching:
+            logger.info("[Alerts] All tenders rejected by AI filter")
+            return 0
 
     # Send via Telegram Bot API (no Telethon needed — just HTTP)
     bot_url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
