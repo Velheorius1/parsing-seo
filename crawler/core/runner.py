@@ -136,12 +136,25 @@ async def run(
     logger.info("Upserted %d / %d tenders to Supabase (%d new)", upserted, total, len(new_tenders))
 
     # Send Telegram alerts for new matching tenders
+    alerts_sent = 0
     if new_tenders:
         from crawler.core.notifier import send_alerts
 
         alerts_sent = await send_alerts(new_tenders, dry_run=dry_run)
         if alerts_sent:
             logger.info("Sent %d Telegram alerts", alerts_sent)
+
+    # Healthcheck — notify about new tenders or errors
+    if not dry_run:
+        from crawler.core.notifier import send_healthcheck
+
+        errors = [
+            sid for sid, result in zip(
+                [a.config.id for a in all_adapters], all_results
+            )
+            if isinstance(result, Exception)
+        ]
+        await send_healthcheck(stats, len(new_tenders), alerts_sent, errors)
 
     return stats
 

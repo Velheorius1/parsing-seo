@@ -255,3 +255,51 @@ async def send_alerts(
 
     logger.info("[Alerts] Sent %d / %d alerts", sent, len(matching))
     return sent
+
+
+async def send_healthcheck(
+    stats: dict,
+    new_count: int,
+    alerts_sent: int,
+    errors: List[str] = None,
+) -> None:
+    """Send crawl summary to Telegram (silent, no notification sound).
+
+    Only sends if there are errors or new tenders. Silent crawls with
+    0 new tenders don't generate noise.
+    """
+    if not settings.telegram_bot_token or not settings.telegram_alert_chat_id:
+        return
+
+    total = sum(stats.values())
+    sources_ok = sum(1 for v in stats.values() if v > 0)
+    sources_fail = sum(1 for v in stats.values() if v == 0)
+
+    # Skip quiet runs — no need to spam
+    if not errors and new_count == 0:
+        return
+
+    parts = []  # type: List[str]
+    parts.append("Crawl: %d тендеров (%d источников)" % (total, sources_ok))
+    if new_count:
+        parts.append("Новых: %d" % new_count)
+    if alerts_sent:
+        parts.append("Алертов: %d" % alerts_sent)
+    if sources_fail:
+        failed = [k for k, v in stats.items() if v == 0]
+        parts.append("0 items: %s" % ", ".join(failed[:5]))
+    if errors:
+        parts.append("Ошибки: %s" % "; ".join(errors[:3]))
+
+    text = "\n".join(parts)
+
+    bot_url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(bot_url, json={
+                "chat_id": settings.telegram_alert_chat_id,
+                "text": text,
+                "disable_notification": True,
+            })
+    except Exception as exc:
+        logger.warning("[Healthcheck] Failed to send: %s", str(exc)[:80])
