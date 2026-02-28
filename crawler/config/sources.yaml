@@ -537,7 +537,7 @@ sources:
   - id: agrobank
     name: "Агробанк"
     adapter: html
-    enabled: true
+    enabled: false  # SPA (noscript) — needs Playwright
     url: "https://agrobank.uz/ru/xarid-tender"
     method: GET
     headers:
@@ -560,7 +560,7 @@ sources:
   - id: kapitalbank
     name: "Капиталбанк"
     adapter: html
-    enabled: true
+    enabled: false  # 403 Forbidden — blocks bots
     url: "https://www.kapitalbank.uz/ru/press_center/tenders/all/"
     method: GET
     headers:
@@ -583,7 +583,7 @@ sources:
   - id: aloqabank
     name: "Алокабанк"
     adapter: html
-    enabled: true
+    enabled: false  # Page shows press center, not tenders
     url: "https://aloqabank.uz/ru/press_center/tenders/all/"
     method: GET
     headers:
@@ -607,7 +607,7 @@ sources:
     name: "Ипотека-банк"
     adapter: html
     enabled: true
-    url: "https://ipotekabank.uz/tenders/"
+    url: "https://ipotekabank.uz/ru/about/tenders"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
@@ -615,10 +615,10 @@ sources:
     timeout: 20
     id_prefix: "ipbnk"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
-      link: "a@href"
+      container: "a[href*='/about/tenders/']"
+      title: ""
+      deadline: ""
+      link: "@href"
     field_map:
       title: title
       organization: "Ипотека-банк"
@@ -638,10 +638,10 @@ sources:
     timeout: 20
     id_prefix: "hmkbnk"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
-      link: "a@href"
+      container: "div.wraps"
+      title: "a[href*='/press-center/tenders/'] span:nth-match(2)"
+      deadline: ""
+      link: "a[href*='/press-center/tenders/']@href"
     field_map:
       title: title
       organization: "Хамкорбанк"
@@ -652,7 +652,7 @@ sources:
   - id: turonbank
     name: "Туронбанк"
     adapter: html
-    enabled: true
+    enabled: false  # Page shows press center, not tenders
     url: "https://turonbank.uz/ru/press_center/tenders/"
     method: GET
     headers:
@@ -744,7 +744,7 @@ sources:
   - id: anorbank
     name: "Anor Bank"
     adapter: html
-    enabled: true
+    enabled: false  # 403 Forbidden
     url: "https://www.anorbank.uz/about/press-center/tendery/"
     method: GET
     headers:
@@ -768,7 +768,7 @@ sources:
     name: "НБУ (Нац. банк ВЭД)"
     adapter: html
     enabled: true
-    url: "https://nbu.uz/tenders/"
+    url: "https://nbu.uz/ru/tendery"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
@@ -776,9 +776,9 @@ sources:
     timeout: 20
     id_prefix: "nbu"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item, .card"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
+      container: "div.newsfeed_01_content-wrapp"
+      title: "a"
+      deadline: ""
       link: "a@href"
     field_map:
       title: title
@@ -792,7 +792,7 @@ sources:
   - id: uzbekinvest
     name: "Узбекинвест"
     adapter: html
-    enabled: true
+    enabled: false  # Connection error
     url: "https://uzbekinvest.uz/ru/tender"
     method: GET
     headers:
@@ -817,7 +817,7 @@ sources:
   - id: lukoil-uz
     name: "ЛУКОЙЛ Узбекистан"
     adapter: html
-    enabled: true
+    enabled: false  # Tenders on lukoil.ru (parent), not UZ site
     url: "https://lukoil-international.uz/ru/About/Tenders"
     method: GET
     headers:
@@ -840,7 +840,7 @@ sources:
   - id: uzbekenergo
     name: "Узбекэнерго"
     adapter: html
-    enabled: true
+    enabled: false  # DNS error — site down
     url: "http://www.uzbekenergo.uz/ru/activities/tenders/all/"
     method: GET
     headers:
@@ -872,10 +872,10 @@ sources:
     timeout: 20
     id_prefix: "uzkimyo"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item, .card"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
-      link: "a@href"
+      container: "div.article-view"
+      title: "h3"
+      deadline: ""
+      link: "h3 a@href"
     field_map:
       title: title
       organization: "Узкимёсаноат"
@@ -1012,15 +1012,15 @@ sources:
     timeout: 20
     id_prefix: "ucell"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item, .card"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
-      link: "a@href"
+      container: "a[href*='tender.ucell.uz']"
+      title: ""
+      deadline: ""
+      link: "@href"
     field_map:
       title: title
-      organization: "Ucell"
+      organization: "Ucell (COSCOM)"
       deadline: deadline
-      source_url_template: "https://ucell.uz{link}"
+      source_url_template: "{link}"
     keywords_fields: [title]
 
   # — Транспорт —
@@ -1053,7 +1053,7 @@ sources:
   - id: tender-mc
     name: "Минстрой (tender.mc.uz)"
     adapter: html
-    enabled: true
+    enabled: false  # SPA — needs Playwright
     url: "https://tender.mc.uz/"
     method: GET
     headers:
@@ -1076,7 +1076,7 @@ sources:
   - id: fdg
     name: "FDG (First Development Group)"
     adapter: html
-    enabled: true
+    enabled: false  # 403 Forbidden
     url: "https://fdg.uz/tender"
     method: GET
     headers:
