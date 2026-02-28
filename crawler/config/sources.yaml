@@ -331,7 +331,204 @@ sources:
     telegram_limit: 100
     rate_limit: 1.0
 
+  # ── Новые TG каналы (Фаза A — февраль 2026) ─────────────────────
+
+  - id: tg-undp-uzb
+    name: "TG: UNDP UZB Tenders"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-undp"
+    telegram_channel: "@undp_uzb_tenders"
+    telegram_limit: 100
+    rate_limit: 1.0
+
+  - id: tg-prom-zakupki
+    name: "TG: Закупки Prom.uz"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-prom"
+    telegram_channel: "@prom_zakupki"
+    telegram_limit: 100
+    rate_limit: 1.0
+
+  - id: tg-xarid-uzex
+    name: "TG: UZEX Xarid Official"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-xuze"
+    telegram_channel: "@xarid_uzex_uzasbo_uz"
+    telegram_limit: 100
+    rate_limit: 1.0
+
+  - id: tg-uzex
+    name: "TG: UZEX Биржа"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-uzex"
+    telegram_channel: "@uzexuz"
+    telegram_limit: 100
+    rate_limit: 1.0
+
+  - id: tg-minstroy
+    name: "TG: Минстрой"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-mstr"
+    telegram_channel: "@minstroyuz"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-mintrans
+    name: "TG: Минтранс"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-mtrn"
+    telegram_channel: "@Mintrans_uz"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-minenergy
+    name: "TG: Минэнерго"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-meng"
+    telegram_channel: "@minenergy_uz"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-kommunal
+    name: "TG: Мин ЖКХ"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-komm"
+    telegram_channel: "@kommunaluzb"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-minzdrav
+    name: "TG: Минздрав"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-mzdv"
+    telegram_channel: "@ssvuz"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-mitc
+    name: "TG: Мин ИТ"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-mitc"
+    telegram_channel: "@mitcuz"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-mift
+    name: "TG: Мин инвестиций"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-mift"
+    telegram_channel: "@MIFT_UZ"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-agro-ministry
+    name: "TG: Мин сельхоз"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-agro"
+    telegram_channel: "@uzagroministry"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-eco
+    name: "TG: Комитет экологии"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-ecol"
+    telegram_channel: "@ecogovuz"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-uzbekneftegaz
+    name: "TG: Узбекнефтегаз"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-ungz"
+    telegram_channel: "@ao_uzbekneftegaz"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-uztelecom
+    name: "TG: Узтелеком"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-uztl"
+    telegram_channel: "@uztelecomuz"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-hamkorbank
+    name: "TG: Хамкорбанк"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-hmkr"
+    telegram_channel: "@Hamkorbankuz"
+    telegram_limit: 50
+    rate_limit: 1.0
+
+  - id: tg-statefund
+    name: "TG: Фонд предпринимательства"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-sfnd"
+    telegram_channel: "@statefund_uz"
+    telegram_limit: 50
+    rate_limit: 1.0
+
   # ── Крупные компании (disabled — нужна верификация) ──────────────
+
+  - id: tashkent-steel
+    name: "Tashkent Steel (ТМЗ)"
+    adapter: html
+    enabled: true
+    url: "https://xarid.tashkentsteel.uz/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+      Accept-Language: "ru,uz;q=0.9"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "tmz"
+    html_selectors:
+      container: "a[href*='/lot/']"
+      title: "h3.elementor-heading-title"
+      deadline: ".elementor-countdown-wrapper"
+      link: "@href"
+    field_map:
+      title: title
+      organization: "Tashkent Steel (ТМЗ)"
+      deadline: deadline
+      source_url_template: "{link}"
+    keywords_fields: [title]
 
   - id: agmk
     name: "АГМК (Алмалык ГМК)"
