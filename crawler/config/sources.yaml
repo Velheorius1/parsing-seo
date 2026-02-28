@@ -520,14 +520,653 @@ sources:
     id_prefix: "tmz"
     html_selectors:
       container: "a[href*='/lot/']"
-      title: "h3.elementor-heading-title"
-      deadline: ".elementor-countdown-wrapper"
+      title: "h2.elementor-heading-title:nth-match(4)"
+      deadline: "h2.elementor-heading-title:nth-match(8)"
       link: "@href"
     field_map:
       title: title
       organization: "Tashkent Steel (ТМЗ)"
       deadline: deadline
       source_url_template: "{link}"
+    keywords_fields: [title]
+
+  # ── Фаза B: Компании с сайтами тендеров ─────────────────────────
+
+  # — Банки —
+
+  - id: agrobank
+    name: "Агробанк"
+    adapter: html
+    enabled: true
+    url: "https://agrobank.uz/ru/xarid-tender"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "agro-b"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, tr"
+      title: "h3, h2, .title, a, td:nth-child(2)"
+      deadline: ".date, time, td:nth-child(3)"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Агробанк"
+      deadline: deadline
+      source_url_template: "https://agrobank.uz{link}"
+    keywords_fields: [title]
+
+  - id: kapitalbank
+    name: "Капиталбанк"
+    adapter: html
+    enabled: true
+    url: "https://www.kapitalbank.uz/ru/press_center/tenders/all/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "kapbnk"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .list-item"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Капиталбанк"
+      deadline: deadline
+      source_url_template: "https://www.kapitalbank.uz{link}"
+    keywords_fields: [title]
+
+  - id: aloqabank
+    name: "Алокабанк"
+    adapter: html
+    enabled: true
+    url: "https://aloqabank.uz/ru/press_center/tenders/all/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "aloqa"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .list-item"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Алокабанк"
+      deadline: deadline
+      source_url_template: "https://aloqabank.uz{link}"
+    keywords_fields: [title]
+
+  - id: ipoteka-bank
+    name: "Ипотека-банк"
+    adapter: html
+    enabled: true
+    url: "https://ipotekabank.uz/tenders/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "ipbnk"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Ипотека-банк"
+      deadline: deadline
+      source_url_template: "https://ipotekabank.uz{link}"
+    keywords_fields: [title]
+
+  - id: hamkorbank
+    name: "Хамкорбанк"
+    adapter: html
+    enabled: true
+    url: "https://hamkorbank.uz/press-center/tenders/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "hmkbnk"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Хамкорбанк"
+      deadline: deadline
+      source_url_template: "https://hamkorbank.uz{link}"
+    keywords_fields: [title]
+
+  - id: turonbank
+    name: "Туронбанк"
+    adapter: html
+    enabled: true
+    url: "https://turonbank.uz/ru/press_center/tenders/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "turon"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Туронбанк"
+      deadline: deadline
+      source_url_template: "https://turonbank.uz{link}"
+    keywords_fields: [title]
+
+  - id: sqb
+    name: "Узпромстройбанк (SQB)"
+    adapter: html
+    enabled: true
+    url: "https://sqb.uz/press-center/tenders-ru/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "sqb"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Узпромстройбанк"
+      deadline: deadline
+      source_url_template: "https://sqb.uz{link}"
+    keywords_fields: [title]
+
+  - id: trustbank
+    name: "Трастбанк"
+    adapter: html
+    enabled: true
+    url: "https://trustbank.uz/ru/press_center/tenders/last/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "trust"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Трастбанк"
+      deadline: deadline
+      source_url_template: "https://trustbank.uz{link}"
+    keywords_fields: [title]
+
+  - id: aab
+    name: "Asia Alliance Bank"
+    adapter: html
+    enabled: true
+    url: "https://aab.uz/ru/press_center/tenders/current/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "aab"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Asia Alliance Bank"
+      deadline: deadline
+      source_url_template: "https://aab.uz{link}"
+    keywords_fields: [title]
+
+  - id: anorbank
+    name: "Anor Bank"
+    adapter: html
+    enabled: true
+    url: "https://www.anorbank.uz/about/press-center/tendery/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "anor"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Anor Bank"
+      deadline: deadline
+      source_url_template: "https://www.anorbank.uz{link}"
+    keywords_fields: [title]
+
+  - id: nbu
+    name: "НБУ (Нац. банк ВЭД)"
+    adapter: html
+    enabled: true
+    url: "https://nbu.uz/tenders/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "nbu"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "НБУ"
+      deadline: deadline
+      source_url_template: "https://nbu.uz{link}"
+    keywords_fields: [title]
+
+  # — Страхование —
+
+  - id: uzbekinvest
+    name: "Узбекинвест"
+    adapter: html
+    enabled: true
+    url: "https://uzbekinvest.uz/ru/tender"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "uinv"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Узбекинвест"
+      deadline: deadline
+      source_url_template: "https://uzbekinvest.uz{link}"
+    keywords_fields: [title]
+
+  # — Промышленность —
+
+  - id: lukoil-uz
+    name: "ЛУКОЙЛ Узбекистан"
+    adapter: html
+    enabled: true
+    url: "https://lukoil-international.uz/ru/About/Tenders"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "lukoil"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card, tr"
+      title: "h3, h2, .title, a, td:nth-child(1)"
+      deadline: ".date, time, td:nth-child(3)"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "ЛУКОЙЛ Узбекистан"
+      deadline: deadline
+      source_url_template: "https://lukoil-international.uz{link}"
+    keywords_fields: [title]
+
+  - id: uzbekenergo
+    name: "Узбекэнерго"
+    adapter: html
+    enabled: true
+    url: "http://www.uzbekenergo.uz/ru/activities/tenders/all/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "uzeng"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Узбекэнерго"
+      deadline: deadline
+      source_url_template: "http://www.uzbekenergo.uz{link}"
+    keywords_fields: [title]
+
+  - id: uzkimyo
+    name: "Узкимёсаноат"
+    adapter: html
+    enabled: true
+    url: "https://uzkimyosanoat.uz/ru/press/tender"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "uzkimyo"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Узкимёсаноат"
+      deadline: deadline
+      source_url_template: "https://uzkimyosanoat.uz{link}"
+    keywords_fields: [title]
+
+  - id: uzsm
+    name: "УЗСМ (Металлургия)"
+    adapter: html
+    enabled: true
+    url: "https://uzsm.uz/ru/activities/tenders/all/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "uzsm"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "УЗСМ"
+      deadline: deadline
+      source_url_template: "https://uzsm.uz{link}"
+    keywords_fields: [title]
+
+  - id: utg
+    name: "Узтрансгаз"
+    adapter: html
+    enabled: true
+    url: "https://www.utg.uz/ru/business/zakup/tendery/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "utg"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card, tr"
+      title: "h3, h2, .title, a, td:nth-child(1)"
+      deadline: ".date, time, td:nth-child(3)"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Узтрансгаз"
+      deadline: deadline
+      source_url_template: "https://www.utg.uz{link}"
+    keywords_fields: [title]
+
+  - id: uz-kor
+    name: "Уз-Кор Газ Кимё"
+    adapter: html
+    enabled: true
+    url: "https://www.uz-kor.com/index.php/ru/tendery"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "uzkor"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card, tr"
+      title: "h3, h2, .title, a, td:nth-child(1)"
+      deadline: ".date, time, td:nth-child(2)"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Уз-Кор Газ Кимё"
+      deadline: deadline
+      source_url_template: "https://www.uz-kor.com{link}"
+    keywords_fields: [title]
+
+  - id: fnpz
+    name: "Ферганский НПЗ"
+    adapter: html
+    enabled: true
+    url: "https://www.fnpz.uz/ru/zakupki"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "fnpz"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Ферганский НПЗ"
+      deadline: deadline
+      source_url_template: "https://www.fnpz.uz{link}"
+    keywords_fields: [title]
+
+  # — Телеком —
+
+  - id: mobiuz
+    name: "Mobiuz"
+    adapter: html
+    enabled: true
+    url: "https://company.mobi.uz/ru/purchase/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "mobiuz"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Mobiuz"
+      deadline: deadline
+      source_url_template: "https://company.mobi.uz{link}"
+    keywords_fields: [title]
+
+  - id: ucell
+    name: "Ucell (COSCOM)"
+    adapter: html
+    enabled: true
+    url: "https://ucell.uz/ru/procurement"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "ucell"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Ucell"
+      deadline: deadline
+      source_url_template: "https://ucell.uz{link}"
+    keywords_fields: [title]
+
+  # — Транспорт —
+
+  - id: railway
+    name: "Узбекистон темир йуллари (ЖД)"
+    adapter: html
+    enabled: true
+    url: "https://railway.uz/ru/informatsionnaya_sluzhba/tendery/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "railw"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card, tr"
+      title: "h3, h2, .title, a, td:nth-child(1)"
+      deadline: ".date, time, td:nth-child(3)"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Ўзбекистон темир йўллари"
+      deadline: deadline
+      source_url_template: "https://railway.uz{link}"
+    keywords_fields: [title]
+
+  # — Строительство —
+
+  - id: tender-mc
+    name: "Минстрой (tender.mc.uz)"
+    adapter: html
+    enabled: true
+    url: "https://tender.mc.uz/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "mstroy"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card, tr"
+      title: "h3, h2, .title, a, td:nth-child(1)"
+      deadline: ".date, time, td:nth-child(3)"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Минстрой"
+      deadline: deadline
+      source_url_template: "https://tender.mc.uz{link}"
+    keywords_fields: [title]
+
+  - id: fdg
+    name: "FDG (First Development Group)"
+    adapter: html
+    enabled: true
+    url: "https://fdg.uz/tender"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "fdg"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "FDG"
+      deadline: deadline
+      source_url_template: "https://fdg.uz{link}"
+    keywords_fields: [title]
+
+  # — Водоснабжение —
+
+  - id: uzsuv
+    name: "Узсувтаъминот"
+    adapter: html
+    enabled: true
+    url: "https://uzsuv.uz/en/tenderss/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "uzsuv"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Узсувтаъминот"
+      deadline: deadline
+      source_url_template: "https://uzsuv.uz{link}"
+    keywords_fields: [title]
+
+  # — Госорганы —
+
+  - id: het-energy
+    name: "Региональные электросети (HET)"
+    adapter: html
+    enabled: true
+    url: "https://www.het.uz/ru/lists/category/11"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "het"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Региональные электросети"
+      deadline: deadline
+      source_url_template: "https://www.het.uz{link}"
+    keywords_fields: [title]
+
+  - id: uzcaa
+    name: "Агентство гражданской авиации"
+    adapter: html
+    enabled: true
+    url: "https://www.uzcaa.uz/ru/tenders"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "uzcaa"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .item, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "UZCAA"
+      deadline: deadline
+      source_url_template: "https://www.uzcaa.uz{link}"
     keywords_fields: [title]
 
   - id: agmk

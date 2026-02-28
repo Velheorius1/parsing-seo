@@ -5,8 +5,8 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 4,869+ тендеров, 12 источников, Telegram-алерты с фильтрацией
-Дата обновления: 27 февраля 2026
+Фаза: Production — 4,869+ тендеров, 29 источников (22 TG + 7 web), Telegram-алерты с фильтрацией
+Дата обновления: 28 февраля 2026
 
 ### Что работает
 - SEO: Yandex Suggest, парсинг сайта по URL, SiteAnalyzer, CSV экспорт, Supabase
@@ -15,7 +15,7 @@
   - API (httpx): ETender, Xarid Competitions, Xarid Direct, World Bank, ETender Discussion
   - HTML (BeautifulSoup): UZ Airways, UNDP, UNGM
   - SPA (Playwright): xt-xarid.uz
-  - **Telegram (Telethon)**: @TENDERS_BeelineUZB, @goszakupki_uz, @davlatxaridlar, @tenderweekcom, @Tenderuzbekistan1
+  - **Telegram (Telethon)**: 22 канала — 5 тендерных + 9 министерств + 4 компании + @undp_uzb_tenders и др.
 - **Telegram-алерты (Фаза 2)**: бот @tender_alerts_uz_bot, 37 ключевых слов
   - Word-boundary стемминг (нет ложных: "зонт" в "горизонтал")
   - False-positive exclusions ("календар кун" = время, не продукт)
@@ -30,7 +30,9 @@
 - "bosma" ключевое слово — ложное срабатывание на "bosma fabrikasi" (пожарка)
 
 ### Следующие шаги
-- Фаза 3: Расширить на международные организации (UNICEF, ADB, EBRD)
+- **Фаза B:** топ-20 компаний с сайтами тендеров (НГМК, ЛУКОЙЛ, Узтрансгаз, банки)
+- **Фаза C:** международные организации (ADB, EBRD, IsDB, AIIB)
+- **Фаза D:** агрегаторы как бэкап (dgMarket, DevelopmentAid)
 - Интеграция алертов в Brain Bot (скилл `/тендеры`)
 - Добавить фильтр по региону/сумме в алертах
 - Расширить false-positive exclusions ("bosma" + контекст)

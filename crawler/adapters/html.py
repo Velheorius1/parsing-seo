@@ -262,8 +262,20 @@ class HtmlAdapter(BaseAdapter):
                 val = container.get(attr_name)
                 return _safe_str(val)
 
+        # Handle :nth-match(N) — select Nth element (0-indexed)
+        nth_match = None  # type: Optional[int]
+        nth_re = re.match(r"^(.+):nth-match\((\d+)\)$", selector)
+        if nth_re:
+            selector = nth_re.group(1)
+            nth_match = int(nth_re.group(2))
+
         # Select element
-        el = container.select_one(selector)
+        if nth_match is not None:
+            els = container.select(selector)
+            el = els[nth_match] if nth_match < len(els) else None
+        else:
+            el = container.select_one(selector)
+
         if el is None:
             return ""
 
