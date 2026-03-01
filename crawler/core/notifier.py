@@ -1,10 +1,11 @@
 """Telegram alert notifier — sends new matching tenders to a Telegram chat.
 
-Pipeline: keyword match → AI relevance check (Qwen via OpenRouter) → send.
+Pipeline: deadline filter → keyword match → AI relevance check (Qwen via OpenRouter) → send.
 """
 
-import json
 import logging
+import re
+from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
 import httpx
@@ -81,6 +82,38 @@ async def _ai_check_relevance(
         logger.warning("[AI Filter] Error: %s", str(exc)[:80])
         return True  # on error, let it through
 
+# ── Deadline filter ──────────────────────────────────────────────
+
+# Common date patterns in tender deadlines
+_DATE_PATTERNS = [
+    (re.compile(r"(\d{2})\.(\d{2})\.(\d{4})"), "%d.%m.%Y"),   # 15.05.2023
+    (re.compile(r"(\d{4})-(\d{2})-(\d{2})"), "%Y-%m-%d"),     # 2023-05-15
+    (re.compile(r"(\d{2})/(\d{2})/(\d{4})"), "%d/%m/%Y"),     # 15/05/2023
+]
+
+
+def _parse_deadline(deadline_str: Optional[str]) -> Optional[datetime]:
+    """Try to parse a deadline string into a datetime. Returns None if unparseable."""
+    if not deadline_str:
+        return None
+    for pattern, fmt in _DATE_PATTERNS:
+        m = pattern.search(deadline_str)
+        if m:
+            try:
+                return datetime.strptime(m.group(0), fmt)
+            except ValueError:
+                continue
+    return None
+
+
+def _is_deadline_expired(tender: RawTender) -> bool:
+    """Check if tender deadline has already passed. Returns False if no deadline."""
+    dt = _parse_deadline(tender.deadline)
+    if dt is None:
+        return False  # no deadline or unparseable = let it through
+    return dt < datetime.utcnow() - timedelta(days=1)  # 1 day grace period
+
+
 # Minimum stem length for fuzzy matching (Russian word roots)
 _MIN_STEM = 4
 
@@ -156,12 +189,19 @@ def _find_matching_keyword(tender: RawTender, keywords: List[str]) -> Optional[s
     return None
 
 
+def _escape_md(text: str) -> str:
+    """Escape Markdown special chars for Telegram."""
+    for ch in ("*", "_", "`", "["):
+        text = text.replace(ch, "")
+    return text
+
+
 def _format_alert(tender: RawTender, matched_kw: str) -> str:
     """Format a single tender alert message for Telegram."""
     parts = []
-    parts.append("*%s*" % tender.title[:200].replace("*", ""))
+    parts.append("*%s*" % _escape_md(tender.title[:200]))
     if tender.organization:
-        parts.append("Заказчик: %s" % tender.organization)
+        parts.append("Заказчик: %s" % _escape_md(tender.organization))
     if tender.price:
         parts.append("Сумма: %s %s" % ("{:,.0f}".format(tender.price), tender.currency))
     if tender.deadline:
@@ -195,9 +235,15 @@ async def send_alerts(
         logger.debug("[Alerts] No keywords configured, skipping")
         return 0
 
-    # Filter matching tenders
+    # Filter out tenders with expired deadlines
+    active = [t for t in new_tenders if not _is_deadline_expired(t)]
+    expired_count = len(new_tenders) - len(active)
+    if expired_count:
+        logger.info("[Alerts] Skipped %d tenders with expired deadlines", expired_count)
+
+    # Filter matching tenders by keywords
     matching = []  # type: List[Tuple[RawTender, str]]
-    for t in new_tenders:
+    for t in active:
         kw = _find_matching_keyword(t, keywords)
         if kw:
             matching.append((t, kw))
