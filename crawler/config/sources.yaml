@@ -261,6 +261,68 @@ sources:
       link: "a.title"
     keywords_fields: []
 
+  - id: hayotbirja
+    name: "Hayot Birja"
+    adapter: spa
+    enabled: true
+    url: "https://hayotbirja.uz/procedure/tender"
+    rate_limit: 0.5
+    timeout: 45
+    id_prefix: "hayot"
+    wait_selector: ".data-view-item"
+    html_selectors:
+      container: ".data-view-item"
+      title: "a.title"
+      organization: ".description span"
+      price: "span[style]"
+      deadline: ".props time.iac-date"
+      link: "a.title"
+    keywords_fields: []
+
+  - id: ebirja-auction
+    name: "Ebirja Аукционы"
+    adapter: spa
+    enabled: true
+    url: "https://xarid.ebirja.uz/ru/auction"
+    rate_limit: 0.5
+    timeout: 45
+    id_prefix: "ebirja-auc"
+    wait_selector: "article.group"
+    html_selectors:
+      container: "article.group"
+      title: "h4"
+      organization: "p.text-v2-grey-80"
+      price: ""
+      deadline: ""
+      link: "a[href*='/auction/']"
+    keywords_fields: []
+
+  # cooperation.uz — GEO-BLOCKED from Russian VPS (46.62.155.190)
+  # Public REST API found (no auth). Need UZ proxy/VPS to use.
+  # API: GET /ocelot/api-client/Client/GetAllPlanSchedule?Skip=0&Take=500
+  # Returns 375k procurement plans with productName, companyName, etc.
+  - id: cooperation-plans
+    name: "Cooperation.uz Закупочные планы"
+    adapter: api
+    enabled: false  # GEO-BLOCKED: cooperation.uz blocks Russian IPs
+    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    method: GET
+    params:
+      Skip: 0
+      Take: 500
+    rate_limit: 2
+    timeout: 15
+    id_prefix: "coop"
+    response_path: "result.data"
+    field_map:
+      title: productName
+      organization: companyName
+      price: ""
+      currency: "UZS"
+      deadline: ""
+      external_id: id
+    keywords_fields: [productName, companyName]
+
   - id: agro-uzex
     name: "agro.uzex.uz"
     adapter: spa
