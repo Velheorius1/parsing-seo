@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Fetch cooperation.uz procurement plans and upsert to Supabase.
+"""Fetch cooperation.uz data and upsert to Supabase with Telegram alerts.
 
 Standalone script — runs from Mac (residential IP) since cooperation.uz
 blocks all datacenter/cloud IPs.
 
+Sources:
+  1. GetAllPlanSchedule — procurement plans (375k total, fetch newest 1500)
+  2. GetAllOffer — supplier offers / e-shop (63k total, fetch newest 1000)
+  3. GetLotsInTrade — active trade lots / reverse tenders (2.5k, fetch all)
+
 Usage:
-    python3 scripts/fetch_cooperation.py          # fetch & upsert + alerts
-    python3 scripts/fetch_cooperation.py --dry-run # fetch only, no DB
-    python3 scripts/fetch_cooperation.py --pages 5 # fetch 5 pages (default: 3)
+    python3 scripts/fetch_cooperation.py              # all sources
+    python3 scripts/fetch_cooperation.py --dry-run     # fetch only, no DB
+    python3 scripts/fetch_cooperation.py --source plans # only plans
+    python3 scripts/fetch_cooperation.py --source offers # only offers
+    python3 scripts/fetch_cooperation.py --source lots   # only lots
 
 Requires: pip install httpx supabase python-dotenv
 """
@@ -15,14 +22,11 @@ Requires: pip install httpx supabase python-dotenv
 import argparse
 import logging
 import os
-import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
-# Load .env from VPS-style .env or local .env.cooperation
 try:
     from dotenv import load_dotenv
-    # Try project-level .env first, then .env.cooperation
     env_file = os.path.join(os.path.dirname(__file__), '..', '.env.cooperation')
     if os.path.exists(env_file):
         load_dotenv(env_file)
@@ -41,18 +45,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Config ──────────────────────────────────────────────────────
-API_URL = 'https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule'
-PAGE_SIZE = 500
-SOURCE_NAME = 'Cooperation.uz Закупочные планы'
-ID_PREFIX = 'coop'
-
 SUPABASE_URL = os.getenv('SUPABASE_URL', '')
 SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
-
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID', '')
 
-# Same 37 keywords as crawler notifier
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+    'Accept': 'application/json',
+}
+
 ALERT_KEYWORDS = (
     'упаковка,полиграфия,гофра,коробка,печать,этикетка,типография,'
     'книга,книж,каталог,брошюр,блокнот,календар,пакет,конверт,папка,'
@@ -64,9 +66,10 @@ ALERT_KEYWORDS = (
 _MIN_STEM = 4
 
 
+# ── Keyword matching (same logic as crawler notifier) ───────────
+
 def _stem(word):
     # type: (str) -> str
-    """Crude Russian stemming."""
     if len(word) <= _MIN_STEM:
         return word
     for suffix in ('ция', 'ия', 'ка', 'ок', 'ей', 'ов', 'ть', 'ые', 'ой', 'ая', 'ое', 'а', 'о', 'е', 'и', 'у', 'ы'):
@@ -77,7 +80,6 @@ def _stem(word):
 
 def _word_start_match(text, stem):
     # type: (str, str) -> int
-    """Find stem at word boundary."""
     start = 0
     while True:
         idx = text.find(stem, start)
@@ -95,7 +97,6 @@ _FALSE_POSITIVES = {
 
 def _find_matching_keyword(title, search_text, keywords):
     # type: (str, str, List[str]) -> Optional[str]
-    """Return first matching keyword or None."""
     text = (search_text + ' ' + title).lower()
     for kw in keywords:
         stem = _stem(kw) if len(kw) > _MIN_STEM else kw
@@ -117,7 +118,6 @@ def _find_matching_keyword(title, search_text, keywords):
 
 def _extract_ru(obj):
     # type: (Any) -> str
-    """Extract Russian name from multilingual field like {uz:'', ru:'', ...}."""
     if isinstance(obj, dict):
         return obj.get('ru') or obj.get('uz') or ''
     if isinstance(obj, str):
@@ -125,98 +125,228 @@ def _extract_ru(obj):
     return ''
 
 
-def fetch_plans(max_pages=3):
-    # type: (int) -> List[Dict[str, Any]]
-    """Fetch procurement plans from cooperation.uz API."""
-    all_items = []  # type: List[Dict[str, Any]]
+# ── Generic API fetcher ─────────────────────────────────────────
 
-    with httpx.Client(timeout=20) as client:
+def fetch_api(url, page_size, max_pages, response_path='result.data', total_path='result.total'):
+    # type: (str, int, int, str, str) -> Tuple[List[Dict[str, Any]], int]
+    """Fetch paginated API. Returns (items, total_count)."""
+    all_items = []  # type: List[Dict[str, Any]]
+    total_count = 0
+
+    with httpx.Client(timeout=30) as client:
         for page in range(max_pages):
-            skip = page * PAGE_SIZE
-            logger.info('Fetching page %d (Skip=%d, Take=%d)...', page + 1, skip, PAGE_SIZE)
+            skip = page * page_size
+            logger.info('  Fetching page %d (Skip=%d, Take=%d)...', page + 1, skip, page_size)
 
             try:
                 resp = client.get(
-                    API_URL,
-                    params={'Skip': skip, 'Take': PAGE_SIZE},
-                    headers={
-                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-                        'Accept': 'application/json',
-                    },
+                    url,
+                    params={'Skip': skip, 'Take': page_size},
+                    headers=HEADERS,
                 )
                 resp.raise_for_status()
                 data = resp.json()
 
-                items = data.get('result', {}).get('data', [])
-                total = data.get('result', {}).get('total', 0)
+                # Navigate response path
+                items = data
+                for key in response_path.split('.'):
+                    items = items.get(key, {}) if isinstance(items, dict) else items
+                if not isinstance(items, list):
+                    items = []
+
+                # Get total count
+                total_obj = data
+                for key in total_path.split('.'):
+                    total_obj = total_obj.get(key, 0) if isinstance(total_obj, dict) else total_obj
+                if isinstance(total_obj, int):
+                    total_count = total_obj
 
                 if not items:
-                    logger.info('No more items on page %d', page + 1)
+                    logger.info('  No more items on page %d', page + 1)
                     break
 
                 all_items.extend(items)
                 logger.info(
-                    'Page %d: %d items (total in DB: %d, fetched so far: %d)',
-                    page + 1, len(items), total, len(all_items),
+                    '  Page %d: %d items (total: %d, fetched: %d)',
+                    page + 1, len(items), total_count, len(all_items),
                 )
 
-                if len(all_items) >= total:
+                if total_count and len(all_items) >= total_count:
+                    break
+                if len(items) < page_size:
                     break
 
             except Exception as exc:
-                logger.error('Error on page %d: %s', page + 1, str(exc))
+                logger.error('  Error on page %d: %s', page + 1, str(exc))
                 break
 
-    return all_items
+    return all_items, total_count
 
 
-def transform_to_tenders(items):
-    # type: (List[Dict[str, Any]]) -> List[Dict[str, Any]]
-    """Transform API items to tender table rows."""
+# ── Source: Plans ────────────────────────────────────────────────
+
+def fetch_and_transform_plans(max_pages=3):
+    # type: (int) -> List[Dict[str, Any]]
+    """Fetch procurement plans (GetAllPlanSchedule)."""
+    logger.info('[Plans] Fetching procurement plans...')
+    items, total = fetch_api(
+        'https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule',
+        page_size=500, max_pages=max_pages,
+    )
+    if not items:
+        return []
+
     now = datetime.now(timezone.utc).isoformat()
     rows = []
-
     for item in items:
         item_id = str(item.get('id', ''))
         if not item_id:
             continue
-
         title = _extract_ru(item.get('productName', ''))
         if not title:
             continue
-
         org = _extract_ru(item.get('companyName', ''))
         month = item.get('month', '')
         year = item.get('year', '')
         deadline = '%s/%s' % (month, year) if month and year else None
         category = item.get('manExpencyName', '')
-
         search_text = ' '.join(filter(None, [title, org, category])).lower()
 
         rows.append({
-            'external_id': '%s-%s' % (ID_PREFIX, item_id),
+            'external_id': 'coop-%s' % item_id,
             'title': title[:500],
             'organization': org[:200] if org else None,
             'price': None,
             'currency': 'UZS',
             'deadline': deadline,
-            'date_start': None,
-            'date_end': None,
-            'region': None,
-            'categories': [category] if category else None,
-            'source': SOURCE_NAME,
+            'source': 'Cooperation.uz Закупочные планы',
             'source_url': 'https://new.cooperation.uz',
             'status': 'active',
             'search_text': search_text[:1000],
             'collected_at': now,
         })
 
+    logger.info('[Plans] Transformed %d -> %d rows', len(items), len(rows))
     return rows
 
 
-def get_existing_ids():
-    # type: () -> Set[str]
-    """Get existing external_ids from Supabase for this source."""
+# ── Source: Offers (e-shop) ──────────────────────────────────────
+
+def fetch_and_transform_offers(max_pages=5):
+    # type: (int) -> List[Dict[str, Any]]
+    """Fetch supplier offers (GetAllOffer) — e-shop / reverse tender listings."""
+    logger.info('[Offers] Fetching supplier offers...')
+    items, total = fetch_api(
+        'https://new.cooperation.uz/ocelot/api-client/Client/GetAllOffer',
+        page_size=200, max_pages=max_pages,
+    )
+    if not items:
+        return []
+
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for item in items:
+        offer_num = item.get('offerNumber', '')
+        if not offer_num:
+            continue
+        title = _extract_ru(item.get('productName', ''))
+        if not title:
+            continue
+
+        price = item.get('unitPrice')
+        end_date = item.get('publicEndDate', '')
+        measure = item.get('measureName', '')
+        qty = item.get('productQuantity', '')
+        category = item.get('category')
+        cat_name = _extract_ru(category.get('name', '')) if isinstance(category, dict) else ''
+        tnved = item.get('code', '')
+
+        price_info = ''
+        if price:
+            price_info = '{:,.0f} UZS'.format(price)
+        qty_info = ''
+        if qty and measure:
+            qty_info = '%s %s' % (qty, measure)
+
+        search_text = ' '.join(filter(None, [title, cat_name, tnved, qty_info])).lower()
+
+        rows.append({
+            'external_id': 'coop-offer-%s' % offer_num,
+            'title': title[:500],
+            'organization': None,  # offers don't expose company name
+            'price': float(price) if price else None,
+            'currency': 'UZS',
+            'deadline': end_date[:10] if end_date else None,
+            'source': 'Cooperation.uz Оферты',
+            'source_url': 'https://new.cooperation.uz',
+            'status': 'active',
+            'search_text': search_text[:1000],
+            'collected_at': now,
+        })
+
+    logger.info('[Offers] Transformed %d -> %d rows', len(items), len(rows))
+    return rows
+
+
+# ── Source: Lots in Trade (reverse tenders) ──────────────────────
+
+def fetch_and_transform_lots():
+    # type: () -> List[Dict[str, Any]]
+    """Fetch active trade lots (GetLotsInTrade) — reverse tenders, 4-day window."""
+    logger.info('[Lots] Fetching active trade lots...')
+    items, total = fetch_api(
+        'https://new.cooperation.uz/ocelot/api-shop/LotRequest/GetLotsInTrade',
+        page_size=2500, max_pages=1,
+        response_path='result.result', total_path='result.count',
+    )
+    if not items:
+        return []
+
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for item in items:
+        lot_num = item.get('lotNumber', '')
+        if not lot_num:
+            continue
+        title = item.get('productName', '')
+        if not title:
+            continue
+
+        offer_num = item.get('offerNumber', '')
+        qty = item.get('quantity', '')
+        begin = item.get('beginDate', '')
+        end = item.get('endDate', '')
+        tnved = item.get('lotTnved', '') or ''
+
+        # NOTE: measureName excluded from search_text — "упаковка" as unit
+        # triggers false positives on medicines/pharma
+        search_text = ' '.join(filter(None, [title, tnved])).lower()
+
+        rows.append({
+            'external_id': 'coop-lot-%s' % lot_num,
+            'title': title[:500],
+            'organization': None,
+            'price': None,
+            'currency': 'UZS',
+            'deadline': end[:10] if end else None,
+            'date_start': begin[:10] if begin else None,
+            'date_end': end[:10] if end else None,
+            'source': 'Cooperation.uz Лоты',
+            'source_url': 'https://new.cooperation.uz',
+            'status': 'active',
+            'search_text': search_text[:1000],
+            'collected_at': now,
+        })
+
+    logger.info('[Lots] Transformed %d -> %d rows', len(items), len(rows))
+    return rows
+
+
+# ── DB & Alerts ──────────────────────────────────────────────────
+
+def get_existing_ids(source_name):
+    # type: (str) -> Set[str]
+    """Get existing external_ids from Supabase for a source."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return set()
 
@@ -228,7 +358,7 @@ def get_existing_ids():
     batch = 1000
     while True:
         resp = client.table('tenders').select('external_id').eq(
-            'source', SOURCE_NAME
+            'source', source_name
         ).range(offset, offset + batch - 1).execute()
         rows = resp.data or []
         for r in rows:
@@ -242,7 +372,6 @@ def get_existing_ids():
 
 def upsert_to_supabase(rows):
     # type: (List[Dict[str, Any]]) -> int
-    """Upsert tender rows to Supabase."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         logger.error('SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set')
         return 0
@@ -260,25 +389,22 @@ def upsert_to_supabase(rows):
                 batch, on_conflict='external_id,source'
             ).execute()
             upserted += len(batch)
-            logger.info('Upserted batch %d-%d (%d rows)', i, i + len(batch), len(batch))
         except Exception as exc:
             logger.error('Upsert batch %d failed: %s', i, str(exc))
 
     return upserted
 
 
-def send_alerts(new_rows):
-    # type: (List[Dict[str, Any]]) -> int
+def send_alerts(new_rows, source_label):
+    # type: (List[Dict[str, Any]], str) -> int
     """Send Telegram alerts for new tenders matching keywords."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        logger.warning('TELEGRAM_BOT_TOKEN or TELEGRAM_ALERT_CHAT_ID not set, skipping alerts')
         return 0
 
     keywords = [k.strip().lower() for k in ALERT_KEYWORDS.split(',') if k.strip()]
     if not keywords:
         return 0
 
-    # Find matching tenders
     matching = []  # type: List[tuple]
     for row in new_rows:
         kw = _find_matching_keyword(row['title'], row.get('search_text', ''), keywords)
@@ -286,32 +412,32 @@ def send_alerts(new_rows):
             matching.append((row, kw))
 
     if not matching:
-        logger.info('[Alerts] No new tenders match keywords (%d checked)', len(new_rows))
+        logger.info('[Alerts/%s] No matches (%d checked)', source_label, len(new_rows))
         return 0
 
-    logger.info('[Alerts] %d new tenders match keywords', len(matching))
+    logger.info('[Alerts/%s] %d matches found', source_label, len(matching))
 
-    # Send to Telegram
     bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
     sent = 0
+    esc = lambda t: t.replace('*', '').replace('_', '').replace('`', '').replace('[', '')
 
     with httpx.Client(timeout=10) as client:
         for row, kw in matching:
-            parts = []
-            parts.append('*%s*' % row['title'][:200].replace('*', '').replace('_', '').replace('`', '').replace('[', ''))
+            parts = ['*%s*' % esc(row['title'][:200])]
             if row.get('organization'):
-                parts.append('Заказчик: %s' % row['organization'])
+                parts.append('Заказчик: %s' % esc(row['organization']))
+            if row.get('price'):
+                parts.append('Цена: {:,.0f} UZS'.format(row['price']))
             if row.get('deadline'):
-                parts.append('Период: %s' % row['deadline'])
-            parts.append('Источник: %s' % SOURCE_NAME)
+                parts.append('Дедлайн: %s' % row['deadline'])
+            parts.append('Источник: %s' % row['source'])
             parts.append('https://new.cooperation.uz')
             parts.append('#%s' % kw.replace(' ', '_'))
-            text = '\n'.join(parts)
 
             try:
                 resp = client.post(bot_url, json={
                     'chat_id': TELEGRAM_CHAT_ID,
-                    'text': text,
+                    'text': '\n'.join(parts),
                     'parse_mode': 'Markdown',
                     'disable_web_page_preview': True,
                     'protect_content': True,
@@ -323,48 +449,86 @@ def send_alerts(new_rows):
             except Exception as exc:
                 logger.warning('[Alerts] Error: %s', str(exc))
 
-    logger.info('[Alerts] Sent %d / %d alerts', sent, len(matching))
+    logger.info('[Alerts/%s] Sent %d / %d', source_label, sent, len(matching))
     return sent
 
 
+# ── Process one source ───────────────────────────────────────────
+
+def process_source(rows, source_name, label, dry_run=False):
+    # type: (List[Dict[str, Any]], str, str, bool) -> Tuple[int, int, int]
+    """Upsert rows and send alerts. Returns (upserted, new_count, alerts)."""
+    if not rows:
+        return 0, 0, 0
+
+    if dry_run:
+        logger.info('[%s] DRY RUN — %d rows', label, len(rows))
+        for r in rows[:3]:
+            logger.info('  %s | %s', r['title'][:60], r.get('organization') or '-')
+        return 0, 0, 0
+
+    # Find new rows
+    existing_ids = get_existing_ids(source_name)
+    new_rows = [r for r in rows if r['external_id'] not in existing_ids]
+    logger.info('[%s] New: %d (existing: %d)', label, len(new_rows), len(existing_ids))
+
+    # Upsert all
+    upserted = upsert_to_supabase(rows)
+    logger.info('[%s] Upserted: %d / %d', label, upserted, len(rows))
+
+    # Alerts for new only
+    alerts = 0
+    if new_rows:
+        alerts = send_alerts(new_rows, label)
+
+    return upserted, len(new_rows), alerts
+
+
+# ── Main ─────────────────────────────────────────────────────────
+
 def main():
     # type: () -> None
-    parser = argparse.ArgumentParser(description='Fetch cooperation.uz plans')
+    parser = argparse.ArgumentParser(description='Fetch cooperation.uz data')
     parser.add_argument('--dry-run', action='store_true', help='Fetch only, no DB')
-    parser.add_argument('--pages', type=int, default=3, help='Max pages to fetch (default: 3)')
+    parser.add_argument('--pages', type=int, default=3, help='Max pages for plans (default: 3)')
+    parser.add_argument('--source', choices=['plans', 'offers', 'lots', 'all'],
+                        default='all', help='Which source to fetch')
     args = parser.parse_args()
 
-    logger.info('=== Cooperation.uz fetcher START ===')
+    logger.info('=== Cooperation.uz fetcher START (source=%s) ===', args.source)
 
-    items = fetch_plans(max_pages=args.pages)
-    if not items:
-        logger.warning('No items fetched')
-        return
+    total_upserted = 0
+    total_new = 0
+    total_alerts = 0
 
-    rows = transform_to_tenders(items)
-    logger.info('Transformed %d items -> %d tender rows', len(items), len(rows))
+    # 1. Plans
+    if args.source in ('all', 'plans'):
+        rows = fetch_and_transform_plans(max_pages=args.pages)
+        u, n, a = process_source(rows, 'Cooperation.uz Закупочные планы', 'Plans', args.dry_run)
+        total_upserted += u
+        total_new += n
+        total_alerts += a
 
-    if args.dry_run:
-        logger.info('DRY RUN — would upsert %d rows', len(rows))
-        for r in rows[:3]:
-            logger.info('  %s | %s', r['title'][:60], r['organization'] or '?')
-        return
+    # 2. Offers (e-shop)
+    if args.source in ('all', 'offers'):
+        rows = fetch_and_transform_offers(max_pages=5)
+        u, n, a = process_source(rows, 'Cooperation.uz Оферты', 'Offers', args.dry_run)
+        total_upserted += u
+        total_new += n
+        total_alerts += a
 
-    # Find NEW rows (not yet in Supabase)
-    existing_ids = get_existing_ids()
-    new_rows = [r for r in rows if r['external_id'] not in existing_ids]
-    logger.info('New tenders: %d (existing: %d)', len(new_rows), len(existing_ids))
+    # 3. Lots (reverse tenders)
+    if args.source in ('all', 'lots'):
+        rows = fetch_and_transform_lots()
+        u, n, a = process_source(rows, 'Cooperation.uz Лоты', 'Lots', args.dry_run)
+        total_upserted += u
+        total_new += n
+        total_alerts += a
 
-    # Upsert all rows
-    upserted = upsert_to_supabase(rows)
-    logger.info('Upserted %d / %d rows', upserted, len(rows))
-
-    # Send alerts for NEW rows only
-    if new_rows:
-        alerts = send_alerts(new_rows)
-        logger.info('=== DONE: upserted %d, alerts %d (new %d) ===', upserted, alerts, len(new_rows))
-    else:
-        logger.info('=== DONE: upserted %d, no new tenders ===', upserted)
+    logger.info(
+        '=== DONE: upserted %d, new %d, alerts %d ===',
+        total_upserted, total_new, total_alerts,
+    )
 
 
 if __name__ == '__main__':
