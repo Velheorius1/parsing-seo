@@ -1,0 +1,10 @@
+name: Test cooperation.uz access
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test API access
+        run: |
+          echo "Testing cooperation.uz API..."
+          curl -v --max-time 15 'https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule?Skip=0&Take=1' 2>&1 | tail -20
