@@ -405,6 +405,18 @@ sources:
 
   # ── Telegram каналы ──────────────────────────────────────────────
 
+  # Поставщики/рекламщики/конкуренты + запросы клиентов
+  # Keyword-фильтр отсеет спам, оставит релевантные запросы
+  - id: tg-pruzb
+    name: "TG: PR UZB (запросы клиентов)"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-pruzb"
+    telegram_channel: "@pruzb"
+    telegram_limit: 200
+    rate_limit: 1.0
+
   - id: tg-beeline-tenders
     name: "TG: Beeline Tenders"
     adapter: telegram
