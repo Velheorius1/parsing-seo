@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 
 /**
  * Proxy for cooperation.uz API — bypasses geo-block from Russian VPS.
- * Vercel runs on AWS (non-RU IP), so cooperation.uz allows requests.
+ * Uses Edge Runtime (Cloudflare network) since cooperation.uz blocks
+ * both Russian IPs and AWS (Vercel serverless).
  *
  * Usage: GET /api/proxy/cooperation?Skip=0&Take=50&endpoint=GetAllPlanSchedule
  * Auth: X-Proxy-Key header must match PROXY_SECRET env var.
  */
+
+export const runtime = 'edge';
 
 const ALLOWED_ENDPOINTS: Record<string, string> = {
   GetAllPlanSchedule:
@@ -52,7 +55,7 @@ export async function GET(request: NextRequest) {
         'User-Agent': 'Mozilla/5.0 (compatible; TenderMonitor/1.0)',
         Accept: 'application/json',
       },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(25000),
     });
 
     if (!resp.ok) {
