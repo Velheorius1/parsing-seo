@@ -297,6 +297,68 @@ sources:
       link: "a[href*='/auction/']"
     keywords_fields: []
 
+  # ebirja.uz e-shop — PUBLIC REST API (no auth required)
+  # Reverse tender: companies list products, competitors bid within 3-4 days
+  - id: ebirja-eshop
+    name: "Ebirja Электронный магазин"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api.ebirja.uz/shop/product/announce-list"
+    method: GET
+    params:
+      currentPage: 0
+      perPage: 500
+      platform_display: "e-shop"
+    rate_limit: 2
+    timeout: 15
+    id_prefix: "ebirja-es"
+    response_path: "result.data"
+    field_map:
+      title: title
+      organization: ""
+      price: unit_price
+      currency: "UZS"
+      deadline: inactive_date
+      external_id: id
+      source_url_template: "https://xarid.ebirja.uz/ru/shop/{id}"
+    keywords_fields: [title]
+    pagination:
+      type: page
+      param: "currentPage"
+      size_param: "perPage"
+      page_size: 500
+      max_pages: 5
+
+  - id: ebirja-natshop
+    name: "Ebirja Национальный магазин"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api.ebirja.uz/shop/product/announce-list"
+    method: GET
+    params:
+      currentPage: 0
+      perPage: 500
+      platform_display: "national-shop"
+    rate_limit: 2
+    timeout: 15
+    id_prefix: "ebirja-ns"
+    response_path: "result.data"
+    field_map:
+      title: title
+      organization: ""
+      price: unit_price
+      currency: "UZS"
+      deadline: inactive_date
+      external_id: id
+      source_url_template: "https://xarid.ebirja.uz/ru/national-shop/{id}"
+    keywords_fields: [title]
+    pagination:
+      type: page
+      param: "currentPage"
+      size_param: "perPage"
+      page_size: 500
+      max_pages: 2
+
   # cooperation.uz — GEO-BLOCKED from Russian VPS (46.62.155.190)
   # Public REST API found (no auth). Need UZ proxy/VPS to use.
   # API: GET /ocelot/api-client/Client/GetAllPlanSchedule?Skip=0&Take=500
