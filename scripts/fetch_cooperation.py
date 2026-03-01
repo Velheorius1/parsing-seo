@@ -5,7 +5,7 @@ Standalone script — runs from Mac (residential IP) since cooperation.uz
 blocks all datacenter/cloud IPs.
 
 Usage:
-    python3 scripts/fetch_cooperation.py          # fetch & upsert
+    python3 scripts/fetch_cooperation.py          # fetch & upsert + alerts
     python3 scripts/fetch_cooperation.py --dry-run # fetch only, no DB
     python3 scripts/fetch_cooperation.py --pages 5 # fetch 5 pages (default: 3)
 
@@ -17,7 +17,7 @@ import logging
 import os
 import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 # Load .env from VPS-style .env or local .env.cooperation
 try:
@@ -49,8 +49,74 @@ ID_PREFIX = 'coop'
 SUPABASE_URL = os.getenv('SUPABASE_URL', '')
 SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
 
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID', '')
 
-def _extract_ru(obj: Any) -> str:
+# Same 37 keywords as crawler notifier
+ALERT_KEYWORDS = (
+    'упаковка,полиграфия,гофра,коробка,печать,этикетка,типография,'
+    'книга,книж,каталог,брошюр,блокнот,календар,пакет,конверт,папка,'
+    'ежедневник,сувенир,журнал,картон,подарочн,зонт,ручка,флешк,'
+    'power bank,набор,плакат,постер,стенд,вывеск,'
+    'packaging,printing,cardboard,label,box,qadoqlash,bosma'
+)
+
+_MIN_STEM = 4
+
+
+def _stem(word):
+    # type: (str) -> str
+    """Crude Russian stemming."""
+    if len(word) <= _MIN_STEM:
+        return word
+    for suffix in ('ция', 'ия', 'ка', 'ок', 'ей', 'ов', 'ть', 'ые', 'ой', 'ая', 'ое', 'а', 'о', 'е', 'и', 'у', 'ы'):
+        if word.endswith(suffix) and len(word) - len(suffix) >= _MIN_STEM:
+            return word[:-len(suffix)]
+    return word
+
+
+def _word_start_match(text, stem):
+    # type: (str, str) -> int
+    """Find stem at word boundary."""
+    start = 0
+    while True:
+        idx = text.find(stem, start)
+        if idx == -1:
+            return -1
+        if idx == 0 or not text[idx - 1].isalpha():
+            return idx
+        start = idx + 1
+
+
+_FALSE_POSITIVES = {
+    'календар': [' кун', 'кун ', ' дн', ' день'],
+}
+
+
+def _find_matching_keyword(title, search_text, keywords):
+    # type: (str, str, List[str]) -> Optional[str]
+    """Return first matching keyword or None."""
+    text = (search_text + ' ' + title).lower()
+    for kw in keywords:
+        stem = _stem(kw) if len(kw) > _MIN_STEM else kw
+        if len(stem) < _MIN_STEM:
+            if _word_start_match(text, kw) >= 0:
+                return kw
+            continue
+        idx = _word_start_match(text, stem)
+        if idx < 0:
+            continue
+        excl = _FALSE_POSITIVES.get(stem)
+        if excl:
+            after = text[idx + len(stem):idx + len(stem) + 10]
+            if any(after.startswith(fp) for fp in excl):
+                continue
+        return kw
+    return None
+
+
+def _extract_ru(obj):
+    # type: (Any) -> str
     """Extract Russian name from multilingual field like {uz:'', ru:'', ...}."""
     if isinstance(obj, dict):
         return obj.get('ru') or obj.get('uz') or ''
@@ -59,7 +125,8 @@ def _extract_ru(obj: Any) -> str:
     return ''
 
 
-def fetch_plans(max_pages: int = 3) -> List[Dict[str, Any]]:
+def fetch_plans(max_pages=3):
+    # type: (int) -> List[Dict[str, Any]]
     """Fetch procurement plans from cooperation.uz API."""
     all_items = []  # type: List[Dict[str, Any]]
 
@@ -103,7 +170,8 @@ def fetch_plans(max_pages: int = 3) -> List[Dict[str, Any]]:
     return all_items
 
 
-def transform_to_tenders(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def transform_to_tenders(items):
+    # type: (List[Dict[str, Any]]) -> List[Dict[str, Any]]
     """Transform API items to tender table rows."""
     now = datetime.now(timezone.utc).isoformat()
     rows = []
@@ -146,7 +214,34 @@ def transform_to_tenders(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return rows
 
 
-def upsert_to_supabase(rows: List[Dict[str, Any]]) -> int:
+def get_existing_ids():
+    # type: () -> Set[str]
+    """Get existing external_ids from Supabase for this source."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return set()
+
+    from supabase import create_client
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    existing = set()  # type: Set[str]
+    offset = 0
+    batch = 1000
+    while True:
+        resp = client.table('tenders').select('external_id').eq(
+            'source', SOURCE_NAME
+        ).range(offset, offset + batch - 1).execute()
+        rows = resp.data or []
+        for r in rows:
+            existing.add(r['external_id'])
+        if len(rows) < batch:
+            break
+        offset += batch
+
+    return existing
+
+
+def upsert_to_supabase(rows):
+    # type: (List[Dict[str, Any]]) -> int
     """Upsert tender rows to Supabase."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         logger.error('SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set')
@@ -172,7 +267,68 @@ def upsert_to_supabase(rows: List[Dict[str, Any]]) -> int:
     return upserted
 
 
-def main() -> None:
+def send_alerts(new_rows):
+    # type: (List[Dict[str, Any]]) -> int
+    """Send Telegram alerts for new tenders matching keywords."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.warning('TELEGRAM_BOT_TOKEN or TELEGRAM_ALERT_CHAT_ID not set, skipping alerts')
+        return 0
+
+    keywords = [k.strip().lower() for k in ALERT_KEYWORDS.split(',') if k.strip()]
+    if not keywords:
+        return 0
+
+    # Find matching tenders
+    matching = []  # type: List[tuple]
+    for row in new_rows:
+        kw = _find_matching_keyword(row['title'], row.get('search_text', ''), keywords)
+        if kw:
+            matching.append((row, kw))
+
+    if not matching:
+        logger.info('[Alerts] No new tenders match keywords (%d checked)', len(new_rows))
+        return 0
+
+    logger.info('[Alerts] %d new tenders match keywords', len(matching))
+
+    # Send to Telegram
+    bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
+    sent = 0
+
+    with httpx.Client(timeout=10) as client:
+        for row, kw in matching:
+            parts = []
+            parts.append('*%s*' % row['title'][:200].replace('*', '').replace('_', '').replace('`', '').replace('[', ''))
+            if row.get('organization'):
+                parts.append('Заказчик: %s' % row['organization'])
+            if row.get('deadline'):
+                parts.append('Период: %s' % row['deadline'])
+            parts.append('Источник: %s' % SOURCE_NAME)
+            parts.append('https://new.cooperation.uz')
+            parts.append('#%s' % kw.replace(' ', '_'))
+            text = '\n'.join(parts)
+
+            try:
+                resp = client.post(bot_url, json={
+                    'chat_id': TELEGRAM_CHAT_ID,
+                    'text': text,
+                    'parse_mode': 'Markdown',
+                    'disable_web_page_preview': True,
+                    'protect_content': True,
+                })
+                if resp.status_code == 200:
+                    sent += 1
+                else:
+                    logger.warning('[Alerts] Telegram %d: %s', resp.status_code, resp.text[:200])
+            except Exception as exc:
+                logger.warning('[Alerts] Error: %s', str(exc))
+
+    logger.info('[Alerts] Sent %d / %d alerts', sent, len(matching))
+    return sent
+
+
+def main():
+    # type: () -> None
     parser = argparse.ArgumentParser(description='Fetch cooperation.uz plans')
     parser.add_argument('--dry-run', action='store_true', help='Fetch only, no DB')
     parser.add_argument('--pages', type=int, default=3, help='Max pages to fetch (default: 3)')
@@ -194,8 +350,21 @@ def main() -> None:
             logger.info('  %s | %s', r['title'][:60], r['organization'] or '?')
         return
 
+    # Find NEW rows (not yet in Supabase)
+    existing_ids = get_existing_ids()
+    new_rows = [r for r in rows if r['external_id'] not in existing_ids]
+    logger.info('New tenders: %d (existing: %d)', len(new_rows), len(existing_ids))
+
+    # Upsert all rows
     upserted = upsert_to_supabase(rows)
-    logger.info('=== DONE: upserted %d / %d rows ===', upserted, len(rows))
+    logger.info('Upserted %d / %d rows', upserted, len(rows))
+
+    # Send alerts for NEW rows only
+    if new_rows:
+        alerts = send_alerts(new_rows)
+        logger.info('=== DONE: upserted %d, alerts %d (new %d) ===', upserted, alerts, len(new_rows))
+    else:
+        logger.info('=== DONE: upserted %d, no new tenders ===', upserted)
 
 
 if __name__ == '__main__':
