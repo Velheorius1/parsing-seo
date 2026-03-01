@@ -46,21 +46,26 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Proxy request to cooperation.uz
+  // Proxy request to cooperation.uz with manual timeout
   const targetUrl = `${baseUrl}?Skip=${skip}&Take=${take}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
 
   try {
     const resp = await fetch(targetUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; TenderMonitor/1.0)',
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         Accept: 'application/json',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
       },
-      signal: AbortSignal.timeout(25000),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!resp.ok) {
       return NextResponse.json(
-        { error: `Upstream error: ${resp.status}` },
+        { error: 'Upstream ' + resp.status, url: targetUrl },
         { status: resp.status },
       );
     }
@@ -68,7 +73,11 @@ export async function GET(request: NextRequest) {
     const data = await resp.json();
     return NextResponse.json(data);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 502 });
+    clearTimeout(timeoutId);
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      { error: message, url: targetUrl, runtime: 'edge' },
+      { status: 502 },
+    );
   }
 }
