@@ -241,6 +241,7 @@ async def send_alerts(
                     "text": text,
                     "parse_mode": "Markdown",
                     "disable_web_page_preview": True,
+                    "protect_content": True,
                 })
                 if resp.status_code == 200:
                     sent += 1
@@ -300,6 +301,7 @@ async def send_healthcheck(
                 "chat_id": settings.telegram_alert_chat_id,
                 "text": text,
                 "disable_notification": True,
+                "protect_content": True,
             })
     except Exception as exc:
         logger.warning("[Healthcheck] Failed to send: %s", str(exc)[:80])
