@@ -408,7 +408,7 @@ sources:
   - id: uzex-auctions
     name: "UZEX Обратные аукционы"
     adapter: api
-    enabled: true
+    enabled: false  # GEO-BLOCKED: 89.236.218.118 blocks Russian VPS. Runs from Mac via fetch_uzex_auctions.py
     url: "https://xarid-api-auctionx.uzex.uz/api/Lot/GetList"
     method: POST
     headers:
@@ -434,7 +434,7 @@ sources:
   - id: uzex-prequest
     name: "UZEX Предквалификации"
     adapter: api
-    enabled: true
+    enabled: false  # GEO-BLOCKED: 89.236.218.118 blocks Russian VPS. Runs from Mac via fetch_uzex_auctions.py
     url: "https://xarid-api-prequest.uzex.uz/api/Public/GetLots"
     method: POST
     headers:

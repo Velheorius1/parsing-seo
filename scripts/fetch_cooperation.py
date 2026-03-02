@@ -492,6 +492,151 @@ def fetch_and_transform_eshop_lots():
     return rows
 
 
+# ── Source: UZEX Reverse Auctions (GEO-BLOCKED from VPS) ─────────
+
+def fetch_and_transform_uzex_auctions():
+    # type: () -> List[Dict[str, Any]]
+    """Fetch UZEX reverse auction lots — buyer-initiated, active bidding."""
+    logger.info('[UZEX-Auc] Fetching reverse auction lots...')
+    all_items = []  # type: List[Dict[str, Any]]
+
+    with httpx.Client(timeout=30) as client:
+        try:
+            resp = client.post(
+                'https://xarid-api-auctionx.uzex.uz/api/Lot/GetList',
+                json={'from': 0, 'to': 200},
+                headers={
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            # Response: {Status: 200, Data: [...]}
+            if isinstance(data, dict):
+                items = data.get('Data', [])
+                if isinstance(items, list):
+                    all_items = items
+            logger.info('[UZEX-Auc] Got %d items from API', len(all_items))
+        except Exception as exc:
+            logger.error('[UZEX-Auc] Error: %s', str(exc))
+
+    if not all_items:
+        return []
+
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for item in all_items:
+        lot_id = str(item.get('id', ''))
+        if not lot_id:
+            continue
+        display_no = item.get('displayNo', lot_id)
+        title = item.get('categoryName', '')
+        if not title:
+            continue
+
+        region = item.get('regionName', '')
+        district = item.get('districtName', '')
+        start_cost = item.get('startCost')
+        next_cost = item.get('nextCost')
+        end_date = item.get('endDate', '') or ''
+        pcp_count = item.get('pcpCount', 0)
+
+        search_text = ' '.join(filter(None, [title, region, district])).lower()
+
+        rows.append({
+            'external_id': 'uzex-auc-%s' % lot_id,
+            'title': title[:500],
+            'organization': None,
+            'price': float(start_cost) if start_cost else None,
+            'currency': 'UZS',
+            'deadline': end_date[:10] if end_date else None,
+            'date_end': end_date[:10] if end_date else None,
+            'source': 'UZEX Обратные аукционы',
+            'source_url': 'https://xarid.uzex.uz/auction/detail/%s' % lot_id,
+            'status': 'active',
+            'search_text': search_text[:1000],
+            'collected_at': now,
+        })
+
+    logger.info('[UZEX-Auc] Transformed %d -> %d rows', len(all_items), len(rows))
+    return rows
+
+
+# ── Source: UZEX Prequalifications (GEO-BLOCKED from VPS) ────────
+
+def fetch_and_transform_uzex_prequest():
+    # type: () -> List[Dict[str, Any]]
+    """Fetch UZEX prequalification lots — buyer requests for supplier qualification."""
+    logger.info('[UZEX-Prq] Fetching prequalification lots...')
+    all_items = []  # type: List[Dict[str, Any]]
+
+    with httpx.Client(timeout=30) as client:
+        for page in range(2):  # max 2 pages of 500
+            skip = page * 500
+            try:
+                resp = client.post(
+                    'https://xarid-api-prequest.uzex.uz/api/Public/GetLots',
+                    json={'from': skip, 'to': skip + 500},
+                    headers={
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                items = data.get('Data', []) if isinstance(data, dict) else []
+                if not items:
+                    break
+                all_items.extend(items)
+                logger.info('[UZEX-Prq] Page %d: %d items (total fetched: %d)', page + 1, len(items), len(all_items))
+                if len(items) < 500:
+                    break
+            except Exception as exc:
+                logger.error('[UZEX-Prq] Error on page %d: %s', page + 1, str(exc))
+                break
+
+    if not all_items:
+        logger.info('[UZEX-Prq] No items found')
+        return []
+
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for item in all_items:
+        lot_id = str(item.get('id', ''))
+        if not lot_id:
+            continue
+        title = item.get('categoryName', '')
+        if not title:
+            continue
+
+        org = item.get('customerName', '')
+        start_cost = item.get('startCost')
+        start_date = item.get('startDate', '') or ''
+        end_date = item.get('endDate', '') or ''
+
+        search_text = ' '.join(filter(None, [title, org])).lower()
+
+        rows.append({
+            'external_id': 'uzex-prq-%s' % lot_id,
+            'title': title[:500],
+            'organization': org[:200] if org else None,
+            'price': float(start_cost) if start_cost else None,
+            'currency': 'UZS',
+            'deadline': end_date[:10] if end_date else None,
+            'date_start': start_date[:10] if start_date else None,
+            'date_end': end_date[:10] if end_date else None,
+            'source': 'UZEX Предквалификации',
+            'source_url': 'https://xarid.uzex.uz/prequalification/detail/%s' % lot_id,
+            'status': 'active',
+            'search_text': search_text[:1000],
+            'collected_at': now,
+        })
+
+    logger.info('[UZEX-Prq] Transformed %d -> %d rows', len(all_items), len(rows))
+    return rows
+
+
 # ── DB & Alerts ──────────────────────────────────────────────────
 
 def get_existing_ids(source_name):
@@ -641,7 +786,7 @@ def main():
     parser = argparse.ArgumentParser(description='Fetch cooperation.uz data')
     parser.add_argument('--dry-run', action='store_true', help='Fetch only, no DB')
     parser.add_argument('--pages', type=int, default=3, help='Max pages for plans (default: 3)')
-    parser.add_argument('--source', choices=['plans', 'offers', 'lots', 'auction', 'eshop', 'all'],
+    parser.add_argument('--source', choices=['plans', 'offers', 'lots', 'auction', 'eshop', 'uzex-auc', 'uzex-prq', 'all'],
                         default='all', help='Which source to fetch')
     args = parser.parse_args()
 
@@ -687,6 +832,22 @@ def main():
     if args.source in ('all', 'eshop'):
         rows = fetch_and_transform_eshop_lots()
         u, n, a = process_source(rows, 'Cooperation.uz Э-магазин лоты', 'EshopLots', args.dry_run)
+        total_upserted += u
+        total_new += n
+        total_alerts += a
+
+    # 6. UZEX reverse auctions (GEO-BLOCKED from VPS, runs on Mac)
+    if args.source in ('all', 'uzex-auc'):
+        rows = fetch_and_transform_uzex_auctions()
+        u, n, a = process_source(rows, 'UZEX Обратные аукционы', 'UZEX-Auc', args.dry_run)
+        total_upserted += u
+        total_new += n
+        total_alerts += a
+
+    # 7. UZEX prequalifications (GEO-BLOCKED from VPS, runs on Mac)
+    if args.source in ('all', 'uzex-prq'):
+        rows = fetch_and_transform_uzex_prequest()
+        u, n, a = process_source(rows, 'UZEX Предквалификации', 'UZEX-Prq', args.dry_run)
         total_upserted += u
         total_new += n
         total_alerts += a
