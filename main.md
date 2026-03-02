@@ -5,26 +5,61 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 5,000+ тендеров, 67 источников (49 enabled), cron каждый час, AI-фильтр Qwen
-Дата обновления: 28 февраля 2026
+Фаза: Production — 10,000+ тендеров, 73 источника (56 enabled), cron каждый час, AI-фильтр Qwen
+Дата обновления: 1 марта 2026
 
 ### Что работает
 - **Config-Driven Python Crawler** на VPS (46.62.155.190, `/opt/parsing-seo/`):
-  - API (httpx): ETender, Xarid Competitions/Direct, World Bank, ETender Discussion
+  - API (httpx): ETender, Xarid, World Bank, ebirja э-магазин (2500), ebirja нац.магазин (743)
   - HTML (BeautifulSoup): 20 источников — банки, компании, gov.uz, SQB, AGMK, Узбекистонмет
-  - SPA (Playwright): xt-xarid.uz (headless Chromium)
-  - Telegram (Telethon): 22 канала — тендерные + министерства + компании
-- **Cron**: `0 * * * *` API/HTML/SPA, `0 */4 * * *` Telegram
-- **AI-фильтр**: Qwen3 через OpenRouter — фильтрует ложные срабатывания перед отправкой алертов
-- **Healthcheck**: тихий алерт в Telegram при новых тендерах или ошибках
+  - SPA (Playwright): xt-xarid.uz, hayotbirja.uz (50), ebirja.uz аукционы (6)
+  - Telegram (Telethon): 23 канала — тендерные + министерства + **@pruzb** (запросы клиентов)
+- **cooperation.uz** — Mac launchd cron каждые 4 часа, 3 источника + Telegram-алерты:
+  - **GetAllPlanSchedule** — закупочные планы (375k total, 1500 newest)
+  - **GetAllOffer** — оферты поставщиков / э-магазин (63k total, 1000 newest)
+  - **GetLotsInTrade** — активные лоты / обратные тендеры (2.5k, все)
+  - Скрипт: `scripts/fetch_cooperation.py`, конфиг: `.env.cooperation`
+  - launchd: `~/Library/LaunchAgents/com.parsing-seo.cooperation.plist`
+  - CLI: `--source plans|offers|lots|all`, `--dry-run`, `--pages N`
+- **Cron VPS**: `0 * * * *` API/HTML/SPA, `0 */4 * * *` Telegram
+- **AI-фильтр**: Qwen3 через OpenRouter — фильтрует ложные срабатывания
+- **Фильтр дедлайнов**: пропускает тендеры с истёкшим сроком
 - **Telegram-алерты**: бот @tender_alerts_uz_bot, 37 ключевых слов → AI-фильтр → отправка
-- **Entrypoint**: `python -m crawler` + `scripts/run_crawl.sh` (--no-telegram, --only-telegram)
-- **Production:** https://parsing-seo.vercel.app
+- **protect_content**: все сообщения бота защищены от пересылки/копирования
+- **Скилл /hack**: команда агентов для получения данных с заблокированных сайтов
+
+### Что не работает / в процессе
+- **ebirja.uz competition**: styled-components классы нестабильны (меняются при каждом билде)
+- **hayotbirja.uz API**: JSON-RPC 2.0 есть, но backend таймаутит без авторизации. Ждём API-токен
+- **ebirja.uz buyer-side data**: лоты/торги за авторизацией (401) — нужна регистрация
+
+### Что добавлено (2 марта 2026)
+- **Обратные аукционы cooperation.uz** — 2 новых источника в `fetch_cooperation.py`:
+  - `cabinet.cooperation.uz/api/auction/public/lots` → аукционные лоты (AL*) — 4 лота
+  - `cabinet.cooperation.uz/api/eshop/lots/active` → э-магазин лоты (ML*) — 10 лотов
+- **UZEX аукционы** — 2 новых источника в `sources.yaml`:
+  - `xarid-api-auctionx.uzex.uz/api/Lot/GetList` → обратные аукционы — 11 лотов
+  - `xarid-api-prequest.uzex.uz/api/Public/GetLots` → предквалификации — 968 лотов
 
 ### Следующие шаги
+- [ ] **Регистрация на площадках** (E-IMZO / ЭЦП) — см. ниже
+- [ ] **Деплой на VPS**: push + добавить UZEX аукционы в cron
 - **Фаза C:** международные организации (ADB, EBRD, IsDB, AIIB, USAID, GIZ, JICA, KOICA)
 - **Фаза D:** агрегаторы как бэкап (dgMarket, DevelopmentAid)
 - Интеграция алертов в Brain Bot (скилл `/тендеры`)
+
+### Регистрация на площадках (TODO Данияр)
+
+Все госплощадки требуют **E-IMZO (ЭЦП)**. Скачать: https://e-imzo.soliq.uz/download/
+
+| # | Площадка | Ссылка на регистрацию | Авторизация | Приоритет | Что даст |
+|---|----------|----------------------|-------------|-----------|----------|
+| 1 | **ebirja.uz** (госзакупки) | https://xarid.ebirja.uz/ru/auth/register | E-IMZO | **Высокий** | Buyer-side лоты, API `shop/product/view`, торги |
+| 2 | **ebirja.uz** (биржа) | https://app.ebirja.uz/ru/auth/register | E-IMZO | Средний | Биржевые торги |
+| 3 | **hayotbirja.uz** | https://hayotbirja.uz/#/register | E-IMZO | **Высокий** | API-токен → тендеры 169, аукционы 2558, э-магазин 52k |
+| 4 | **xt-xarid.uz** | https://xt-xarid.uz/#/register | E-IMZO | Средний | Обратные аукционы через кабинет |
+| 5 | **cooperation.uz** | https://cooperation.uz/login (рег. сломана, вход через E-IMZO) | E-IMZO + ESI.uz | Низкий | Расширенные данные (уже парсим публичный API) |
+| 6 | **TenderZone** | https://trade.tzone.uz/auth/register | Телефон/пароль | Низкий | Агрегатор 157k+ (7 дней бесплатно) |
 
 ---
 

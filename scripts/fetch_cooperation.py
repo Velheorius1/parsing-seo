@@ -342,6 +342,156 @@ def fetch_and_transform_lots():
     return rows
 
 
+# ── Source: Auction Lots (cabinet API — buyer created reverse auction) ──
+
+def fetch_and_transform_auction_lots():
+    # type: () -> List[Dict[str, Any]]
+    """Fetch active auction lots from cabinet API — these are BUYER-initiated reverse auctions."""
+    logger.info('[AuctionLots] Fetching active auction lots...')
+    all_items = []  # type: List[Dict[str, Any]]
+
+    with httpx.Client(timeout=30) as client:
+        try:
+            resp = client.get(
+                'https://cabinet.cooperation.uz/api/auction/public/lots',
+                params={'skip': 0, 'take': 500},
+                headers=HEADERS,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            # Response format: {code: 200, message: "OK", data: [...]}
+            if isinstance(data, dict):
+                items = data.get('data', [])
+                if isinstance(items, list):
+                    all_items = items
+            elif isinstance(data, list):
+                all_items = data
+            logger.info('[AuctionLots] Got %d items from API', len(all_items))
+        except Exception as exc:
+            logger.error('[AuctionLots] Error: %s', str(exc))
+
+    if not all_items:
+        logger.info('[AuctionLots] No items found')
+        return []
+
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for item in all_items:
+        lot_id = str(item.get('id', '') or item.get('lotNumber', ''))
+        if not lot_id:
+            continue
+        lot_num = item.get('lotNumber', lot_id)
+        title = _extract_ru(item.get('name', '')) or _extract_ru(item.get('productName', ''))
+        if not title:
+            continue
+
+        org = _extract_ru(item.get('companyName', ''))
+        region = _extract_ru(item.get('region', ''))
+        start_price = item.get('startPrice')
+        current_price = item.get('price')
+        providers = item.get('providerCount', 0)
+        end_date = item.get('endDate', '') or ''
+        begin_date = item.get('beginDate', '') or ''
+
+        price_val = current_price or start_price
+        search_text = ' '.join(filter(None, [title, org, region])).lower()
+
+        rows.append({
+            'external_id': 'coop-auc-%s' % lot_num,
+            'title': title[:500],
+            'organization': org[:200] if org else None,
+            'price': float(price_val) if price_val else None,
+            'currency': 'UZS',
+            'deadline': end_date[:10] if end_date else None,
+            'date_start': begin_date[:10] if begin_date else None,
+            'date_end': end_date[:10] if end_date else None,
+            'source': 'Cooperation.uz Аукционы',
+            'source_url': 'https://new.cooperation.uz',
+            'status': 'active',
+            'search_text': search_text[:1000],
+            'collected_at': now,
+        })
+
+    logger.info('[AuctionLots] Transformed %d -> %d rows', len(all_items), len(rows))
+    return rows
+
+
+# ── Source: E-Shop Active Lots (buyer selected product → trade started) ──
+
+def fetch_and_transform_eshop_lots():
+    # type: () -> List[Dict[str, Any]]
+    """Fetch active e-shop lots — these are BUYER-selected products now in trade."""
+    logger.info('[EshopLots] Fetching active e-shop lots...')
+    all_items = []  # type: List[Dict[str, Any]]
+
+    with httpx.Client(timeout=30) as client:
+        try:
+            resp = client.get(
+                'https://cabinet.cooperation.uz/api/eshop/lots/active',
+                params={'skip': 0, 'take': 500},
+                headers=HEADERS,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            # Response format: {code: 200, message: "OK", data: [...]}
+            if isinstance(data, dict):
+                items = data.get('data', [])
+                if isinstance(items, list):
+                    all_items = items
+            elif isinstance(data, list):
+                all_items = data
+            logger.info('[EshopLots] Got %d items from API', len(all_items))
+        except Exception as exc:
+            logger.error('[EshopLots] Error: %s', str(exc))
+
+    if not all_items:
+        logger.info('[EshopLots] No items found')
+        return []
+
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for item in all_items:
+        lot_id = str(item.get('id', '') or item.get('lotNumber', ''))
+        if not lot_id:
+            continue
+        lot_num = item.get('lotNumber', lot_id)
+        title = _extract_ru(item.get('productName', ''))
+        if not title:
+            continue
+
+        enkt = item.get('enktCode', '') or ''
+        qty = item.get('quantity', '')
+        measure = _extract_ru(item.get('measure', ''))
+        end_date = item.get('endDate', '') or ''
+        begin_date = item.get('startDate', '') or ''
+
+        # NOTE: no measureName in search_text — "упаковка" as unit triggers false positives
+        search_text = ' '.join(filter(None, [title, enkt])).lower()
+
+        qty_info = ''
+        if qty and measure:
+            qty_info = '%s %s' % (qty, measure)
+
+        rows.append({
+            'external_id': 'coop-eshop-%s' % lot_num,
+            'title': ('%s (%s)' % (title, qty_info) if qty_info else title)[:500],
+            'organization': None,
+            'price': None,
+            'currency': 'UZS',
+            'deadline': end_date[:10] if end_date else None,
+            'date_start': begin_date[:10] if begin_date else None,
+            'date_end': end_date[:10] if end_date else None,
+            'source': 'Cooperation.uz Э-магазин лоты',
+            'source_url': 'https://new.cooperation.uz',
+            'status': 'active',
+            'search_text': search_text[:1000],
+            'collected_at': now,
+        })
+
+    logger.info('[EshopLots] Transformed %d -> %d rows', len(all_items), len(rows))
+    return rows
+
+
 # ── DB & Alerts ──────────────────────────────────────────────────
 
 def get_existing_ids(source_name):
@@ -491,7 +641,7 @@ def main():
     parser = argparse.ArgumentParser(description='Fetch cooperation.uz data')
     parser.add_argument('--dry-run', action='store_true', help='Fetch only, no DB')
     parser.add_argument('--pages', type=int, default=3, help='Max pages for plans (default: 3)')
-    parser.add_argument('--source', choices=['plans', 'offers', 'lots', 'all'],
+    parser.add_argument('--source', choices=['plans', 'offers', 'lots', 'auction', 'eshop', 'all'],
                         default='all', help='Which source to fetch')
     args = parser.parse_args()
 
@@ -521,6 +671,22 @@ def main():
     if args.source in ('all', 'lots'):
         rows = fetch_and_transform_lots()
         u, n, a = process_source(rows, 'Cooperation.uz Лоты', 'Lots', args.dry_run)
+        total_upserted += u
+        total_new += n
+        total_alerts += a
+
+    # 4. Auction lots (buyer-initiated reverse auctions)
+    if args.source in ('all', 'auction'):
+        rows = fetch_and_transform_auction_lots()
+        u, n, a = process_source(rows, 'Cooperation.uz Аукционы', 'AuctionLots', args.dry_run)
+        total_upserted += u
+        total_new += n
+        total_alerts += a
+
+    # 5. E-shop active lots (buyer selected product → trade started)
+    if args.source in ('all', 'eshop'):
+        rows = fetch_and_transform_eshop_lots()
+        u, n, a = process_source(rows, 'Cooperation.uz Э-магазин лоты', 'EshopLots', args.dry_run)
         total_upserted += u
         total_new += n
         total_alerts += a

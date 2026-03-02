@@ -403,6 +403,66 @@ sources:
       link: "a[href]"
     keywords_fields: []
 
+  # ── UZEX Обратные аукционы (спрос — покупатель создал лот) ──────
+
+  - id: uzex-auctions
+    name: "UZEX Обратные аукционы"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api-auctionx.uzex.uz/api/Lot/GetList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+    body: {"from": 0, "to": 100}
+    rate_limit: 2
+    timeout: 15
+    id_prefix: "uzex-auc"
+    response_path: "Data"
+    field_map:
+      title: categoryName
+      organization: ""
+      price: startCost
+      currency: "UZS"
+      deadline: endDate
+      date_end: endDate
+      region: regionName
+      external_id: id
+      source_url_template: "https://xarid.uzex.uz/auction/detail/{id}"
+    keywords_fields: [categoryName]
+
+  - id: uzex-prequest
+    name: "UZEX Предквалификации"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api-prequest.uzex.uz/api/Public/GetLots"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+    body: {"from": 0, "to": 500}
+    rate_limit: 2
+    timeout: 15
+    id_prefix: "uzex-prq"
+    response_path: "Data"
+    field_map:
+      title: categoryName
+      organization: customerName
+      price: startCost
+      currency: "UZS"
+      deadline: endDate
+      date_start: startDate
+      date_end: endDate
+      external_id: id
+      source_url_template: "https://xarid.uzex.uz/prequalification/detail/{id}"
+    keywords_fields: [categoryName, customerName]
+    pagination:
+      type: offset
+      param: "from"
+      size_param: "to"
+      page_size: 500
+      max_pages: 2
+
   # ── Telegram каналы ──────────────────────────────────────────────
 
   # Поставщики/рекламщики/конкуренты + запросы клиентов
