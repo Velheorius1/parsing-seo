@@ -5,8 +5,8 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 10,000+ тендеров, 73 источника (56 enabled), cron каждый час, AI-фильтр Qwen
-Дата обновления: 1 марта 2026
+Фаза: Production — 10,000+ тендеров, 77 источников (60 enabled), cron каждый час, AI-фильтр Qwen + обратные аукционы
+Дата обновления: 2 марта 2026
 
 ### Что работает
 - **Config-Driven Python Crawler** на VPS (46.62.155.190, `/opt/parsing-seo/`):
@@ -20,7 +20,7 @@
   - **GetLotsInTrade** — активные лоты / обратные тендеры (2.5k, все)
   - Скрипт: `scripts/fetch_cooperation.py`, конфиг: `.env.cooperation`
   - launchd: `~/Library/LaunchAgents/com.parsing-seo.cooperation.plist`
-  - CLI: `--source plans|offers|lots|all`, `--dry-run`, `--pages N`
+  - CLI: `--source plans|offers|lots|auction|eshop|uzex-auc|uzex-prq|all`, `--dry-run`, `--pages N`
 - **Cron VPS**: `0 * * * *` API/HTML/SPA, `0 */4 * * *` Telegram
 - **AI-фильтр**: Qwen3 через OpenRouter — фильтрует ложные срабатывания
 - **Фильтр дедлайнов**: пропускает тендеры с истёкшим сроком
@@ -41,9 +41,14 @@
   - `xarid-api-auctionx.uzex.uz/api/Lot/GetList` → обратные аукционы — 11 лотов
   - `xarid-api-prequest.uzex.uz/api/Public/GetLots` → предквалификации — 968 лотов
 
+### Важные детали
+- **UZEX аукционы**: прямые ссылки `xarid.uzex.uz/auction/detail/{id}` — работают без авторизации
+- **UZEX предквалификации**: прямые ссылки редиректят на главную — требуют E-IMZO
+- **cabinet.cooperation.uz**: иногда возвращает пустой ответ (нестабильный API)
+
 ### Следующие шаги
-- [ ] **Регистрация на площадках** (E-IMZO / ЭЦП) — см. ниже
-- [ ] **Деплой на VPS**: push + добавить UZEX аукционы в cron
+- [ ] **Регистрация на площадках** (E-IMZO / ЭЦП) — см. ниже (Данияр)
+- [ ] После регистрации: подключить ebirja.uz buyer-side API + hayotbirja.uz JSON-RPC
 - **Фаза C:** международные организации (ADB, EBRD, IsDB, AIIB, USAID, GIZ, JICA, KOICA)
 - **Фаза D:** агрегаторы как бэкап (dgMarket, DevelopmentAid)
 - Интеграция алертов в Brain Bot (скилл `/тендеры`)
