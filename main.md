@@ -5,8 +5,8 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 10,000+ тендеров, 77 источников (60 enabled), cron каждый час, AI-фильтр Qwen + обратные аукционы
-Дата обновления: 2 марта 2026
+Фаза: Production — 10,000+ тендеров, 84 источника (60 enabled), cron каждый час, AI-фильтр Qwen + обратные аукционы
+Дата обновления: 3 марта 2026
 
 ### Что работает
 - **Config-Driven Python Crawler** на VPS (46.62.155.190, `/opt/parsing-seo/`):
@@ -33,13 +33,13 @@
 - **hayotbirja.uz API**: JSON-RPC 2.0 есть, но backend таймаутит без авторизации. Ждём API-токен
 - **ebirja.uz buyer-side data**: лоты/торги за авторизацией (401) — нужна регистрация
 
-### Что добавлено (2 марта 2026)
-- **Обратные аукционы cooperation.uz** — 2 новых источника в `fetch_cooperation.py`:
-  - `cabinet.cooperation.uz/api/auction/public/lots` → аукционные лоты (AL*) — 4 лота
-  - `cabinet.cooperation.uz/api/eshop/lots/active` → э-магазин лоты (ML*) — 10 лотов
-- **UZEX аукционы** — 2 новых источника в `sources.yaml`:
-  - `xarid-api-auctionx.uzex.uz/api/Lot/GetList` → обратные аукционы — 11 лотов
-  - `xarid-api-prequest.uzex.uz/api/Public/GetLots` → предквалификации — 968 лотов
+### Что добавлено (3 марта 2026) — Фаза C: Международные организации
+- **Grants.gov (USAID)** — API без auth, 1+ тендер Uzbekistan → `sources.yaml`
+- **OSCE Uzbekistan** — HTML scraping, 3 тендера → `sources.yaml`
+- **IsDB** — HTML scraping + country_filter, 4 тендера → `sources.yaml`
+- **6 disabled источников** добавлены (SAM.gov, TED EU, ADB, AIIB, EBRD, EDB/ЕАБР) — ждут API ключи / SPA адаптер
+- **Исследование 60+ организаций** → `phase-c-research.md` (стратегия, API детали, план подключения)
+- Исправлен дубль `sqb` (Узпромстройбанк)
 
 ### Важные детали
 - **UZEX аукционы**: прямые ссылки `xarid.uzex.uz/auction/detail/{id}` — работают без авторизации
@@ -49,8 +49,15 @@
 ### Следующие шаги
 - [ ] **Регистрация на площадках** (E-IMZO / ЭЦП) — см. ниже (Данияр)
 - [ ] После регистрации: подключить ebirja.uz buyer-side API + hayotbirja.uz JSON-RPC
-- **Фаза C:** международные организации (ADB, EBRD, IsDB, AIIB, USAID, GIZ, JICA, KOICA)
+- **Фаза C (продолжение):**
+  - [ ] Зарегистрироваться на developer.ungm.org — API key для UNGM (40+ агентств ООН)
+  - [ ] Зарегистрироваться на sam.gov — бесплатный API key (USAID контракты)
+  - [ ] Подключить ADB через SPA адаптер (Playwright, обход Cloudflare)
+  - [ ] Подключить EBRD (ECEPP portal, нужна регистрация)
+  - [ ] Подключить AIIB, EDB/ЕАБР (HTML scraping после тестирования)
+  - [ ] TED EU — разработать custom adapter (API возвращает только ID, данные в XML)
 - **Фаза D:** агрегаторы как бэкап (dgMarket, DevelopmentAid)
+- Lead generation из GetAllPlanSchedule по ключевым словам (проактивные КП)
 - Интеграция алертов в Brain Bot (скилл `/тендеры`)
 
 ### Регистрация на площадках (TODO Данияр)

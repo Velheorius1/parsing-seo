@@ -145,6 +145,208 @@ sources:
       source_url_template: "https://projects.worldbank.org/en/projects-operations/procurement-detail/{id}"
     keywords_fields: [project_name, bid_description, notice_text, contact_organization, procurement_group]
 
+  # ── Фаза C: Международные организации (API) ─────────────────────
+
+  - id: grants-usaid
+    name: "Grants.gov (USAID)"
+    adapter: api
+    enabled: true
+    url: "https://api.grants.gov/v1/api/search2"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body:
+      keyword: "Uzbekistan"
+      oppStatuses: "posted|forecasted"
+      rows: 100
+      offset: 0
+    rate_limit: 2
+    timeout: 30
+    id_prefix: "grants"
+    response_path: "data.oppHits"
+    field_map:
+      title: title
+      organization: agency
+      deadline: closeDate
+      date_start: openDate
+      external_id: number
+      source_url_template: "https://www.grants.gov/search-results-detail/{id}"
+    keywords_fields: [title, agency, docType]
+
+  - id: sam-gov
+    name: "SAM.gov (US Federal)"
+    adapter: api
+    enabled: false  # Needs free API key — register at sam.gov
+    url: "https://api.sam.gov/prod/opportunities/v2/search"
+    method: GET
+    params:
+      api_key: "REPLACE_WITH_KEY"
+      limit: 100
+      title: "Uzbekistan"
+      postedFrom: "01/01/2025"
+    rate_limit: 2
+    timeout: 30
+    id_prefix: "sam"
+    response_path: "opportunitiesData"
+    field_map:
+      title: title
+      organization: fullParentPathName
+      deadline: responseDeadLine
+      date_start: postedDate
+      external_id: noticeId
+      source_url_template: "https://sam.gov/opp/{id}/view"
+    keywords_fields: [title, fullParentPathName, description]
+
+  - id: ted-eu
+    name: "TED EU Procurement"
+    adapter: api
+    enabled: false  # Returns only IDs+links, needs custom adapter for field extraction
+    url: "https://api.ted.europa.eu/v3/notices/search"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body:
+      query: "BT-21-Procedure = \"Uzbekistan\""
+      fields: ["notice-identifier", "BT-21-Procedure", "organisation-name-buyer", "deadline-receipt-tender-date-lot"]
+      limit: 100
+    rate_limit: 1
+    timeout: 30
+    id_prefix: "ted"
+    response_path: "notices"
+    field_map:
+      title: BT-21-Procedure
+      organization: organisation-name-buyer
+      deadline: deadline-receipt-tender-date-lot
+      external_id: publication-number
+      source_url_template: "https://ted.europa.eu/en/notice/-/detail/{id}"
+    keywords_fields: [BT-21-Procedure, organisation-name-buyer]
+
+  # ── Фаза C: Международные организации (HTML) ─────────────────────
+
+  - id: osce-uz
+    name: "OSCE Uzbekistan"
+    adapter: html
+    enabled: true
+    url: "https://procurement.osce.org/tenders?f[]=source:OSCE+Project+Co-ordinator+in+Uzbekistan"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "osce"
+    html_selectors:
+      container: "article.node"
+      title: "a"
+      deadline: "time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "OSCE Uzbekistan"
+      deadline: deadline
+      source_url_template: "https://procurement.osce.org{link}"
+    keywords_fields: [title]
+
+  - id: isdb
+    name: "Islamic Development Bank (IsDB)"
+    adapter: html
+    enabled: true
+    url: "https://www.isdb.org/project-procurement/tenders"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 30
+    id_prefix: "isdb"
+    country_filter: "uzbekistan"
+    html_selectors:
+      container: "article.teaser.type-tender"
+      title: "h2 a"
+      deadline: "time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "IsDB"
+      deadline: deadline
+      source_url_template: "https://www.isdb.org{link}"
+    keywords_fields: [title]
+
+  - id: adb-uz
+    name: "Asian Development Bank (ADB)"
+    adapter: spa
+    enabled: false  # Cloudflare protection — needs Playwright SPA adapter
+    url: "https://www.adb.org/projects/tenders/country/uzb"
+    rate_limit: 1
+    timeout: 30
+    id_prefix: "adb"
+    field_map:
+      title: title
+      organization: "ADB"
+      deadline: deadline
+      source_url_template: "https://www.adb.org{link}"
+    keywords_fields: [title]
+
+  - id: aiib
+    name: "AIIB (Asian Infrastructure Investment Bank)"
+    adapter: html
+    enabled: false  # Slow/timeout — needs investigation
+    url: "https://www.aiib.org/en/opportunities/business/project-procurement/list.html"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 1
+    timeout: 30
+    id_prefix: "aiib"
+    country_filter: "uzbekistan"
+    html_selectors:
+      container: "article, .procurement-item"
+      title: "h3 a, h2 a"
+      deadline: "time, .date"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "AIIB"
+      deadline: deadline
+      source_url_template: "https://www.aiib.org{link}"
+    keywords_fields: [title]
+
+  - id: ebrd
+    name: "EBRD Procurement"
+    adapter: spa
+    enabled: false  # SPA (Delta eSourcing/ECEPP) — needs Playwright + registration
+    url: "https://ecepp.ebrd.com"
+    rate_limit: 1
+    timeout: 30
+    id_prefix: "ebrd"
+    field_map:
+      title: title
+      organization: "EBRD"
+      deadline: deadline
+      source_url_template: "{link}"
+    keywords_fields: [title]
+
+  - id: edb-eabr
+    name: "Евразийский банк развития (ЕАБР/EDB)"
+    adapter: html
+    enabled: false  # Needs investigation — UZ recently joined
+    url: "https://eabr.org/en/procurement/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "eabr"
+    html_selectors:
+      container: "article, .procurement-item, .item"
+      title: "h3 a, h2 a, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "ЕАБР / EDB"
+      deadline: deadline
+      source_url_template: "https://eabr.org{link}"
+    keywords_fields: [title]
+
   # ── HTML scraping sources ──────────────────────────────────────────
 
   - id: undp
@@ -868,10 +1070,10 @@ sources:
       source_url_template: "https://turonbank.uz{link}"
     keywords_fields: [title]
 
-  - id: sqb
-    name: "Узпромстройбанк (SQB)"
+  - id: sqb-old
+    name: "Узпромстройбанк (SQB) OLD"
     adapter: html
-    enabled: true
+    enabled: false  # Replaced by sqb with better selectors in Phase B+ section
     url: "https://sqb.uz/press-center/tenders-ru/"
     method: GET
     headers:
