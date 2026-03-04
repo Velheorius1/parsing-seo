@@ -181,7 +181,8 @@ class ApiAdapter(BaseAdapter):
         cfg = self.config
         all_items = []  # type: List[Dict[str, Any]]
 
-        for page_num in range(pag.max_pages):
+        start = getattr(pag, 'page_start', 0)
+        for page_num in range(start, start + pag.max_pages):
             await self.rate_limit()
 
             body = dict(cfg.body) if cfg.body else {}

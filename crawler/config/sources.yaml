@@ -166,6 +166,13 @@ sources:
       external_id: guid
       source_url_template: "https://b2biz.uz/home/tenders/{id}"
     keywords_fields: [ptitle, psupl, ptypename]
+    pagination:
+      type: page
+      param: "page"
+      size_param: null
+      page_size: 50
+      max_pages: 5
+      page_start: 1
 
   - id: b2biz-plans
     name: "B2Biz.uz (Планы закупок)"
@@ -186,6 +193,13 @@ sources:
       external_id: proc_guid
       source_url_template: "https://b2biz.uz/home/procurement-plans"
     keywords_fields: [title, brandname, description]
+    pagination:
+      type: page
+      param: "page"
+      size_param: null
+      page_size: 30
+      max_pages: 10
+      page_start: 1
 
   # ── Фаза C: Международные организации (API) ─────────────────────
 

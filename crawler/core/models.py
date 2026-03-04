@@ -51,6 +51,7 @@ class PaginationConfig(BaseModel):
     page_size: int = 100
     max_pages: int = 10
     total_field: Optional[str] = None
+    page_start: int = 0  # first page number (0 or 1)
 
 
 class SourceConfig(BaseModel):
