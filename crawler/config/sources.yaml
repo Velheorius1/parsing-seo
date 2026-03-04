@@ -145,6 +145,48 @@ sources:
       source_url_template: "https://projects.worldbank.org/en/projects-operations/procurement-detail/{id}"
     keywords_fields: [project_name, bid_description, notice_text, contact_organization, procurement_group]
 
+  # ── B2Biz.uz — корпоративные закупки (Uzum, частный бизнес) ──────
+
+  - id: b2biz-tenders
+    name: "B2Biz.uz (Тендеры)"
+    adapter: api
+    enabled: true
+    url: "https://b2biz.uz/api/v1/etp/get-list-published-procedures/"
+    method: GET
+    headers:
+      Accept: "application/json"
+    rate_limit: 1
+    timeout: 30
+    id_prefix: "b2biz"
+    response_path: "results"
+    field_map:
+      title: ptitle
+      organization: psupl
+      deadline: deadline
+      external_id: guid
+      source_url_template: "https://b2biz.uz/home/tenders/{id}"
+    keywords_fields: [ptitle, psupl, ptypename]
+
+  - id: b2biz-plans
+    name: "B2Biz.uz (Планы закупок)"
+    adapter: api
+    enabled: true
+    url: "https://b2biz.uz/api/v1/etp/plan/proc/list/"
+    method: GET
+    headers:
+      Accept: "application/json"
+    rate_limit: 1
+    timeout: 30
+    id_prefix: "b2biz-plan"
+    response_path: "results"
+    field_map:
+      title: title
+      organization: brandname
+      deadline: plan_end
+      external_id: proc_guid
+      source_url_template: "https://b2biz.uz/home/procurement-plans"
+    keywords_fields: [title, brandname, description]
+
   # ── Фаза C: Международные организации (API) ─────────────────────
 
   - id: grants-usaid
