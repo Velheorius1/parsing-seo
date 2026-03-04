@@ -46,6 +46,13 @@ def _safe_str(value: Any) -> str:
     return str(value).strip()
 
 
+def _get_field(item: Dict[str, Any], path: str, default: Any = None) -> Any:
+    """Get field from item, supporting dot-notation for nested objects."""
+    if "." in path:
+        return _resolve_path(item, path)
+    return item.get(path, default)
+
+
 class ApiAdapter(BaseAdapter):
     """Adapter for JSON API sources (GET/POST with httpx)."""
 
@@ -316,35 +323,35 @@ class ApiAdapter(BaseAdapter):
         cfg = self.config
         fm = cfg.field_map
 
-        # Extract fields via field_map
-        title = _safe_str(item.get(fm.title, ""))
+        # Extract fields via field_map (supports dot-notation: "customer.name")
+        title = _safe_str(_get_field(item, fm.title, ""))
         if not title or len(title) < 3:
             return None
 
-        organization = _safe_str(item.get(fm.organization, "")) if fm.organization else ""
-        price = _safe_float(item.get(fm.price)) if fm.price else None
-        currency = _safe_str(item.get(fm.currency, "")) if fm.currency else ""
+        organization = _safe_str(_get_field(item, fm.organization, "")) if fm.organization else ""
+        price = _safe_float(_get_field(item, fm.price)) if fm.price else None
+        currency = _safe_str(_get_field(item, fm.currency, "")) if fm.currency else ""
         if not currency:
             currency = "UZS"
 
-        deadline = _safe_str(item.get(fm.deadline, "")) if fm.deadline else None
+        deadline = _safe_str(_get_field(item, fm.deadline, "")) if fm.deadline else None
         if deadline == "":
             deadline = None
 
-        date_start = _safe_str(item.get(fm.date_start, "")) if fm.date_start else None
+        date_start = _safe_str(_get_field(item, fm.date_start, "")) if fm.date_start else None
         if date_start == "":
             date_start = None
 
-        date_end = _safe_str(item.get(fm.date_end, "")) if fm.date_end else None
+        date_end = _safe_str(_get_field(item, fm.date_end, "")) if fm.date_end else None
         if date_end == "":
             date_end = None
 
-        region = _safe_str(item.get(fm.region, "")) if fm.region else ""
+        region = _safe_str(_get_field(item, fm.region, "")) if fm.region else ""
 
         # Categories
         categories = []  # type: List[str]
         if fm.categories:
-            cat_val = item.get(fm.categories, "")
+            cat_val = _get_field(item, fm.categories, "")
             if isinstance(cat_val, list):
                 categories = [str(c) for c in cat_val if c]
             elif cat_val:
@@ -353,9 +360,9 @@ class ApiAdapter(BaseAdapter):
         # External ID
         ext_id_val = ""
         if fm.external_id:
-            ext_id_val = _safe_str(item.get(fm.external_id, ""))
+            ext_id_val = _safe_str(_get_field(item, fm.external_id, ""))
         if not ext_id_val:
-            ext_id_val = _safe_str(item.get("id", ""))
+            ext_id_val = _safe_str(_get_field(item, "id", ""))
 
         # Generate prefixed ID
         tender_id = "%s-%s" % (cfg.id_prefix, ext_id_val)
@@ -372,10 +379,10 @@ class ApiAdapter(BaseAdapter):
             except Exception:
                 source_url = ""
 
-        # Search text from keywords_fields
+        # Search text from keywords_fields (supports dot-notation)
         search_parts = []  # type: List[str]
         for kf in cfg.keywords_fields:
-            val = _safe_str(item.get(kf, ""))
+            val = _safe_str(_get_field(item, kf, ""))
             if val:
                 search_parts.append(val)
         search_text = " ".join(search_parts)[:2000]

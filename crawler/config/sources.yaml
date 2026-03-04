@@ -201,6 +201,43 @@ sources:
       max_pages: 10
       page_start: 1
 
+  # ── Tender.mc.uz — Минстрой тендеры (строительные торги) ─────────
+
+  - id: minstroy-tenders
+    name: "Tender.mc.uz (Минстрой)"
+    adapter: api
+    enabled: true
+    url: "https://apisitender.mc.uz/api/tenders"
+    method: GET
+    headers:
+      Accept: "application/json"
+    params:
+      status: 2
+    rate_limit: 1
+    timeout: 30
+    id_prefix: "minstroy"
+    response_path: "result.data"
+    field_map:
+      title: name
+      organization: customer.name
+      price: start_price
+      currency: currency
+      deadline: placement_term
+      date_start: created_at
+      date_end: end_term_work
+      region: region.name
+      categories: service_type.name
+      external_id: unique_name
+      source_url_template: "https://tender.mc.uz/tender/{id}"
+    keywords_fields: [name, customer.name, address, region.name, service_type.name]
+    pagination:
+      type: page
+      param: "page"
+      size_param: null
+      page_size: 10
+      max_pages: 100
+      page_start: 1
+
   # ── Фаза C: Международные организации (API) ─────────────────────
 
   - id: grants-usaid

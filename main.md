@@ -5,8 +5,8 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 10,000+ тендеров, 84 источника (60 enabled), cron каждый час, AI-фильтр Qwen + обратные аукционы
-Дата обновления: 3 марта 2026
+Фаза: Production — 10,000+ тендеров, 86 источников (62 enabled), cron каждый час, AI-фильтр Qwen + обратные аукционы
+Дата обновления: 4 марта 2026
 
 ### Что работает
 - **Config-Driven Python Crawler** на VPS (46.62.155.190, `/opt/parsing-seo/`):
@@ -33,13 +33,16 @@
 - **hayotbirja.uz API**: JSON-RPC 2.0 есть, но backend таймаутит без авторизации. Ждём API-токен
 - **ebirja.uz buyer-side data**: лоты/торги за авторизацией (401) — нужна регистрация
 
-### Что добавлено (3 марта 2026) — Фаза C: Международные организации
-- **Grants.gov (USAID)** — API без auth, 1+ тендер Uzbekistan → `sources.yaml`
-- **OSCE Uzbekistan** — HTML scraping, 3 тендера → `sources.yaml`
-- **IsDB** — HTML scraping + country_filter, 4 тендера → `sources.yaml`
-- **6 disabled источников** добавлены (SAM.gov, TED EU, ADB, AIIB, EBRD, EDB/ЕАБР) — ждут API ключи / SPA адаптер
-- **Исследование 60+ организаций** → `phase-c-research.md` (стратегия, API детали, план подключения)
-- Исправлен дубль `sqb` (Узпромстройбанк)
+### Что добавлено (4 марта 2026)
+- **B2Biz.uz** — корпоративные закупки (Uzum Bank/Market/Tech), 2 API без auth:
+  - `b2biz-tenders`: 101 тендер (публичные процедуры)
+  - `b2biz-plans`: 162 плана закупок (lead gen)
+  - Пагинация page_start=1, Swagger: `/api/v1/schema/swagger-ui/`
+- **Grants.gov (USAID)** — API без auth, 1+ тендер Uzbekistan
+- **OSCE Uzbekistan** — HTML scraping, 3 тендера
+- **IsDB** — HTML scraping + country_filter, 4 тендера
+- **6 disabled источников** (SAM.gov, TED EU, ADB, AIIB, EBRD, EDB/ЕАБР) — ждут API ключи / SPA
+- `page_start` в PaginationConfig — поддержка 1-indexed API
 
 ### Важные детали
 - **UZEX аукционы**: прямые ссылки `xarid.uzex.uz/auction/detail/{id}` — работают без авторизации
