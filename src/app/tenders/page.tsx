@@ -5,6 +5,7 @@ import { TenderFilters } from '@/components/tenders/TenderFilters';
 import { ExportButton } from '@/components/tenders/ExportButton';
 import { TenderTable } from '@/components/tenders/TenderTable';
 import { TenderAnalytics } from '@/components/tenders/TenderAnalytics';
+import { TenderPredictions } from '@/components/tenders/TenderPredictions';
 
 export default function TendersPage() {
   return (
@@ -56,6 +57,11 @@ export default function TendersPage() {
           {/* Результаты */}
           <section>
             <TenderTable />
+          </section>
+
+          {/* Прогнозы */}
+          <section className="bg-gray-900 rounded-xl p-6 border border-gray-800">
+            <TenderPredictions />
           </section>
 
           {/* Аналитика */}

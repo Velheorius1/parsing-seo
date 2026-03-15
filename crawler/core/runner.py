@@ -204,6 +204,14 @@ async def run(
             dry_run=dry_run,
         )
 
+    # Seasonal predictions
+    if not dry_run:
+        from crawler.core.predictor import run_predictions
+
+        predictions_stored = await run_predictions(dry_run=dry_run)
+        if predictions_stored:
+            logger.info("Stored %d new tender predictions", predictions_stored)
+
     return stats
 
 
