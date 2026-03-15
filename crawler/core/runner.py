@@ -192,6 +192,18 @@ async def run(
         ]
         await send_healthcheck(stats, len(new_tenders), alerts_sent, errors)
 
+    # AI quality evaluation (daily)
+    if not dry_run:
+        from crawler.core.ai_evaluator import evaluate_crawl_quality
+
+        await evaluate_crawl_quality(
+            source_stats=stats,
+            new_count=len(new_tenders),
+            alerts_sent=alerts_sent,
+            all_tenders=all_tenders,
+            dry_run=dry_run,
+        )
+
     return stats
 
 

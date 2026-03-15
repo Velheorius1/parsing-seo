@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     openrouter_api_key: Optional[str] = None
     ai_relevance_model: str = "qwen/qwen3-30b-a3b"
 
+    # AI evaluator (daily quality report)
+    ai_eval_enabled: bool = True
+
     # Crawler behaviour
     dry_run: bool = False
     log_level: str = "INFO"
