@@ -9,9 +9,14 @@
 
 ## TypeScript (src/)
 - Files: camelCase.ts or kebab-case.ts (follow existing pattern)
-- React components: PascalCase.tsx
-- Types/interfaces: PascalCase
-- Zustand stores: use{Name}Store
+- React components: PascalCase.tsx (e.g., TenderTable.tsx, DeadlineBadge, FavoriteButton)
+- Types/interfaces: PascalCase (e.g., Tender, TenderFavorite, TenderSearchParams)
+- Zustand stores: use{Name}Store (e.g., useTenderStore)
+- Helper functions: camelCase (e.g., calcDaysLeft, formatPrice, formatTimeAgo)
+- API routes: src/app/api/{resource}/route.ts (e.g., api/tenders/favorites/route.ts)
+- Supabase query files: src/lib/supabase/{resource}.ts (e.g., tenders.ts, favorites.ts)
+- DB row interfaces: {Resource}Row (snake_case fields), app types: PascalCase (camelCase fields)
+- Mapping functions: rowTo{Type} (e.g., rowToTender, rowToFavorite)
 
 ## Database (Supabase)
 - Tables: snake_case (plural: tenders, keywords)
