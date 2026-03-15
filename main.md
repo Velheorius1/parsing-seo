@@ -5,46 +5,42 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 12,000+ тендеров, 93 источника (59 enabled), cron каждые 8ч, AI-фильтр Qwen
+Фаза: Production — 99 источников (64 enabled), cron 3x/день, AI Qwen фильтр + evaluator
 Дата обновления: 15 марта 2026
 
 ### Что работает
-- **Config-Driven Python Crawler** на VPS (46.62.155.190, `/opt/parsing-seo/`):
-  - API (httpx): ETender, Xarid, World Bank, ebirja, B2Biz.uz, Minstroy, Grants.gov, OSCE, IsDB
-  - HTML (BeautifulSoup): 20+ источников — банки, компании, gov.uz, UNDP, UNGM, GIZ
-  - SPA (Playwright): xt-xarid.uz, hayotbirja.uz, ebirja.uz аукционы
-  - Telegram (Telethon): 23 канала
-- **Cron VPS**: каждые 8ч (06:00, 14:00, 22:00) + Telegram 2р/день
-- **AI-фильтр + Telegram-алерты**: бот @tender_alerts_uz_bot, 37 ключевых слов
-- **Cross-source дедупликация**: fuzzy match по org + title + deadline → один алерт вместо 3
-- **Дедлайн-трекер**: напоминания за 3 дня и 1 день, таблица deadline_reminders
-- **Мониторинг результатов**: UZEX CivilContracts/GetResulted (5000+ завершённых сделок с победителями)
+- **Crawler на VPS** (46.62.155.190): 64 enabled sources, cron 06:00/14:00/22:00
+- **cooperation.uz** — Mac launchd каждые 8ч (376k планов, geo-blocked с VPS)
+- **AI-фильтр Qwen** — отсекает false positives (набор реагентов ≠ подарочный набор)
+- **AI Evaluator** — ежедневный отчёт качества парсинга через Qwen
+- **Предиктивный модуль** — сезонные паттерны компаний → "X запустит тендер в апреле"
+- **Конкурент-мониторинг** — алерты когда конкурент выставляет лот (#конкурент)
+- **Lead generation** — закупочные планы cooperation.uz → "Алокабанк планирует конверты" (#лид)
+- **Дедупликация** — один алерт вместо 3 за один тендер с разных площадок
+- **Дедлайн-трекер** — напоминания за 3д и 1д
+- **Мониторинг результатов** — UZEX CivilContracts (5000+ сделок, победители+цены)
+- **Дашборд /tenders** — фильтры (20+), Excel экспорт, аналитика, избранное, DeadlineBadge
+- **Админ-панель /tenders/settings** — управление keywords, конкурентами, порогом цены, тоглами
+- **Мин порог 10M сум** — мелкие тендеры не алертятся
 
 ### Что не работает / в процессе
 - **E-IMZO регистрация** (Данияр) — ebirja.uz, hayotbirja.uz (PFX ключ готов)
 - **Международные**: UNICEF (403), ADB (Cloudflare), JICA (404)
-- **VPS деплой** — новые модули не задеплоены (dedup, deadline, results, фильтры, Excel, аналитика)
+- **Beeline UZ, Bnect** — SPA, нужен Playwright
 
 ### Последние обновления (15 марта 2026)
-- **cooperation.uz ОЖИЛ** — 6023 тендеров, 4523 новых, 100 алертов. Mac launchd каждые 8ч
-- **TenderZone parity** — расширенные фильтры (20+ params), Excel экспорт, аналитика заказчиков, избранное с цветами, DeadlineBadge, подсветка ключевых слов (1775 строк, 19 файлов)
-- **Crawler модули** — дедупликация, дедлайн-трекер, мониторинг результатов (UZEX CivilContracts)
-- **Миграции 005+006** — group_id, winner, winning_price, deadline_reminders, tender_favorites
-- **/hack TenderZone** — Saby/SBIS платформа, 250 площадок = в основном Россия. Мы лучше по UZ
+- **Smart Tender System** — AI evaluator, predictor, competitor monitoring, lead gen
+- **TenderZone parity** — фильтры, Excel, аналитика, избранное (1775 строк)
+- **Gap analysis** — 21 UZ-площадка у TenderZone, 9 gaps, 6 добавлены (99 total)
+- **Админ-панель** — /tenders/settings (keywords, competitors, price, toggles)
+- **Миграции 005-008** — все применены в Supabase
+- **VPS задеплоен** — все модули загружены, 9505 тендеров
 
 ### Следующие шаги
-
-**Срочно:**
-- [ ] **Деплой на VPS** — git pull + перезапуск cron (новые модули)
-- [ ] **Регистрация E-IMZO** (Данияр) — ebirja.uz, hayotbirja.uz
-- [ ] Проверить дашборд /tenders в браузере
-
-**Новые модули (следующая сессия):**
-- [ ] **AI Qwen модуль** — интеллектуальная оценка результатов парсинга, проактивные рекомендации
-- [ ] **Предиктивный модуль** — история тендеров → предсказание "компания X запустит тендер в апреле"
-- [ ] **Конкурент-мониторинг** — лоты конкурентов (supply side) + lead gen из закупочных планов cooperation.uz
-- [ ] **Расширение СНГ** — Казахстан goszakup.gov.kz, Россия zakupki.gov.ru
-- Интеграция в Brain Bot (скилл `/тендеры`)
+- [ ] **Регистрация E-IMZO** (Данияр) — ebirja.uz + hayotbirja.uz
+- [ ] Проверить /tenders и /tenders/settings в браузере
+- [ ] Расширение СНГ (Казахстан goszakup.gov.kz) если нужен
+- [ ] Интеграция в Brain Bot (скилл `/тендеры`)
 
 ### Регистрация на площадках (TODO Данияр)
 
