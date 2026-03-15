@@ -39,8 +39,38 @@ function StatusBadge({ status }: { status: Tender['status'] }) {
   );
 }
 
+// Подсветка совпавших ключевых слов в названии
+function HighlightedTitle({ title, keywords }: { title: string; keywords: string[] }) {
+  if (keywords.length === 0) {
+    return <>{title}</>;
+  }
+
+  const escaped = keywords.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`(${escaped.join('|')})`, 'gi');
+  const parts = title.split(pattern);
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        const isMatch = escaped.some(
+          (esc) => new RegExp(`^${esc}$`, 'i').test(part),
+        );
+        return isMatch ? (
+          <mark key={i} className="bg-amber-500/30 text-amber-300 rounded px-0.5">
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        );
+      })}
+    </>
+  );
+}
+
 // Строка таблицы
 function TenderRow({ tender, index }: { tender: Tender; index: number }) {
+  const selectedKeywords = useTenderStore((s) => s.selectedKeywords);
+
   return (
     <tr
       className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors"
@@ -55,7 +85,9 @@ function TenderRow({ tender, index }: { tender: Tender; index: number }) {
           className="text-sm text-amber-400 hover:text-amber-300 hover:underline block truncate"
           title={tender.title}
         >
-          {tender.title || tender.externalId}
+          {tender.title
+            ? <HighlightedTitle title={tender.title} keywords={selectedKeywords} />
+            : tender.externalId}
         </a>
         {tender.matchedKeywords.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
