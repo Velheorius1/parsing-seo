@@ -1965,6 +1965,134 @@ sources:
       source_url_template: "https://zakupki.prom.uz{link}"
     keywords_fields: [title]
 
+  # ── Gap analysis additions (2026-03-15) ──────────────────────────
+
+  - id: tenderweek
+    name: "TenderWeek.com"
+    adapter: html
+    enabled: true
+    url: "https://tenderweek.com/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+      Accept-Language: "ru,uz;q=0.9"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "tenderweek"
+    html_selectors:
+      container: "a[href*='/tender-']"
+      title: ".tender-name, .name, h3, h2"
+      deadline: ".tender-date, .date, time"
+      link: "@href"
+    field_map:
+      title: title
+      organization: ""
+      deadline: deadline
+      source_url_template: "https://tenderweek.com{link}"
+    keywords_fields: [title]
+
+  - id: uzairports
+    name: "Uzbekistan Airports"
+    adapter: html
+    enabled: true
+    url: "https://uzairports.com/tender"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+      Accept-Language: "ru,uz;q=0.9"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "uzair"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .card, tr"
+      title: "h3, h2, .title, a, td:nth-child(2)"
+      deadline: ".date, time, td:nth-child(3)"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Uzbekistan Airports"
+      deadline: deadline
+      source_url_template: "https://uzairports.com{link}"
+    keywords_fields: [title]
+
+  - id: saneg
+    name: "Saneg Тендеры"
+    adapter: html
+    enabled: true
+    url: "https://www.saneg.com/tenders"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+      Accept-Language: "ru,uz;q=0.9"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "saneg"
+    html_selectors:
+      container: "a[href*='/tender/']"
+      title: ".tender-name, .name, h3"
+      deadline: ".date, time"
+      link: "@href"
+    field_map:
+      title: title
+      organization: "Saneg"
+      deadline: deadline
+      source_url_template: "{link}"
+    keywords_fields: [title]
+
+  - id: beeline-uz
+    name: "Beeline UZ Тендеры"
+    adapter: spa
+    enabled: false  # SPA (Nuxt) — needs Playwright
+    url: "https://beeline.uz/ru/about/tenderi"
+    rate_limit: 0.5
+    timeout: 30
+    id_prefix: "beeline"
+    field_map:
+      title: title
+      organization: "Beeline Uzbekistan"
+    keywords_fields: [title]
+
+  - id: minzdrav-uz
+    name: "Минздрав Узбекистана"
+    adapter: html
+    enabled: true
+    url: "https://ssv.uz/ru/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+      Accept-Language: "ru,uz;q=0.9"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "minzdrav"
+    html_selectors:
+      container: ".tender-item, .news-item, article, .card"
+      title: "h3, h2, .title, a"
+      deadline: ".date, time"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "Министерство здравоохранения РУз"
+      deadline: deadline
+      source_url_template: "https://ssv.uz{link}"
+    keywords_fields: [title]
+
+  - id: bnect-uz
+    name: "Bnect UZ"
+    adapter: spa
+    enabled: false  # SPA (React/Tanstack) — needs Playwright
+    url: "https://uz.bnect.pro/procurement"
+    rate_limit: 0.5
+    timeout: 30
+    id_prefix: "bnect"
+    field_map:
+      title: title
+      organization: ""
+    keywords_fields: [title]
+
   # ── Disabled / requires auth ─────────────────────────────────────
 
   - id: tenderzone

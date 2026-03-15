@@ -28,19 +28,19 @@
 | KAPITALBANK | `kapitalbank` | 133 |
 | Ucell | `ucell` | 125 |
 
-## Missing Platforms (Gap)
+## Missing Platforms (Gap) — Resolution
 
-| # | TZone Platform | URL | Tenders | Priority |
-|---|---------------|-----|---------|----------|
-| 1 | TendersOnTime | https://www.tendersontime.com/uzbekistan-tenders/ | 65,469 | HIGH |
-| 2 | TENDERWEEK | http://tenderweek.com | 5,079 | HIGH |
-| 3 | UzAirports | https://uzairports.com/tender | 297 | MEDIUM |
-| 4 | Saneg тендеры | https://www.saneg.com/ | 203 | MEDIUM |
-| 5 | Beeline UZ | https://beeline.uz/ru/about/tenderi | 137 | MEDIUM |
-| 6 | Министерство здравоохранения Республики Узбекистан | https://ssv.uz/ru/ | 72 | LOW |
-| 7 | Bnect UZ | https://uz.bnect.pro/procurement | 56 | LOW |
-| 8 | Автомобильный комитет Республики Узбекистан | https://www.uzavtoyul.uz/ru/ | 48 | LOW |
-| 9 | ЭТП «TenderGPT» | https://tendergpt.uz/ | 5 | LOW |
+| # | TZone Platform | URL | Tenders | Status | Source ID |
+|---|---------------|-----|---------|--------|-----------|
+| 1 | TendersOnTime | tendersontime.com | 65,469 | SKIP (aggregator, paid) | — |
+| 2 | TENDERWEEK | tenderweek.com | 5,079 | ADDED (html) | `tenderweek` |
+| 3 | UzAirports | uzairports.com/tender | 297 | ADDED (html) | `uzairports` |
+| 4 | Saneg | saneg.com/tenders | 203 | ADDED (html) | `saneg` |
+| 5 | Beeline UZ | beeline.uz | 137 | ADDED (spa, disabled) | `beeline-uz` |
+| 6 | MinZdrav | ssv.uz | 72 | ADDED (html) | `minzdrav-uz` |
+| 7 | Bnect UZ | uz.bnect.pro | 56 | ADDED (spa, disabled) | `bnect-uz` |
+| 8 | Uzavtoyul | uzavtoyul.uz | 48 | SKIP (SSL error, 404) | — |
+| 9 | TenderGPT | tendergpt.uz | 5 | SKIP (too few tenders) | — |
 
 ## All TZone UZ Platforms (raw)
 
