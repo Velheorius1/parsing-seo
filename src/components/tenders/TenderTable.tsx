@@ -67,6 +67,60 @@ function HighlightedTitle({ title, keywords }: { title: string; keywords: string
   );
 }
 
+// Расчёт дней до дедлайна
+function calcDaysLeft(deadline: string | null): number | null {
+  if (!deadline) return null;
+  let date: Date;
+  if (/^\d{4}-\d{2}-\d{2}/.test(deadline)) {
+    date = new Date(deadline);
+  } else if (/^\d{2}\.\d{2}\.\d{4}/.test(deadline)) {
+    const [dd, mm, yyyy] = deadline.split('.');
+    date = new Date(`${yyyy}-${mm}-${dd}`);
+  } else {
+    return null;
+  }
+  if (isNaN(date.getTime())) return null;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+// Бейдж дедлайна с цветовой индикацией
+function DeadlineBadge({ deadline }: { deadline: string | null }) {
+  const daysLeft = calcDaysLeft(deadline);
+
+  if (!deadline) return <span className="text-gray-500">—</span>;
+  if (daysLeft === null) return <span className="text-gray-400">{deadline}</span>;
+
+  if (daysLeft < 0) {
+    return (
+      <span className="px-2 py-0.5 rounded text-xs border bg-gray-500/15 text-gray-400 border-gray-500/30">
+        Истёк
+      </span>
+    );
+  }
+
+  let colorClass: string;
+  if (daysLeft <= 1) {
+    colorClass = 'bg-red-500/15 text-red-400 border-red-500/30';
+  } else if (daysLeft <= 3) {
+    colorClass = 'bg-orange-500/15 text-orange-400 border-orange-500/30';
+  } else if (daysLeft <= 7) {
+    colorClass = 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30';
+  } else {
+    colorClass = 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+  }
+
+  const label = daysLeft === 0 ? 'Сегодня' : daysLeft === 1 ? '1 день' : `${daysLeft}д`;
+
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs border ${colorClass}`}>
+      {label}
+    </span>
+  );
+}
+
 // Строка таблицы
 function TenderRow({ tender, index }: { tender: Tender; index: number }) {
   const selectedKeywords = useTenderStore((s) => s.selectedKeywords);
@@ -113,8 +167,8 @@ function TenderRow({ tender, index }: { tender: Tender; index: number }) {
       </td>
 
       {/* Дедлайн */}
-      <td className="px-4 py-3 text-sm text-gray-400 whitespace-nowrap">
-        {tender.deadline || '—'}
+      <td className="px-4 py-3 text-sm whitespace-nowrap">
+        <DeadlineBadge deadline={tender.deadline} />
       </td>
 
       {/* Статус */}
