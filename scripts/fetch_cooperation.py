@@ -49,6 +49,8 @@ SUPABASE_URL = os.getenv('SUPABASE_URL', '')
 SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID', '')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
+AI_MODEL = os.getenv('AI_RELEVANCE_MODEL', 'qwen/qwen3-30b-a3b')
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
@@ -690,6 +692,53 @@ def upsert_to_supabase(rows):
     return upserted
 
 
+def _ai_check_relevance(title, organization, client):
+    # type: (str, str, httpx.Client) -> bool
+    """Check tender relevance via Qwen (OpenRouter). Returns True if relevant."""
+    if not OPENROUTER_API_KEY:
+        return True  # no key = skip filter
+
+    prompt = (
+        "Ты — эксперт по тендерам в сфере полиграфии и упаковки.\n\n"
+        "Наша компания — типография и упаковочное производство в Узбекистане. "
+        "Мы производим: коробки, этикетки, каталоги, книги, конверты, блокноты, "
+        "календари, сувенирную продукцию, пакеты, папки.\n\n"
+        "Оцени тендер — может ли наша компания реально на него подать заявку? "
+        "Слово 'набор' может означать набор реагентов (НЕ наше), 'печать' — канцелярскую печать (НЕ наше), "
+        "'пакет' — пакет документов (НЕ наше).\n\n"
+        "Тендер:\nНазвание: %s\nЗаказчик: %s\n\n"
+        "Ответь YES или NO.\n/no_think"
+    ) % (title[:300], organization or "")
+
+    try:
+        resp = client.post(
+            'https://openrouter.ai/api/v1/chat/completions',
+            headers={'Authorization': 'Bearer %s' % OPENROUTER_API_KEY},
+            json={
+                'model': AI_MODEL,
+                'messages': [{'role': 'user', 'content': prompt}],
+                'max_tokens': 20,
+                'temperature': 0,
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return True  # on error, let through
+
+        import re
+        answer = resp.json()['choices'][0]['message']['content'] or ''
+        answer = re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL).strip().upper()
+        if not answer:
+            return True
+        is_relevant = answer.startswith('YES')
+        if not is_relevant:
+            logger.info('[AI Filter] REJECTED: %s (answer=%s)', title[:60], answer)
+        return is_relevant
+    except Exception as exc:
+        logger.warning('[AI Filter] Error: %s', str(exc)[:80])
+        return True
+
+
 def send_alerts(new_rows, source_label):
     # type: (List[Dict[str, Any]], str) -> int
     """Send Telegram alerts for new tenders matching keywords."""
@@ -710,7 +759,22 @@ def send_alerts(new_rows, source_label):
         logger.info('[Alerts/%s] No matches (%d checked)', source_label, len(new_rows))
         return 0
 
-    logger.info('[Alerts/%s] %d matches found', source_label, len(matching))
+    logger.info('[Alerts/%s] %d keyword matches, running AI filter...', source_label, len(matching))
+
+    # AI relevance filter — reject false positives via Qwen
+    if OPENROUTER_API_KEY:
+        filtered = []  # type: List[tuple]
+        with httpx.Client(timeout=15) as ai_client:
+            for row, kw in matching:
+                if _ai_check_relevance(row['title'], row.get('organization', ''), ai_client):
+                    filtered.append((row, kw))
+        rejected = len(matching) - len(filtered)
+        if rejected:
+            logger.info('[AI Filter] Passed %d / %d (rejected %d)', len(filtered), len(matching), rejected)
+        matching = filtered
+        if not matching:
+            logger.info('[Alerts/%s] All rejected by AI filter', source_label)
+            return 0
 
     bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
     sent = 0
