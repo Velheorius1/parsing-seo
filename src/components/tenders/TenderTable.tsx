@@ -152,6 +152,16 @@ function TenderRow({ tender, index }: { tender: Tender; index: number }) {
             ))}
           </div>
         )}
+        {tender.status === 'completed' && tender.winner && (
+          <div className="mt-1.5 flex items-center gap-2 text-[11px] text-blue-400/80">
+            <span>Победитель: {tender.winner}</span>
+            {tender.winningPrice != null && (
+              <span className="text-blue-300 font-medium">
+                {new Intl.NumberFormat('ru-RU').format(tender.winningPrice)} {tender.currency}
+              </span>
+            )}
+          </div>
+        )}
       </td>
 
       {/* Заказчик */}
