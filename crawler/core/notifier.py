@@ -245,8 +245,15 @@ async def send_alerts(
         logger.debug("[Alerts] No keywords configured, skipping")
         return 0
 
+    # Filter out tenders below minimum price (10M UZS)
+    MIN_PRICE = 10_000_000
+    priced = [t for t in new_tenders if t.price is None or t.price >= MIN_PRICE]
+    low_price_count = len(new_tenders) - len(priced)
+    if low_price_count:
+        logger.info("[Alerts] Skipped %d tenders below %dM price threshold", low_price_count, MIN_PRICE // 1_000_000)
+
     # Filter out tenders with expired deadlines
-    active = [t for t in new_tenders if not _is_deadline_expired(t)]
+    active = [t for t in priced if not _is_deadline_expired(t)]
     expired_count = len(new_tenders) - len(active)
     if expired_count:
         logger.info("[Alerts] Skipped %d tenders with expired deadlines", expired_count)

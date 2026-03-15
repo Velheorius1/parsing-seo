@@ -749,8 +749,14 @@ def send_alerts(new_rows, source_label):
     if not keywords:
         return 0
 
+    MIN_PRICE = 10_000_000  # Минимальная сумма для алерта (10M сум)
+
     matching = []  # type: List[tuple]
     for row in new_rows:
+        # Пропускаем тендеры с суммой меньше 10M
+        price = row.get('price')
+        if price is not None and price < MIN_PRICE:
+            continue
         kw = _find_matching_keyword(row['title'], row.get('search_text', ''), keywords)
         if kw:
             matching.append((row, kw))
