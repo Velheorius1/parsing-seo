@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS tender_predictions (
   basis TEXT DEFAULT '',
   product_hint TEXT DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT now(),
-  notified BOOLEAN DEFAULT false
+  notified BOOLEAN DEFAULT false,
+  UNIQUE(organization, predicted_month, predicted_year)
 );
 
 CREATE INDEX idx_tender_predictions_org ON tender_predictions(organization);

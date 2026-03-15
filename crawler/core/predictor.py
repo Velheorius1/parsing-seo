@@ -126,7 +126,7 @@ def _compute_predictions(
 
 
 async def _store_predictions(predictions: List[Dict]) -> int:
-    """Store predictions in Supabase, skip duplicates."""
+    """Store predictions in Supabase, skip duplicates via UNIQUE constraint."""
     if not predictions:
         return 0
 
@@ -135,20 +135,14 @@ async def _store_predictions(predictions: List[Dict]) -> int:
         stored = 0
 
         for pred in predictions:
-            # Check if prediction already exists
-            existing = client.table("tender_predictions").select("id").eq(
-                "organization", pred["organization"]
-            ).eq(
-                "predicted_month", pred["predicted_month"]
-            ).eq(
-                "predicted_year", pred["predicted_year"]
-            ).execute()
-
-            if existing.data and len(existing.data) > 0:
-                continue
-
-            client.table("tender_predictions").insert(pred).execute()
-            stored += 1
+            try:
+                client.table("tender_predictions").upsert(
+                    pred,
+                    on_conflict="organization,predicted_month,predicted_year",
+                ).execute()
+                stored += 1
+            except Exception as exc:
+                logger.debug("[Predictor] Upsert skipped: %s", str(exc)[:60])
 
         return stored
 
