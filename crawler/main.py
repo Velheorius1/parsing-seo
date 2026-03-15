@@ -39,6 +39,12 @@ def main() -> None:
         help="Only run specific source IDs (space-separated)",
     )
     parser.add_argument(
+        "--deadlines-only",
+        action="store_true",
+        default=False,
+        help="Only check deadline reminders, skip crawling",
+    )
+    parser.add_argument(
         "--log-level",
         default=settings.log_level,
         help="Logging level (DEBUG, INFO, WARNING, ERROR)",
@@ -51,6 +57,15 @@ def main() -> None:
     dry_run = args.dry_run or settings.dry_run
     if dry_run:
         logger.info("DRY RUN mode — no database writes")
+
+    # Deadline-only mode: just check reminders, no crawling
+    if args.deadlines_only:
+        from crawler.core.deadline_tracker import check_deadlines
+
+        logger.info("Checking deadline reminders...")
+        sent = asyncio.run(check_deadlines(dry_run=dry_run))
+        logger.info("Deadline reminders sent: %d", sent)
+        return
 
     logger.info("Starting tender crawler...")
     stats = asyncio.run(

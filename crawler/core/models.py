@@ -105,6 +105,11 @@ class RawTender(BaseModel):
     categories: List[str] = Field(default_factory=list)
     source: str  # display name: 'etender.uzex.uz'
     source_url: str = ""
-    status: str = "active"  # active | closed | cancelled
+    status: str = "active"  # active | closed | cancelled | completed
     search_text: str = ""
     collected_at: datetime = Field(default_factory=datetime.utcnow)
+    # Result tracking
+    winner: Optional[str] = None
+    winning_price: Optional[float] = None
+    result_date: Optional[str] = None
+    group_id: Optional[str] = None

@@ -135,14 +135,50 @@ async def run(
     upserted, new_tenders = await upsert_tenders(all_tenders, dry_run=dry_run)
     logger.info("Upserted %d / %d tenders to Supabase (%d new)", upserted, total, len(new_tenders))
 
+    # Deduplicate cross-source before alerting
+    from crawler.core.dedup import group_for_alerts
+
+    deduped_new, group_sources = group_for_alerts(new_tenders, all_tenders)
+    if len(new_tenders) != len(deduped_new):
+        logger.info(
+            "Dedup: %d new -> %d unique for alerts",
+            len(new_tenders), len(deduped_new),
+        )
+
+    # Update group_id in DB for grouped tenders
+    if group_sources and not dry_run:
+        from crawler.core.dedup import find_groups
+        groups = find_groups(all_tenders)
+        if groups:
+            await _update_group_ids(groups)
+
     # Send Telegram alerts for new matching tenders
     alerts_sent = 0
-    if new_tenders:
+    if deduped_new:
         from crawler.core.notifier import send_alerts
 
-        alerts_sent = await send_alerts(new_tenders, dry_run=dry_run)
+        alerts_sent = await send_alerts(
+            deduped_new, dry_run=dry_run, group_sources=group_sources,
+        )
         if alerts_sent:
             logger.info("Sent %d Telegram alerts", alerts_sent)
+
+    # Check tender results (who won)
+    if not dry_run:
+        from crawler.core.results_tracker import update_results
+
+        results_updated = await update_results(dry_run=dry_run)
+        if results_updated:
+            logger.info("Updated %d tenders with results", results_updated)
+
+    # Check deadline reminders
+    deadline_sent = 0
+    if not dry_run:
+        from crawler.core.deadline_tracker import check_deadlines
+
+        deadline_sent = await check_deadlines(dry_run=dry_run)
+        if deadline_sent:
+            logger.info("Sent %d deadline reminders", deadline_sent)
 
     # Healthcheck — notify about new tenders or errors
     if not dry_run:
@@ -157,6 +193,39 @@ async def run(
         await send_healthcheck(stats, len(new_tenders), alerts_sent, errors)
 
     return stats
+
+
+async def _update_group_ids(groups: Dict[str, str]) -> None:
+    """Update group_id column in Supabase for grouped tenders."""
+    from crawler.core.db import _get_client
+    try:
+        client = _get_client()
+        # Group by group_id to batch updates
+        by_group = {}  # type: Dict[str, List[str]]
+        for tender_id, group_id in groups.items():
+            by_group.setdefault(group_id, []).append(tender_id)
+
+        updated = 0
+        for group_id, tender_ids in by_group.items():
+            # tender_id here is the RawTender.id (prefixed), match by external_id pattern
+            # We need to update by matching the tender's external_id+source combo
+            # For now, update by external_id prefix match
+            try:
+                for tid in tender_ids:
+                    # tid format: "etender-12345" — split to get source prefix + external_id
+                    parts = tid.split("-", 1)
+                    if len(parts) == 2:
+                        client.table("tenders").update(
+                            {"group_id": group_id}
+                        ).like("external_id", "%s%%" % parts[1]).execute()
+                        updated += 1
+            except Exception as exc:
+                logger.warning("[Dedup] Failed to update group_id: %s", str(exc)[:80])
+
+        if updated:
+            logger.info("[Dedup] Updated %d group_id records in DB", updated)
+    except Exception as exc:
+        logger.warning("[Dedup] DB update failed: %s", str(exc)[:80])
 
 
 def _register_all_adapters() -> None:

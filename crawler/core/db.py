@@ -21,7 +21,7 @@ def _get_client():  # type: ignore[no-untyped-def]
 
 def _tender_to_row(t: RawTender) -> dict:
     """Convert RawTender to a dict matching the Supabase tenders table schema."""
-    return {
+    row = {
         "external_id": t.external_id,
         "title": t.title,
         "organization": t.organization,
@@ -38,6 +38,16 @@ def _tender_to_row(t: RawTender) -> dict:
         "search_text": t.search_text,
         "collected_at": t.collected_at.isoformat(),
     }
+    # Optional result fields — only include if set
+    if t.winner:
+        row["winner"] = t.winner
+    if t.winning_price is not None:
+        row["winning_price"] = t.winning_price
+    if t.result_date:
+        row["result_date"] = t.result_date
+    if t.group_id:
+        row["group_id"] = t.group_id
+    return row
 
 
 def _get_existing_keys(

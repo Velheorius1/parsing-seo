@@ -6,7 +6,7 @@ Pipeline: deadline filter → keyword match → AI relevance check (Qwen via Ope
 import logging
 import re
 from datetime import datetime, timedelta
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import httpx
 
@@ -196,7 +196,11 @@ def _escape_md(text: str) -> str:
     return text
 
 
-def _format_alert(tender: RawTender, matched_kw: str) -> str:
+def _format_alert(
+    tender: RawTender,
+    matched_kw: str,
+    extra_sources: Optional[List[str]] = None,
+) -> str:
     """Format a single tender alert message for Telegram."""
     parts = []
     parts.append("*%s*" % _escape_md(tender.title[:200]))
@@ -206,7 +210,11 @@ def _format_alert(tender: RawTender, matched_kw: str) -> str:
         parts.append("Сумма: %s %s" % ("{:,.0f}".format(tender.price), tender.currency))
     if tender.deadline:
         parts.append("Дедлайн: %s" % tender.deadline)
-    parts.append("Источник: %s" % tender.source)
+    # Show all sources if tender found on multiple platforms
+    if extra_sources and len(extra_sources) > 1:
+        parts.append("Площадки (%d): %s" % (len(extra_sources), ", ".join(extra_sources)))
+    else:
+        parts.append("Источник: %s" % tender.source)
     if tender.source_url:
         parts.append(tender.source_url)
     parts.append("#%s" % matched_kw.replace(" ", "_"))
@@ -216,12 +224,14 @@ def _format_alert(tender: RawTender, matched_kw: str) -> str:
 async def send_alerts(
     new_tenders: List[RawTender],
     dry_run: bool = False,
+    group_sources: Optional[Dict[str, List[str]]] = None,
 ) -> int:
     """Filter tenders by keywords and send Telegram alerts.
 
     Args:
         new_tenders: List of tenders that were newly inserted (not seen before).
         dry_run: If True, log but don't send.
+        group_sources: Optional dict {tender.id: [source_names]} for cross-source groups.
 
     Returns:
         Number of alerts sent.
@@ -278,9 +288,12 @@ async def send_alerts(
     bot_url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
     sent = 0
 
+    _group_sources = group_sources or {}
+
     async with httpx.AsyncClient(timeout=10) as client:
         for tender, kw in matching:
-            text = _format_alert(tender, kw)
+            extra = _group_sources.get(tender.id)
+            text = _format_alert(tender, kw, extra_sources=extra)
             try:
                 resp = await client.post(bot_url, json={
                     "chat_id": settings.telegram_alert_chat_id,

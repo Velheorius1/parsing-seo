@@ -381,13 +381,14 @@ sources:
   - id: aiib
     name: "AIIB (Asian Infrastructure Investment Bank)"
     adapter: html
-    enabled: false  # Slow/timeout — needs investigation
+    enabled: false  # SPA — loads procurement list via JavaScript, needs Playwright
     url: "https://www.aiib.org/en/opportunities/business/project-procurement/list.html"
     method: GET
     headers:
-      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
-    rate_limit: 1
-    timeout: 30
+      User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+      Accept: "text/html,application/xhtml+xml"
+    rate_limit: 0.5
+    timeout: 45
     id_prefix: "aiib"
     country_filter: "uzbekistan"
     html_selectors:
@@ -420,7 +421,7 @@ sources:
   - id: edb-eabr
     name: "Евразийский банк развития (ЕАБР/EDB)"
     adapter: html
-    enabled: false  # Needs investigation — UZ recently joined
+    enabled: false  # Only 1 procurement notice (Jul 2024) — not worth monitoring
     url: "https://eabr.org/en/procurement/"
     method: GET
     headers:
@@ -1798,6 +1799,170 @@ sources:
       organization: "Минэкономики РУз"
       deadline: deadline
       source_url_template: "{link}"
+    keywords_fields: [title]
+
+  # ── New international sources (Phase C) ──────────────────────────
+
+  - id: unicef-supply
+    name: "UNICEF Supply"
+    adapter: html
+    enabled: false  # 403 Forbidden — blocks automated access
+    url: "https://supply.unicef.org/rfx"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "unicef"
+    html_selectors:
+      container: ".rfx-item, .views-row, table tbody tr"
+      title: ".rfx-title a, td:nth-child(2) a, h3 a"
+      organization: ".rfx-org, td:nth-child(3)"
+      deadline: ".rfx-deadline, td:nth-child(4)"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "UNICEF"
+      deadline: deadline
+      source_url_template: "https://supply.unicef.org{link}"
+    keywords_fields: [title]
+
+  - id: giz-tenders
+    name: "GIZ Ausschreibungen"
+    adapter: html
+    enabled: false  # 404 — URL changed, needs investigation
+    url: "https://ausschreibungen.giz.de/Satellite/public/company/welcome.do"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "giz"
+    html_selectors:
+      container: "table.list tbody tr, .tender-row"
+      title: "td:nth-child(2) a, .tender-title"
+      deadline: "td:nth-child(4), .tender-deadline"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "GIZ"
+      deadline: deadline
+      source_url_template: "https://ausschreibungen.giz.de{link}"
+    keywords_fields: [title]
+
+  - id: jica-procurement
+    name: "JICA Procurement"
+    adapter: html
+    enabled: false  # 302->404 — URL restructured, needs investigation
+    url: "https://www.jica.go.jp/english/procurement/index.html"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "jica"
+    html_selectors:
+      container: ".news-list li, table tbody tr, .procurement-item"
+      title: "a, td:nth-child(1) a"
+      deadline: ".date, td:nth-child(3)"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: "JICA"
+      deadline: deadline
+      source_url_template: "https://www.jica.go.jp{link}"
+    keywords_fields: [title]
+
+  # ── New Uzbekistan sources (not yet covered) ───────────────────
+
+  - id: dxarid-uzex
+    name: "DXarid UZEX (госзакупки)"
+    adapter: api
+    enabled: false  # API domain apidxarid.uzex.uz does not resolve — shares etender API
+    url: "https://apidxarid.uzex.uz/api/Common/TradeList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: {"from": 0, "to": 500}
+    rate_limit: 2
+    timeout: 15
+    id_prefix: "dxarid"
+    field_map:
+      title: name
+      organization: seller_name
+      price: cost
+      currency: currency_codeabc
+      deadline: end_date
+      date_start: start_date
+      date_end: end_date
+      region: "region_name"
+      external_id: display_no
+      source_url_template: "https://dxarid.uzex.uz/lot/{id}"
+    keywords_fields: [name, seller_name, category_name]
+    pagination:
+      type: offset
+      param: "from"
+      size_param: "to"
+      page_size: 500
+      total_field: "0.total_count"
+
+  - id: exarid-uzex
+    name: "EXarid UZEX (электронные закупки)"
+    adapter: api
+    enabled: false  # API domain apiexarid.uzex.uz does not resolve — shares etender API
+    url: "https://apiexarid.uzex.uz/api/Common/TradeList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: {"from": 0, "to": 500}
+    rate_limit: 2
+    timeout: 15
+    id_prefix: "exarid"
+    field_map:
+      title: name
+      organization: seller_name
+      price: cost
+      currency: currency_codeabc
+      deadline: end_date
+      date_start: start_date
+      date_end: end_date
+      region: "region_name"
+      external_id: display_no
+      source_url_template: "https://exarid.uzex.uz/lot/{id}"
+    keywords_fields: [name, seller_name, category_name]
+    pagination:
+      type: offset
+      param: "from"
+      size_param: "to"
+      page_size: 500
+      total_field: "0.total_count"
+
+  - id: zakupki-prom
+    name: "Zakupki.prom.uz"
+    adapter: html
+    enabled: false  # 502 Bad Gateway — site down
+    url: "https://zakupki.prom.uz"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "zakprom"
+    html_selectors:
+      container: ".tender-item, .lot-item, table tbody tr"
+      title: ".tender-title a, td:nth-child(2) a, h3 a"
+      organization: ".tender-org, td:nth-child(3)"
+      deadline: ".tender-deadline, td:nth-child(4)"
+      link: "a@href"
+    field_map:
+      title: title
+      organization: ""
+      deadline: deadline
+      source_url_template: "https://zakupki.prom.uz{link}"
     keywords_fields: [title]
 
   # ── Disabled / requires auth ─────────────────────────────────────
