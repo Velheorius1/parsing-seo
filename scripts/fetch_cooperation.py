@@ -217,14 +217,14 @@ def fetch_and_transform_plans(max_pages=3):
         search_text = ' '.join(filter(None, [title, org, category])).lower()
 
         rows.append({
-            'external_id': 'coop-%s' % item_id,
+            'external_id': 'coop-plan-%s' % item_id,
             'title': title[:500],
             'organization': org[:200] if org else None,
             'price': None,
             'currency': 'UZS',
             'deadline': deadline,
             'source': 'Cooperation.uz Закупочные планы',
-            'source_url': 'https://new.cooperation.uz',
+            'source_url': 'https://new.cooperation.uz/supplier/plans?planId=%s' % item_id,
             'status': 'active',
             'search_text': search_text[:1000],
             'collected_at': now,
@@ -282,7 +282,7 @@ def fetch_and_transform_offers(max_pages=5):
             'currency': 'UZS',
             'deadline': end_date[:10] if end_date else None,
             'source': 'Cooperation.uz Оферты',
-            'source_url': 'https://new.cooperation.uz',
+            'source_url': 'https://new.cooperation.uz/supplier/offers?offerId=%s' % offer_num,
             'status': 'active',
             'search_text': search_text[:1000],
             'collected_at': now,
@@ -336,7 +336,7 @@ def fetch_and_transform_lots():
             'date_start': begin[:10] if begin else None,
             'date_end': end[:10] if end else None,
             'source': 'Cooperation.uz Лоты',
-            'source_url': 'https://new.cooperation.uz',
+            'source_url': 'https://new.cooperation.uz/supplier/lots?lotId=%s' % lot_num,
             'status': 'active',
             'search_text': search_text[:1000],
             'collected_at': now,
@@ -410,7 +410,7 @@ def fetch_and_transform_auction_lots():
             'date_start': begin_date[:10] if begin_date else None,
             'date_end': end_date[:10] if end_date else None,
             'source': 'Cooperation.uz Аукционы',
-            'source_url': 'https://new.cooperation.uz',
+            'source_url': 'https://new.cooperation.uz/supplier/auction/%s' % lot_num,
             'status': 'active',
             'search_text': search_text[:1000],
             'collected_at': now,
@@ -486,7 +486,7 @@ def fetch_and_transform_eshop_lots():
             'date_start': begin_date[:10] if begin_date else None,
             'date_end': end_date[:10] if end_date else None,
             'source': 'Cooperation.uz Э-магазин лоты',
-            'source_url': 'https://new.cooperation.uz',
+            'source_url': 'https://new.cooperation.uz/supplier/eshop/%s' % lot_num,
             'status': 'active',
             'search_text': search_text[:1000],
             'collected_at': now,
@@ -798,7 +798,9 @@ def send_alerts(new_rows, source_label):
             if row.get('deadline'):
                 parts.append('Дедлайн: %s' % row['deadline'])
             parts.append('Источник: %s' % row['source'])
-            parts.append('https://new.cooperation.uz')
+            url = row.get('source_url', 'https://new.cooperation.uz')
+            if url:
+                parts.append(url)
             parts.append('#%s' % kw.replace(' ', '_'))
 
             try:
