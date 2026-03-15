@@ -1831,8 +1831,8 @@ sources:
   - id: giz-tenders
     name: "GIZ Ausschreibungen"
     adapter: html
-    enabled: false  # 404 — URL changed, needs investigation
-    url: "https://ausschreibungen.giz.de/Satellite/public/company/welcome.do"
+    enabled: true  # HTML server-rendered (cosinex platform)
+    url: "https://ausschreibungen.giz.de/Satellite/company/announcements/categoryOverview.do"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
