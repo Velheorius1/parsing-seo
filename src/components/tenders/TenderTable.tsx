@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useTenderStore } from '@/lib/store/tenderStore';
-import type { Tender } from '@/types/parsing';
+import type { Tender, TenderFavorite } from '@/types/parsing';
+import { FavoriteButton } from './FavoriteButton';
 
 // Форматирование "X назад"
 function formatTimeAgo(dateStr: string): string {
@@ -122,7 +123,13 @@ function DeadlineBadge({ deadline }: { deadline: string | null }) {
 }
 
 // Строка таблицы
-function TenderRow({ tender, index }: { tender: Tender; index: number }) {
+function TenderRow({ tender, index, favorite, onToggleFavorite, onUpdateFavoriteColor }: {
+  tender: Tender;
+  index: number;
+  favorite: TenderFavorite | null;
+  onToggleFavorite: (tenderId: string) => Promise<void>;
+  onUpdateFavoriteColor: (tenderId: string, color: TenderFavorite['color']) => Promise<void>;
+}) {
   const selectedKeywords = useTenderStore((s) => s.selectedKeywords);
 
   return (
@@ -130,6 +137,16 @@ function TenderRow({ tender, index }: { tender: Tender; index: number }) {
       className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors"
       style={{ animationDelay: `${index * 30}ms` }}
     >
+      {/* Избранное */}
+      <td className="px-2 py-3">
+        <FavoriteButton
+          tenderId={tender.id}
+          favorite={favorite}
+          onToggle={onToggleFavorite}
+          onUpdateColor={onUpdateFavoriteColor}
+        />
+      </td>
+
       {/* Название + ключевые слова */}
       <td className="px-4 py-3 max-w-xs">
         <a
@@ -300,6 +317,54 @@ export function TenderTable() {
     filterStatus, filterCategory, excludeKeywords,
   } = useTenderStore();
 
+  // Управление избранным
+  const [favorites, setFavorites] = useState<Record<string, TenderFavorite>>({});
+
+  useEffect(() => {
+    fetch('/api/tenders/favorites')
+      .then((r) => r.ok ? r.json() : { favorites: [] })
+      .then((data) => {
+        const map: Record<string, TenderFavorite> = {};
+        for (const f of (data.favorites || [])) {
+          map[f.tenderId] = f;
+        }
+        setFavorites(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleToggleFavorite = useCallback(async (tenderId: string) => {
+    const res = await fetch('/api/tenders/favorites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenderId }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    setFavorites((prev) => {
+      const next = { ...prev };
+      if (data.removed) {
+        delete next[tenderId];
+      } else if (data.favorite) {
+        next[tenderId] = data.favorite;
+      }
+      return next;
+    });
+  }, []);
+
+  const handleUpdateFavoriteColor = useCallback(async (tenderId: string, color: TenderFavorite['color']) => {
+    const res = await fetch('/api/tenders/favorites', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenderId, color }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.favorite) {
+      setFavorites((prev) => ({ ...prev, [tenderId]: data.favorite }));
+    }
+  }, []);
+
   // Фильтрация + сортировка
   const filtered = useMemo(() => {
     let result = tenders;
@@ -423,6 +488,7 @@ export function TenderTable() {
         <table className="w-full">
           <thead>
             <tr className="bg-gray-800/70 text-left text-xs text-gray-500 uppercase tracking-wider">
+              <th className="px-2 py-3 w-10"></th>
               <th className="px-4 py-3">Тендер</th>
               <th className="px-4 py-3">Заказчик</th>
               <th className="px-4 py-3 text-right">Сумма</th>
@@ -433,7 +499,14 @@ export function TenderTable() {
           </thead>
           <tbody>
             {filtered.map((tender, i) => (
-              <TenderRow key={tender.id} tender={tender} index={i} />
+              <TenderRow
+                key={tender.id}
+                tender={tender}
+                index={i}
+                favorite={favorites[tender.id] || null}
+                onToggleFavorite={handleToggleFavorite}
+                onUpdateFavoriteColor={handleUpdateFavoriteColor}
+              />
             ))}
           </tbody>
         </table>
