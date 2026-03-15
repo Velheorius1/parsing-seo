@@ -74,15 +74,29 @@ export async function GET(request: NextRequest) {
     const keywordsParam = searchParams.get('keywords');
     const source = searchParams.get('source') || undefined;
     const status = searchParams.get('status') || undefined;
+    const region = searchParams.get('region') || undefined;
+    const category = searchParams.get('category') || undefined;
+    const minPrice = searchParams.get('minPrice') ? Number(searchParams.get('minPrice')) : undefined;
+    const maxPrice = searchParams.get('maxPrice') ? Number(searchParams.get('maxPrice')) : undefined;
+    const excludeParam = searchParams.get('exclude');
 
     const keywords = keywordsParam
       ? keywordsParam.split(',').map((k) => k.trim()).filter(Boolean)
+      : undefined;
+
+    const exclude = excludeParam
+      ? excludeParam.split(',').map((k) => k.trim()).filter(Boolean)
       : undefined;
 
     const { tenders, sourceStats, lastCrawledAt, error } = await queryTenders({
       keywords,
       source,
       status,
+      region,
+      category,
+      minPrice: minPrice && !isNaN(minPrice) ? minPrice : undefined,
+      maxPrice: maxPrice && !isNaN(maxPrice) ? maxPrice : undefined,
+      exclude,
     });
 
     if (error) {

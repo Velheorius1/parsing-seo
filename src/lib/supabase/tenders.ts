@@ -28,6 +28,11 @@ export interface TenderQueryParams {
   keywords?: string[];
   source?: string;
   status?: string;
+  region?: string;
+  category?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  exclude?: string[];
   limit?: number;
 }
 
@@ -124,6 +129,29 @@ export async function queryTenders(
 
   if (params.keywords && params.keywords.length > 0) {
     query = query.overlaps('matched_keywords', params.keywords);
+  }
+
+  if (params.region) {
+    query = query.eq('region', params.region);
+  }
+
+  if (params.category) {
+    query = query.contains('categories', [params.category]);
+  }
+
+  if (params.minPrice !== undefined) {
+    query = query.gte('price', params.minPrice);
+  }
+
+  if (params.maxPrice !== undefined) {
+    query = query.lte('price', params.maxPrice);
+  }
+
+  // Исключить тендеры, содержащие указанные слова в title
+  if (params.exclude && params.exclude.length > 0) {
+    for (const word of params.exclude) {
+      query = query.not('title', 'ilike', `%${word}%`);
+    }
   }
 
   if (params.limit) {

@@ -104,7 +104,11 @@ export const useTenderStore = create<TenderState>((set, get) => ({
     })),
 
   searchTenders: async () => {
-    const { selectedKeywords } = get();
+    const {
+      selectedKeywords, filterSource, filterRegion,
+      filterMinPrice, filterMaxPrice, filterStatus, filterCategory,
+      excludeKeywords,
+    } = get();
 
     set({ isLoading: true, error: null, tenders: [], totalFound: 0, sourceStats: {} });
 
@@ -113,6 +117,13 @@ export const useTenderStore = create<TenderState>((set, get) => ({
       if (selectedKeywords.length > 0) {
         params.set('keywords', selectedKeywords.join(','));
       }
+      if (filterSource) params.set('source', filterSource);
+      if (filterRegion) params.set('region', filterRegion);
+      if (filterStatus) params.set('status', filterStatus);
+      if (filterCategory) params.set('category', filterCategory);
+      if (filterMinPrice !== null) params.set('minPrice', String(filterMinPrice));
+      if (filterMaxPrice !== null) params.set('maxPrice', String(filterMaxPrice));
+      if (excludeKeywords.length > 0) params.set('exclude', excludeKeywords.join(','));
 
       const response = await fetch(`/api/tenders?${params.toString()}`);
       const data = await response.json();
