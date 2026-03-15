@@ -51,6 +51,8 @@ TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID', '')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 AI_MODEL = os.getenv('AI_RELEVANCE_MODEL', 'qwen/qwen3-30b-a3b')
+COMPETITOR_KEYWORDS = os.getenv('COMPETITOR_KEYWORDS', '')  # comma-separated company names
+LEAD_GEN_ENABLED = os.getenv('LEAD_GEN_ENABLED', 'true').lower() in ('true', '1', 'yes')
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
@@ -818,19 +820,133 @@ def send_alerts(new_rows, source_label):
     return sent
 
 
+def send_competitor_alerts(new_rows, source_label):
+    # type: (List[Dict[str, Any]], str) -> int
+    """Send Telegram alerts when a competitor company is detected in new rows."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return 0
+    if not COMPETITOR_KEYWORDS:
+        return 0
+
+    comp_keywords = [k.strip().lower() for k in COMPETITOR_KEYWORDS.split(',') if k.strip()]
+    if not comp_keywords:
+        return 0
+
+    bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
+    esc = lambda t: t.replace('*', '').replace('_', '').replace('`', '').replace('[', '')
+    sent = 0
+
+    with httpx.Client(timeout=10) as client:
+        for row in new_rows:
+            org = (row.get('organization') or '').lower()
+            if not org:
+                continue
+            matched_comp = None  # type: Optional[str]
+            for ck in comp_keywords:
+                if ck in org:
+                    matched_comp = ck
+                    break
+            if not matched_comp:
+                continue
+
+            parts = [
+                '🏭 Конкурент: %s' % esc(row.get('organization', '')[:200]),
+                esc(row['title'][:200]),
+            ]
+            if row.get('price'):
+                parts.append('Цена: {:,.0f} UZS'.format(row['price']))
+            parts.append('Источник: %s' % row.get('source', ''))
+            parts.append('#конкурент')
+
+            try:
+                resp = client.post(bot_url, json={
+                    'chat_id': TELEGRAM_CHAT_ID,
+                    'text': '\n'.join(parts),
+                    'disable_web_page_preview': True,
+                    'protect_content': True,
+                })
+                if resp.status_code == 200:
+                    sent += 1
+                else:
+                    logger.warning('[Competitor] Telegram %d: %s', resp.status_code, resp.text[:200])
+            except Exception as exc:
+                logger.warning('[Competitor] Error: %s', str(exc))
+
+    if sent:
+        logger.info('[Competitor/%s] Sent %d alerts', source_label, sent)
+    return sent
+
+
+def send_lead_alerts(new_rows, source_label):
+    # type: (List[Dict[str, Any]], str) -> int
+    """Send Telegram alerts for lead generation — plans matching our keywords."""
+    if not LEAD_GEN_ENABLED:
+        return 0
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return 0
+
+    keywords = [k.strip().lower() for k in ALERT_KEYWORDS.split(',') if k.strip()]
+    if not keywords:
+        return 0
+
+    bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
+    esc = lambda t: t.replace('*', '').replace('_', '').replace('`', '').replace('[', '')
+    sent = 0
+
+    with httpx.Client(timeout=10) as client:
+        for row in new_rows:
+            org = row.get('organization') or ''
+            if not org:
+                continue
+            kw = _find_matching_keyword(row['title'], row.get('search_text', ''), keywords)
+            if not kw:
+                continue
+
+            # Extract month/year from deadline (format: "month/year")
+            deadline = row.get('deadline') or ''
+            month_year = deadline if '/' in deadline else ''
+
+            parts = [
+                '📋 Лид: %s планирует закупку' % esc(org[:200]),
+                esc(row['title'][:200]),
+            ]
+            if month_year:
+                parts.append('Месяц: %s' % month_year)
+            parts.append('Источник: %s' % row.get('source', ''))
+            parts.append('#лид')
+
+            try:
+                resp = client.post(bot_url, json={
+                    'chat_id': TELEGRAM_CHAT_ID,
+                    'text': '\n'.join(parts),
+                    'disable_web_page_preview': True,
+                    'protect_content': True,
+                })
+                if resp.status_code == 200:
+                    sent += 1
+                else:
+                    logger.warning('[Lead] Telegram %d: %s', resp.status_code, resp.text[:200])
+            except Exception as exc:
+                logger.warning('[Lead] Error: %s', str(exc))
+
+    if sent:
+        logger.info('[Lead/%s] Sent %d alerts', source_label, sent)
+    return sent
+
+
 # ── Process one source ───────────────────────────────────────────
 
-def process_source(rows, source_name, label, dry_run=False):
-    # type: (List[Dict[str, Any]], str, str, bool) -> Tuple[int, int, int]
-    """Upsert rows and send alerts. Returns (upserted, new_count, alerts)."""
+def process_source(rows, source_name, label, dry_run=False, is_plans=False):
+    # type: (List[Dict[str, Any]], str, str, bool, bool) -> Tuple[int, int, int, int, int]
+    """Upsert rows and send alerts. Returns (upserted, new_count, alerts, competitor_alerts, lead_alerts)."""
     if not rows:
-        return 0, 0, 0
+        return 0, 0, 0, 0, 0
 
     if dry_run:
         logger.info('[%s] DRY RUN — %d rows', label, len(rows))
         for r in rows[:3]:
             logger.info('  %s | %s', r['title'][:60], r.get('organization') or '-')
-        return 0, 0, 0
+        return 0, 0, 0, 0, 0
 
     # Find new rows
     existing_ids = get_existing_ids(source_name)
@@ -843,10 +959,15 @@ def process_source(rows, source_name, label, dry_run=False):
 
     # Alerts for new only
     alerts = 0
+    comp_alerts = 0
+    lead_alerts = 0
     if new_rows:
         alerts = send_alerts(new_rows, label)
+        comp_alerts = send_competitor_alerts(new_rows, label)
+        if is_plans:
+            lead_alerts = send_lead_alerts(new_rows, label)
 
-    return upserted, len(new_rows), alerts
+    return upserted, len(new_rows), alerts, comp_alerts, lead_alerts
 
 
 # ── Main ─────────────────────────────────────────────────────────
@@ -865,66 +986,82 @@ def main():
     total_upserted = 0
     total_new = 0
     total_alerts = 0
+    total_competitor = 0
+    total_leads = 0
 
     # 1. Plans
     if args.source in ('all', 'plans'):
         rows = fetch_and_transform_plans(max_pages=args.pages)
-        u, n, a = process_source(rows, 'Cooperation.uz Закупочные планы', 'Plans', args.dry_run)
+        u, n, a, c, l = process_source(rows, 'Cooperation.uz Закупочные планы', 'Plans', args.dry_run, is_plans=True)
         total_upserted += u
         total_new += n
         total_alerts += a
+        total_competitor += c
+        total_leads += l
 
     # 2. Offers (e-shop)
     if args.source in ('all', 'offers'):
         rows = fetch_and_transform_offers(max_pages=5)
-        u, n, a = process_source(rows, 'Cooperation.uz Оферты', 'Offers', args.dry_run)
+        u, n, a, c, l = process_source(rows, 'Cooperation.uz Оферты', 'Offers', args.dry_run)
         total_upserted += u
         total_new += n
         total_alerts += a
+        total_competitor += c
+        total_leads += l
 
     # 3. Lots (reverse tenders)
     if args.source in ('all', 'lots'):
         rows = fetch_and_transform_lots()
-        u, n, a = process_source(rows, 'Cooperation.uz Лоты', 'Lots', args.dry_run)
+        u, n, a, c, l = process_source(rows, 'Cooperation.uz Лоты', 'Lots', args.dry_run)
         total_upserted += u
         total_new += n
         total_alerts += a
+        total_competitor += c
+        total_leads += l
 
     # 4. Auction lots (buyer-initiated reverse auctions)
     if args.source in ('all', 'auction'):
         rows = fetch_and_transform_auction_lots()
-        u, n, a = process_source(rows, 'Cooperation.uz Аукционы', 'AuctionLots', args.dry_run)
+        u, n, a, c, l = process_source(rows, 'Cooperation.uz Аукционы', 'AuctionLots', args.dry_run)
         total_upserted += u
         total_new += n
         total_alerts += a
+        total_competitor += c
+        total_leads += l
 
     # 5. E-shop active lots (buyer selected product → trade started)
     if args.source in ('all', 'eshop'):
         rows = fetch_and_transform_eshop_lots()
-        u, n, a = process_source(rows, 'Cooperation.uz Э-магазин лоты', 'EshopLots', args.dry_run)
+        u, n, a, c, l = process_source(rows, 'Cooperation.uz Э-магазин лоты', 'EshopLots', args.dry_run)
         total_upserted += u
         total_new += n
         total_alerts += a
+        total_competitor += c
+        total_leads += l
 
     # 6. UZEX reverse auctions (GEO-BLOCKED from VPS, runs on Mac)
     if args.source in ('all', 'uzex-auc'):
         rows = fetch_and_transform_uzex_auctions()
-        u, n, a = process_source(rows, 'UZEX Обратные аукционы', 'UZEX-Auc', args.dry_run)
+        u, n, a, c, l = process_source(rows, 'UZEX Обратные аукционы', 'UZEX-Auc', args.dry_run)
         total_upserted += u
         total_new += n
         total_alerts += a
+        total_competitor += c
+        total_leads += l
 
     # 7. UZEX prequalifications (GEO-BLOCKED from VPS, runs on Mac)
     if args.source in ('all', 'uzex-prq'):
         rows = fetch_and_transform_uzex_prequest()
-        u, n, a = process_source(rows, 'UZEX Предквалификации', 'UZEX-Prq', args.dry_run)
+        u, n, a, c, l = process_source(rows, 'UZEX Предквалификации', 'UZEX-Prq', args.dry_run)
         total_upserted += u
         total_new += n
         total_alerts += a
+        total_competitor += c
+        total_leads += l
 
     logger.info(
-        '=== DONE: upserted %d, new %d, alerts %d ===',
-        total_upserted, total_new, total_alerts,
+        '=== DONE: upserted %d, new %d, alerts %d, competitor %d, leads %d ===',
+        total_upserted, total_new, total_alerts, total_competitor, total_leads,
     )
 
 
