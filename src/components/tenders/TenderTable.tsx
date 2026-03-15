@@ -28,8 +28,9 @@ function StatusBadge({ status }: { status: Tender['status'] }) {
     active: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
     closed: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
     cancelled: 'bg-red-500/15 text-red-400 border-red-500/30',
+    completed: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
   };
-  const labels = { active: 'Активный', closed: 'Закрыт', cancelled: 'Отменён' };
+  const labels = { active: 'Активный', closed: 'Закрыт', cancelled: 'Отменён', completed: 'Завершён' };
 
   return (
     <span className={`px-2 py-0.5 rounded text-xs border ${styles[status]}`}>

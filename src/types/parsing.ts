@@ -58,9 +58,23 @@ export interface Tender {
   categories: string[];     // Категории (полиграфия, упаковка)
   source: string;           // bicotender / etender / xt-xarid
   sourceUrl: string;        // Ссылка на тендер
-  status: 'active' | 'closed' | 'cancelled';
+  status: 'active' | 'closed' | 'cancelled' | 'completed';
   matchedKeywords: string[]; // По каким ключам найден
   collectedAt: Date;
+  winner?: string | null;       // Победитель тендера
+  winningPrice?: number | null; // Цена победителя
+  resultDate?: string | null;   // Дата подведения итогов
+  groupId?: string | null;      // Группа связанных тендеров
+  daysLeft?: number | null;     // Дней до дедлайна
+}
+
+// Избранный тендер
+export interface TenderFavorite {
+  id: string;
+  tenderId: string;
+  color: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple';
+  note: string;
+  createdAt: Date;
 }
 
 // Параметры поиска тендеров
@@ -70,6 +84,10 @@ export interface TenderSearchParams {
   minPrice?: number;
   maxPrice?: number;
   region?: string;
+  excludeKeywords?: string[];  // Исключить тендеры с этими словами
+  category?: string;           // Фильтр по категории
+  deadlineBefore?: string;     // Дедлайн до даты
+  deadlineAfter?: string;      // Дедлайн после даты
 }
 
 // Результат поиска тендеров
