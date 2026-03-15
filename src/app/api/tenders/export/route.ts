@@ -17,15 +17,29 @@ export async function GET(request: NextRequest) {
     const keywordsParam = searchParams.get('keywords');
     const source = searchParams.get('source') || undefined;
     const status = searchParams.get('status') || undefined;
+    const region = searchParams.get('region') || undefined;
+    const category = searchParams.get('category') || undefined;
+    const minPrice = searchParams.get('minPrice') ? Number(searchParams.get('minPrice')) : undefined;
+    const maxPrice = searchParams.get('maxPrice') ? Number(searchParams.get('maxPrice')) : undefined;
+    const excludeParam = searchParams.get('exclude');
 
     const keywords = keywordsParam
       ? keywordsParam.split(',').map((k) => k.trim()).filter(Boolean)
+      : undefined;
+
+    const exclude = excludeParam
+      ? excludeParam.split(',').map((k) => k.trim()).filter(Boolean)
       : undefined;
 
     const { tenders, error } = await queryTenders({
       keywords,
       source,
       status,
+      region,
+      category,
+      minPrice,
+      maxPrice,
+      exclude,
     });
 
     if (error) {
@@ -35,25 +49,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Client-side filters not yet in queryTenders
-    const region = searchParams.get('region') || undefined;
-    const minPrice = searchParams.get('minPrice') ? Number(searchParams.get('minPrice')) : undefined;
-    const maxPrice = searchParams.get('maxPrice') ? Number(searchParams.get('maxPrice')) : undefined;
-
-    let filtered = tenders;
-
-    if (region) {
-      filtered = filtered.filter((t) => t.region === region);
-    }
-    if (minPrice !== undefined) {
-      filtered = filtered.filter((t) => t.price !== null && t.price >= minPrice);
-    }
-    if (maxPrice !== undefined) {
-      filtered = filtered.filter((t) => t.price !== null && t.price <= maxPrice);
-    }
-
     // Build Excel rows
-    const rows = filtered.map((t: Tender) => ({
+    const rows = tenders.map((t: Tender) => ({
       'Название': t.title,
       'Заказчик': t.organization,
       'Сумма': t.price,

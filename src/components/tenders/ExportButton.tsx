@@ -9,6 +9,9 @@ export function ExportButton() {
     filterRegion,
     filterMinPrice,
     filterMaxPrice,
+    filterStatus,
+    filterCategory,
+    excludeKeywords,
   } = useTenderStore();
 
   const handleExport = () => {
@@ -23,11 +26,20 @@ export function ExportButton() {
     if (filterRegion) {
       params.set('region', filterRegion);
     }
+    if (filterStatus) {
+      params.set('status', filterStatus);
+    }
+    if (filterCategory) {
+      params.set('category', filterCategory);
+    }
     if (filterMinPrice !== null) {
       params.set('minPrice', String(filterMinPrice));
     }
     if (filterMaxPrice !== null) {
       params.set('maxPrice', String(filterMaxPrice));
+    }
+    if (excludeKeywords.length > 0) {
+      params.set('exclude', excludeKeywords.join(','));
     }
 
     const url = `/api/tenders/export?${params.toString()}`;
