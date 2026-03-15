@@ -5,63 +5,40 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 10,000+ тендеров, 86 источников (62 enabled), cron каждый час, AI-фильтр Qwen + обратные аукционы
-Дата обновления: 4 марта 2026
+Фаза: Production — 12,000+ тендеров, 93 источника (59 enabled), cron каждые 8ч, AI-фильтр Qwen
+Дата обновления: 15 марта 2026
 
 ### Что работает
 - **Config-Driven Python Crawler** на VPS (46.62.155.190, `/opt/parsing-seo/`):
-  - API (httpx): ETender, Xarid, World Bank, ebirja э-магазин (2500), ebirja нац.магазин (743)
-  - HTML (BeautifulSoup): 20 источников — банки, компании, gov.uz, SQB, AGMK, Узбекистонмет
-  - SPA (Playwright): xt-xarid.uz, hayotbirja.uz (50), ebirja.uz аукционы (6)
-  - Telegram (Telethon): 23 канала — тендерные + министерства + **@pruzb** (запросы клиентов)
-- **cooperation.uz** — Mac launchd cron каждые 4 часа, 3 источника + Telegram-алерты:
-  - **GetAllPlanSchedule** — закупочные планы (375k total, 1500 newest)
-  - **GetAllOffer** — оферты поставщиков / э-магазин (63k total, 1000 newest)
-  - **GetLotsInTrade** — активные лоты / обратные тендеры (2.5k, все)
-  - Скрипт: `scripts/fetch_cooperation.py`, конфиг: `.env.cooperation`
-  - launchd: `~/Library/LaunchAgents/com.parsing-seo.cooperation.plist`
-  - CLI: `--source plans|offers|lots|auction|eshop|uzex-auc|uzex-prq|all`, `--dry-run`, `--pages N`
-- **Cron VPS**: `0 * * * *` API/HTML/SPA, `0 */4 * * *` Telegram
-- **AI-фильтр**: Qwen3 через OpenRouter — фильтрует ложные срабатывания
-- **Фильтр дедлайнов**: пропускает тендеры с истёкшим сроком
-- **Telegram-алерты**: бот @tender_alerts_uz_bot, 37 ключевых слов → AI-фильтр → отправка
-- **protect_content**: все сообщения бота защищены от пересылки/копирования
-- **Скилл /hack**: команда агентов для получения данных с заблокированных сайтов
+  - API (httpx): ETender, Xarid, World Bank, ebirja, B2Biz.uz, Minstroy, Grants.gov, OSCE, IsDB
+  - HTML (BeautifulSoup): 20+ источников — банки, компании, gov.uz, UNDP, UNGM, GIZ
+  - SPA (Playwright): xt-xarid.uz, hayotbirja.uz, ebirja.uz аукционы
+  - Telegram (Telethon): 23 канала
+- **Cron VPS**: каждые 8ч (06:00, 14:00, 22:00) + Telegram 2р/день
+- **AI-фильтр + Telegram-алерты**: бот @tender_alerts_uz_bot, 37 ключевых слов
+- **Cross-source дедупликация**: fuzzy match по org + title + deadline → один алерт вместо 3
+- **Дедлайн-трекер**: напоминания за 3 дня и 1 день, таблица deadline_reminders
+- **Мониторинг результатов**: UZEX CivilContracts/GetResulted (5000+ завершённых сделок с победителями)
 
 ### Что не работает / в процессе
-- **ebirja.uz competition**: styled-components классы нестабильны (меняются при каждом билде)
-- **hayotbirja.uz API**: JSON-RPC 2.0 есть, но backend таймаутит без авторизации. Ждём API-токен
-- **ebirja.uz buyer-side data**: лоты/торги за авторизацией (401) — нужна регистрация
+- **cooperation.uz ЛЕЖИТ** — мониторинг cron → Telegram алерт когда оживёт
+- **E-IMZO регистрация** (Данияр) — ebirja.uz, hayotbirja.uz
+- **Международные**: UNICEF (403), ADB (Cloudflare), JICA (404 URL changed)
 
-### Что добавлено (4 марта 2026)
-- **B2Biz.uz** — корпоративные закупки (Uzum Bank/Market/Tech), 2 API без auth:
-  - `b2biz-tenders`: 101 тендер (публичные процедуры)
-  - `b2biz-plans`: 162 плана закупок (lead gen)
-  - Пагинация page_start=1, Swagger: `/api/v1/schema/swagger-ui/`
-- **Grants.gov (USAID)** — API без auth, 1+ тендер Uzbekistan
-- **OSCE Uzbekistan** — HTML scraping, 3 тендера
-- **IsDB** — HTML scraping + country_filter, 4 тендера
-- **6 disabled источников** (SAM.gov, TED EU, ADB, AIIB, EBRD, EDB/ЕАБР) — ждут API ключи / SPA
-- `page_start` в PaginationConfig — поддержка 1-indexed API
-
-### Важные детали
-- **UZEX аукционы**: прямые ссылки `xarid.uzex.uz/auction/detail/{id}` — работают без авторизации
-- **UZEX предквалификации**: прямые ссылки редиректят на главную — требуют E-IMZO
-- **cabinet.cooperation.uz**: иногда возвращает пустой ответ (нестабильный API)
+### Последние обновления (15 марта 2026)
+- **Дедупликация** — `crawler/core/dedup.py`, группирует тендеры с разных площадок
+- **Дедлайн-трекер** — `crawler/core/deadline_tracker.py`, CLI: `--deadlines-only`
+- **Результаты тендеров** — `crawler/core/results_tracker.py`, UZEX CivilContracts API
+- **Миграция 005** — group_id, winner, winning_price, result_date, deadline_reminders
+- **GIZ включен** — ausschreibungen.giz.de (HTML адаптер)
+- **Исследование**: dxarid/exarid/eshop мертвы, Bicotender DNS не резолвится
 
 ### Следующие шаги
-- [ ] **Регистрация на площадках** (E-IMZO / ЭЦП) — см. ниже (Данияр)
-- [ ] После регистрации: подключить ebirja.uz buyer-side API + hayotbirja.uz JSON-RPC
-- **Фаза C (продолжение):**
-  - [ ] Зарегистрироваться на developer.ungm.org — API key для UNGM (40+ агентств ООН)
-  - [ ] Зарегистрироваться на sam.gov — бесплатный API key (USAID контракты)
-  - [ ] Подключить ADB через SPA адаптер (Playwright, обход Cloudflare)
-  - [ ] Подключить EBRD (ECEPP portal, нужна регистрация)
-  - [ ] Подключить AIIB, EDB/ЕАБР (HTML scraping после тестирования)
-  - [ ] TED EU — разработать custom adapter (API возвращает только ID, данные в XML)
-- **Фаза D:** агрегаторы как бэкап (dgMarket, DevelopmentAid)
-- Lead generation из GetAllPlanSchedule по ключевым словам (проактивные КП)
-- Интеграция алертов в Brain Bot (скилл `/тендеры`)
+- [ ] **Деплой на VPS** — git pull + перезапуск cron
+- [ ] **Регистрация E-IMZO** (Данияр) — ebirja.uz, hayotbirja.uz (PFX ключ готов)
+- [ ] Тест дедлайн-трекера в production
+- [ ] UNGM фильтр по стране Uzbekistan (покроет UNICEF, UNDP, ADB, JICA)
+- Интеграция в Brain Bot (скилл `/тендеры`)
 
 ### Регистрация на площадках (TODO Данияр)
 
