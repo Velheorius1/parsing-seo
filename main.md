@@ -21,23 +21,29 @@
 - **Мониторинг результатов**: UZEX CivilContracts/GetResulted (5000+ завершённых сделок с победителями)
 
 ### Что не работает / в процессе
-- **cooperation.uz ЛЕЖИТ** — мониторинг cron → Telegram алерт когда оживёт
-- **E-IMZO регистрация** (Данияр) — ebirja.uz, hayotbirja.uz
-- **Международные**: UNICEF (403), ADB (Cloudflare), JICA (404 URL changed)
+- **E-IMZO регистрация** (Данияр) — ebirja.uz, hayotbirja.uz (PFX ключ готов)
+- **Международные**: UNICEF (403), ADB (Cloudflare), JICA (404)
+- **VPS деплой** — новые модули не задеплоены (dedup, deadline, results, фильтры, Excel, аналитика)
 
 ### Последние обновления (15 марта 2026)
-- **Дедупликация** — `crawler/core/dedup.py`, группирует тендеры с разных площадок
-- **Дедлайн-трекер** — `crawler/core/deadline_tracker.py`, CLI: `--deadlines-only`
-- **Результаты тендеров** — `crawler/core/results_tracker.py`, UZEX CivilContracts API
-- **Миграция 005** — group_id, winner, winning_price, result_date, deadline_reminders
-- **GIZ включен** — ausschreibungen.giz.de (HTML адаптер)
-- **Исследование**: dxarid/exarid/eshop мертвы, Bicotender DNS не резолвится
+- **cooperation.uz ОЖИЛ** — 6023 тендеров, 4523 новых, 100 алертов. Mac launchd каждые 8ч
+- **TenderZone parity** — расширенные фильтры (20+ params), Excel экспорт, аналитика заказчиков, избранное с цветами, DeadlineBadge, подсветка ключевых слов (1775 строк, 19 файлов)
+- **Crawler модули** — дедупликация, дедлайн-трекер, мониторинг результатов (UZEX CivilContracts)
+- **Миграции 005+006** — group_id, winner, winning_price, deadline_reminders, tender_favorites
+- **/hack TenderZone** — Saby/SBIS платформа, 250 площадок = в основном Россия. Мы лучше по UZ
 
 ### Следующие шаги
-- [ ] **Деплой на VPS** — git pull + перезапуск cron
-- [ ] **Регистрация E-IMZO** (Данияр) — ebirja.uz, hayotbirja.uz (PFX ключ готов)
-- [ ] Тест дедлайн-трекера в production
-- [ ] UNGM фильтр по стране Uzbekistan (покроет UNICEF, UNDP, ADB, JICA)
+
+**Срочно:**
+- [ ] **Деплой на VPS** — git pull + перезапуск cron (новые модули)
+- [ ] **Регистрация E-IMZO** (Данияр) — ebirja.uz, hayotbirja.uz
+- [ ] Проверить дашборд /tenders в браузере
+
+**Новые модули (следующая сессия):**
+- [ ] **AI Qwen модуль** — интеллектуальная оценка результатов парсинга, проактивные рекомендации
+- [ ] **Предиктивный модуль** — история тендеров → предсказание "компания X запустит тендер в апреле"
+- [ ] **Конкурент-мониторинг** — лоты конкурентов (supply side) + lead gen из закупочных планов cooperation.uz
+- [ ] **Расширение СНГ** — Казахстан goszakup.gov.kz, Россия zakupki.gov.ru
 - Интеграция в Brain Bot (скилл `/тендеры`)
 
 ### Регистрация на площадках (TODO Данияр)
