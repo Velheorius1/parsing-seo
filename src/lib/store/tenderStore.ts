@@ -31,6 +31,10 @@ interface TenderState {
   filterRegion: string | null;
   filterMinPrice: number | null;
   filterMaxPrice: number | null;
+  filterStatus: string | null;
+  filterCategory: string | null;
+  excludeKeywords: string[];
+  showAdvancedFilters: boolean;
 
   // Действия
   toggleKeyword: (keyword: string) => void;
@@ -44,6 +48,12 @@ interface TenderState {
   setFilterRegion: (region: string | null) => void;
   setFilterMinPrice: (price: number | null) => void;
   setFilterMaxPrice: (price: number | null) => void;
+  setFilterStatus: (status: string | null) => void;
+  setFilterCategory: (category: string | null) => void;
+  addExcludeKeyword: (keyword: string) => void;
+  removeExcludeKeyword: (keyword: string) => void;
+  setShowAdvancedFilters: (show: boolean) => void;
+  resetFilters: () => void;
 }
 
 export const useTenderStore = create<TenderState>((set, get) => ({
@@ -62,6 +72,10 @@ export const useTenderStore = create<TenderState>((set, get) => ({
   filterRegion: null,
   filterMinPrice: null,
   filterMaxPrice: null,
+  filterStatus: null,
+  filterCategory: null,
+  excludeKeywords: [],
+  showAdvancedFilters: false,
 
   toggleKeyword: (keyword) =>
     set((state) => {
@@ -161,4 +175,28 @@ export const useTenderStore = create<TenderState>((set, get) => ({
   setFilterRegion: (filterRegion) => set({ filterRegion }),
   setFilterMinPrice: (filterMinPrice) => set({ filterMinPrice }),
   setFilterMaxPrice: (filterMaxPrice) => set({ filterMaxPrice }),
+  setFilterStatus: (filterStatus) => set({ filterStatus }),
+  setFilterCategory: (filterCategory) => set({ filterCategory }),
+  addExcludeKeyword: (keyword) =>
+    set((state) => {
+      const trimmed = keyword.trim().toLowerCase();
+      if (!trimmed || state.excludeKeywords.includes(trimmed)) return state;
+      return { excludeKeywords: [...state.excludeKeywords, trimmed] };
+    }),
+  removeExcludeKeyword: (keyword) =>
+    set((state) => ({
+      excludeKeywords: state.excludeKeywords.filter((k) => k !== keyword),
+    })),
+  setShowAdvancedFilters: (showAdvancedFilters) => set({ showAdvancedFilters }),
+  resetFilters: () =>
+    set({
+      filterSource: null,
+      filterRegion: null,
+      filterMinPrice: null,
+      filterMaxPrice: null,
+      filterStatus: null,
+      filterCategory: null,
+      excludeKeywords: [],
+      sortBy: null,
+    }),
 }));

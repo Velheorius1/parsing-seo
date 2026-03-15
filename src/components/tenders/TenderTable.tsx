@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useTenderStore } from '@/lib/store/tenderStore';
-import type { Tender } from '@/types/parsing';
+import { FavoriteButton } from './FavoriteButton';
+import type { Tender, TenderFavorite } from '@/types/parsing';
 
 // Форматирование "X назад"
 function formatTimeAgo(dateStr: string): string {
@@ -294,13 +295,38 @@ function LastUpdatedBadge() {
 }
 
 export function TenderTable() {
-  const { tenders, isLoading, isRefreshing, error, totalFound, sortBy, setSortBy, filterSource } = useTenderStore();
+  const {
+    tenders, isLoading, isRefreshing, error, totalFound, sortBy, setSortBy,
+    filterSource, filterRegion, filterMinPrice, filterMaxPrice,
+    filterStatus, filterCategory, excludeKeywords,
+  } = useTenderStore();
 
   // Фильтрация + сортировка
   const filtered = useMemo(() => {
     let result = tenders;
     if (filterSource) {
       result = result.filter(t => t.source === filterSource);
+    }
+    if (filterRegion) {
+      result = result.filter(t => t.region === filterRegion);
+    }
+    if (filterStatus) {
+      result = result.filter(t => t.status === filterStatus);
+    }
+    if (filterCategory) {
+      result = result.filter(t => t.categories.includes(filterCategory));
+    }
+    if (filterMinPrice !== null) {
+      result = result.filter(t => t.price !== null && t.price >= filterMinPrice);
+    }
+    if (filterMaxPrice !== null) {
+      result = result.filter(t => t.price !== null && t.price <= filterMaxPrice);
+    }
+    if (excludeKeywords.length > 0) {
+      result = result.filter(t => {
+        const titleLower = t.title.toLowerCase();
+        return !excludeKeywords.some(kw => titleLower.includes(kw));
+      });
     }
     if (!sortBy) return result;
     return [...result].sort((a, b) => {
@@ -313,7 +339,7 @@ export function TenderTable() {
       }
       return 0;
     });
-  }, [tenders, sortBy, filterSource]);
+  }, [tenders, sortBy, filterSource, filterRegion, filterMinPrice, filterMaxPrice, filterStatus, filterCategory, excludeKeywords]);
 
   // Loading state
   if (isLoading && !isRefreshing) {
