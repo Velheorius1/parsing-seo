@@ -175,7 +175,7 @@ export function CrawlerSettings() {
     setSaveStatus(null);
     try {
       const resp = await fetch('/api/tenders/settings', {
-        method: 'PUT',
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-admin-token': process.env.NEXT_PUBLIC_ADMIN_SECRET_TOKEN || '',

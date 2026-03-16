@@ -37,8 +37,9 @@ export async function GET() {
   }
 }
 
-// PUT — update a single setting by key (admin-only)
-export async function PUT(request: NextRequest) {
+// POST — update a single setting by key (admin-only)
+// Using POST instead of PUT — Vercel returns 405 for PUT on some route configs
+export async function POST(request: NextRequest) {
   try {
     // Auth check: require admin token (if configured)
     const expectedToken = process.env.ADMIN_SECRET_TOKEN;
