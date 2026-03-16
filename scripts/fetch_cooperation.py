@@ -94,6 +94,14 @@ def _word_start_match(text, stem):
         start = idx + 1
 
 
+def _escape_md(text):
+    # type: (str) -> str
+    """Escape Markdown special characters (removes them to avoid injection)."""
+    for ch in ('*', '_', '`', '[', ']'):
+        text = text.replace(ch, '')
+    return text
+
+
 _FALSE_POSITIVES = {
     'календар': [' кун', 'кун ', ' дн', ' день'],
 }
@@ -786,13 +794,12 @@ def send_alerts(new_rows, source_label):
 
     bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
     sent = 0
-    esc = lambda t: t.replace('*', '').replace('_', '').replace('`', '').replace('[', '')
 
     with httpx.Client(timeout=10) as client:
         for row, kw in matching:
-            parts = ['*%s*' % esc(row['title'][:200])]
+            parts = ['*%s*' % _escape_md(row['title'][:200])]
             if row.get('organization'):
-                parts.append('Заказчик: %s' % esc(row['organization']))
+                parts.append('Заказчик: %s' % _escape_md(row['organization']))
             if row.get('price'):
                 parts.append('Цена: {:,.0f} UZS'.format(row['price']))
             if row.get('deadline'):
@@ -835,7 +842,6 @@ def send_competitor_alerts(new_rows, source_label):
         return 0
 
     bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
-    esc = lambda t: t.replace('*', '').replace('_', '').replace('`', '').replace('[', '')
     sent = 0
 
     with httpx.Client(timeout=10) as client:
@@ -852,8 +858,8 @@ def send_competitor_alerts(new_rows, source_label):
                 continue
 
             parts = [
-                '🏭 Конкурент: %s' % esc(row.get('organization', '')[:200]),
-                esc(row['title'][:200]),
+                '🏭 Конкурент: %s' % _escape_md(row.get('organization', '')[:200]),
+                _escape_md(row['title'][:200]),
             ]
             if row.get('price'):
                 parts.append('Цена: {:,.0f} UZS'.format(row['price']))
@@ -892,7 +898,6 @@ def send_lead_alerts(new_rows, source_label):
         return 0
 
     bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
-    esc = lambda t: t.replace('*', '').replace('_', '').replace('`', '').replace('[', '')
     sent = 0
 
     with httpx.Client(timeout=10) as client:
@@ -909,8 +914,8 @@ def send_lead_alerts(new_rows, source_label):
             month_year = deadline if '/' in deadline else ''
 
             parts = [
-                '📋 Лид: %s планирует закупку' % esc(org[:200]),
-                esc(row['title'][:200]),
+                '📋 Лид: %s планирует закупку' % _escape_md(org[:200]),
+                _escape_md(row['title'][:200]),
             ]
             if month_year:
                 parts.append('Месяц: %s' % month_year)

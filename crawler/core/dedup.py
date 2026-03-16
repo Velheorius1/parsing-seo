@@ -150,6 +150,9 @@ def find_groups(tenders: List[RawTender]) -> Dict[str, str]:
             for idx in cluster:
                 groups[tenders[idx].id] = gid
                 used.add(idx)
+        else:
+            # Mark singleton as used to prevent re-checking in inner loop
+            used.add(i)
 
     if groups:
         n_groups = len(set(groups.values()))

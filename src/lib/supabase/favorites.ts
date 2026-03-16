@@ -55,7 +55,8 @@ export async function toggleFavorite(
     .single();
 
   if (existing) {
-    // Удаляем (через service_role — RLS разрешает)
+    // Delete via service_role client (getSupabaseServer uses SUPABASE_SERVICE_ROLE_KEY).
+    // RLS policy "delete_service" restricts DELETE to service_role only — this is intentional.
     const { error } = await supabase
       .from('tender_favorites')
       .delete()

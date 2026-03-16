@@ -28,19 +28,31 @@ async def _fetch_org_month_patterns() -> List[Dict]:
     """Query tenders grouped by organization + month, find patterns (3+ tenders)."""
     try:
         client = _get_client()
-        # Fetch all tenders with organization and collected_at
-        resp = client.table("tenders").select(
-            "organization, collected_at"
-        ).not_.is_("organization", "null").execute()
+        # Fetch all tenders with organization and collected_at (paginated —
+        # Supabase returns max 1000 rows by default, so we batch with .range()).
+        all_rows = []  # type: List[Dict]
+        batch_size = 5000
+        offset = 0
+        while True:
+            resp = client.table("tenders").select(
+                "organization, collected_at"
+            ).not_.is_("organization", "null").range(
+                offset, offset + batch_size - 1
+            ).execute()
+            rows = resp.data or []
+            all_rows.extend(rows)
+            if len(rows) < batch_size:
+                break
+            offset += batch_size
 
-        if not resp.data:
+        if not all_rows:
             return []
 
         # Group by organization + month
         org_months = {}  # type: Dict[Tuple[str, int], int]
         org_products = {}  # type: Dict[str, List[str]]
 
-        for row in resp.data:
+        for row in all_rows:
             org = row.get("organization", "")
             if not org or len(org) < 3:
                 continue

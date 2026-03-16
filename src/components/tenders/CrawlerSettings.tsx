@@ -176,7 +176,10 @@ export function CrawlerSettings() {
     try {
       const resp = await fetch('/api/tenders/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': process.env.NEXT_PUBLIC_ADMIN_SECRET_TOKEN || '',
+        },
         body: JSON.stringify({ key, value }),
       });
       const data = await resp.json();

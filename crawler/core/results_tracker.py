@@ -103,7 +103,7 @@ def _extract_winner_info(item: dict) -> Optional[Dict[str, str]]:
 
     # Status
     status = item.get("status_name", "")
-    result["status"] = "completed" if "сделка" in status.lower() else "cancelled"
+    result["status"] = "completed" if status.lower() == "сделка совершена" else "cancelled"
 
     return result
 

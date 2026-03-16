@@ -37,9 +37,15 @@ export async function GET() {
   }
 }
 
-// PUT — update a single setting by key
+// PUT — update a single setting by key (admin-only)
 export async function PUT(request: NextRequest) {
   try {
+    // Auth check: require admin token
+    const adminToken = request.headers.get('x-admin-token');
+    if (adminToken !== process.env.ADMIN_SECRET_TOKEN) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     if (!isSupabaseConfigured()) {
       return NextResponse.json(
         { error: 'Supabase не настроен' },

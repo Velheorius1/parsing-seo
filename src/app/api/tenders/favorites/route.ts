@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getFavorites, toggleFavorite, updateFavorite } from '@/lib/supabase/favorites';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // GET — список всех избранных
 export async function GET() {
   try {
@@ -24,9 +26,9 @@ export async function POST(request: Request) {
     const body: unknown = await request.json();
     const { tenderId } = body as { tenderId?: string };
 
-    if (!tenderId) {
+    if (!tenderId || !UUID_RE.test(tenderId)) {
       return NextResponse.json(
-        { error: 'tenderId обязателен' },
+        { error: 'Invalid tender ID' },
         { status: 400 },
       );
     }
@@ -56,9 +58,9 @@ export async function PUT(request: Request) {
       note?: string;
     };
 
-    if (!tenderId) {
+    if (!tenderId || !UUID_RE.test(tenderId)) {
       return NextResponse.json(
-        { error: 'tenderId обязателен' },
+        { error: 'Invalid tender ID' },
         { status: 400 },
       );
     }

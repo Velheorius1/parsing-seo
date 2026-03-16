@@ -82,10 +82,11 @@ async function getAnalyticsFallback(supabase: ReturnType<typeof getSupabaseServe
     return NextResponse.json({ error: 'Supabase не настроен' }, { status: 503 });
   }
 
-  // Fetch all tenders for client-side aggregation
+  // Fetch tenders for client-side aggregation (capped to prevent OOM)
   const { data: tenders, error } = await supabase
     .from('tenders')
-    .select('organization, price, region, categories, winning_price');
+    .select('organization, price, region, categories, winning_price')
+    .limit(10000);
 
   if (error) {
     console.error('Analytics fallback error:', error.message);
