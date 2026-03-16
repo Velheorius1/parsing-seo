@@ -88,13 +88,14 @@ async def check_deadlines(dry_run: bool = False) -> int:
         window_start = target_date - timedelta(hours=12)
         window_end = target_date + timedelta(hours=12)
 
-        # Get all active tenders
+        # Get active tenders that matched our keywords (not all tenders!)
         try:
             resp = (
                 client.table("tenders")
-                .select("id,title,organization,price,currency,deadline,source,source_url")
+                .select("id,title,organization,price,currency,deadline,source,source_url,matched_keywords")
                 .eq("status", "active")
                 .not_.is_("deadline", "null")
+                .not_.eq("matched_keywords", "{}")
                 .execute()
             )
         except Exception as exc:
