@@ -5,42 +5,43 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 99 источников (64 enabled), cron 3x/день, AI Qwen фильтр + evaluator
-Дата обновления: 15 марта 2026
+Фаза: Production — 99 источников (64 enabled), AI Qwen (фильтр + evaluator + TG extraction)
+Дата обновления: 16 марта 2026
 
 ### Что работает
-- **Crawler на VPS** (46.62.155.190): 64 enabled sources, cron 06:00/14:00/22:00
-- **cooperation.uz** — Mac launchd каждые 8ч (376k планов, geo-blocked с VPS)
-- **AI-фильтр Qwen** — отсекает false positives (набор реагентов ≠ подарочный набор)
-- **AI Evaluator** — ежедневный отчёт качества парсинга через Qwen
-- **Предиктивный модуль** — сезонные паттерны компаний → "X запустит тендер в апреле"
-- **Конкурент-мониторинг** — алерты когда конкурент выставляет лот (#конкурент)
-- **Lead generation** — закупочные планы cooperation.uz → "Алокабанк планирует конверты" (#лид)
-- **Дедупликация** — один алерт вместо 3 за один тендер с разных площадок
-- **Дедлайн-трекер** — напоминания за 3д и 1д
-- **Мониторинг результатов** — UZEX CivilContracts (5000+ сделок, победители+цены)
-- **Дашборд /tenders** — фильтры (20+), Excel экспорт, аналитика, избранное, DeadlineBadge
-- **Админ-панель /tenders/settings** — управление keywords, конкурентами, порогом цены, тоглами
-- **Мин порог 10M сум** — мелкие тендеры не алертятся
+- **Crawler на VPS** (46.62.155.190): 64 enabled, cron 06:00/14:00/22:00, все pip packages установлены
+- **TG incremental collection** — min_id + reverse=True, только новые сообщения, FloodWait handling
+- **AI Qwen TG extraction** — regex не нашёл org/price → Qwen извлекает из свободного текста
+- **cooperation.uz** — Mac launchd (376k планов), AI-фильтр, lead gen, конкурент-мониторинг
+- **AI Evaluator** — ежедневный отчёт качества через Qwen
+- **Предиктивный модуль** — сезонные паттерны → "X запустит тендер в апреле"
+- **Дедупликация** — cross-source fuzzy match
+- **Дедлайн-трекер** — только для matched keywords (не кальций глюконат)
+- **Результаты** — UZEX CivilContracts (5000+ сделок, победители)
+- **Дашборд /tenders** — фильтры 20+, Excel, аналитика, избранное, DeadlineBadge, подсветка
+- **Админ-панель /tenders/settings** — keywords, конкуренты, порог цены, тоглы (POST API)
+- **Мин порог 10M сум**
 
 ### Что не работает / в процессе
-- **E-IMZO регистрация** (Данияр) — ebirja.uz, hayotbirja.uz (PFX ключ готов)
-- **Международные**: UNICEF (403), ADB (Cloudflare), JICA (404)
+- **E-IMZO** (Данияр) — ebirja.uz, hayotbirja.uz (PFX ключ готов)
+- **Миграция 009** — RLS fix для crawler_settings (нужен Supabase SQL Editor)
 - **Beeline UZ, Bnect** — SPA, нужен Playwright
 
-### Последние обновления (15 марта 2026)
-- **Smart Tender System** — AI evaluator, predictor, competitor monitoring, lead gen
-- **TenderZone parity** — фильтры, Excel, аналитика, избранное (1775 строк)
-- **Gap analysis** — 21 UZ-площадка у TenderZone, 9 gaps, 6 добавлены (99 total)
-- **Админ-панель** — /tenders/settings (keywords, competitors, price, toggles)
-- **Миграции 005-008** — все применены в Supabase
-- **VPS задеплоен** — все модули загружены, 9505 тендеров
+### Последние обновления (16 марта 2026)
+- **Code review** — 4 critical + 5 major исправлены (auth, RLS, UUID, limits, dedup, escape)
+- **TG incremental** — min_id per channel, FloodWait handling, ChannelPrivateError
+- **AI Qwen TG fallback** — извлечение org/price/deadline из свободного текста
+- **Дедлайн-трекер fix** — только matched_keywords тендеры (не мусор)
+- **Settings fix** — PUT→POST для Vercel, auth optional
+- **VPS fixes** — pydantic-settings, httpx установлены, pip packages synced
+- **tg_content_factory research** — incremental pattern заимствован, парсинг у нас лучше
 
 ### Следующие шаги
-- [ ] **Регистрация E-IMZO** (Данияр) — ebirja.uz + hayotbirja.uz
-- [ ] Проверить /tenders и /tenders/settings в браузере
-- [ ] Расширение СНГ (Казахстан goszakup.gov.kz) если нужен
-- [ ] Интеграция в Brain Bot (скилл `/тендеры`)
+- [ ] **Применить миграцию 009** в Supabase (RLS fix)
+- [ ] **E-IMZO** (Данияр) — ebirja.uz + hayotbirja.uz
+- [ ] Настроить ADMIN_SECRET_TOKEN на Vercel
+- [ ] Расширение СНГ (goszakup.gov.kz) если нужен
+- [ ] Интеграция в Brain Bot
 
 ### Регистрация на площадках (TODO Данияр)
 
