@@ -9,7 +9,68 @@ from crawler.adapters.base import BaseAdapter
 from crawler.config.settings import settings
 from crawler.core.models import RawTender, SourceConfig
 
+import httpx as _httpx
+
 logger = logging.getLogger(__name__)
+
+# AI extraction prompt for unstructured Telegram messages
+_AI_EXTRACT_PROMPT = """Извлеки из текста тендера/закупки следующие поля (если есть):
+- organization: название заказчика/организации
+- price: сумма в числовом формате (только число)
+- currency: валюта (UZS/USD/EUR)
+- deadline: дата дедлайна (формат DD.MM.YYYY)
+
+Текст:
+{text}
+
+Ответь СТРОГО в формате (каждое поле на отдельной строке):
+organization: ...
+price: ...
+currency: ...
+deadline: ...
+
+Если поле не найдено, пиши: НЕТ
+/no_think"""
+
+
+def _ai_extract_fields(text, openrouter_key, model):
+    # type: (str, str, str) -> dict
+    """Use Qwen to extract org/price/deadline from unstructured text."""
+    if not openrouter_key:
+        return {}
+    try:
+        resp = _httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": "Bearer %s" % openrouter_key},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": _AI_EXTRACT_PROMPT.format(text=text[:500])}],
+                "max_tokens": 150,
+                "temperature": 0,
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return {}
+        import re as _re
+        answer = resp.json()["choices"][0]["message"]["content"] or ""
+        # Strip thinking tags
+        answer = _re.sub(r"<think>.*?</think>", "", answer, flags=_re.DOTALL).strip()
+
+        result = {}
+        for line in answer.split("\n"):
+            line = line.strip()
+            if ":" not in line:
+                continue
+            key, val = line.split(":", 1)
+            key = key.strip().lower()
+            val = val.strip()
+            if val and val != "НЕТ":
+                result[key] = val
+        return result
+    except Exception:
+        return {}
+
 
 # Patterns for extracting tender fields from message text
 _PRICE_PATTERN = re.compile(
@@ -138,14 +199,33 @@ class TelegramAdapter(BaseAdapter):
         if not title:
             return None
 
-        # Organization
+        # Organization (regex first, AI fallback)
         organization = self._extract_organization(text)
 
-        # Price
+        # Price (regex first)
         price, currency = self._extract_price(text)
 
-        # Deadline
+        # Deadline (regex first)
         deadline = self._extract_deadline(text)
+
+        # AI fallback: if regex missed org/price/deadline, try Qwen
+        if not organization or price is None or not deadline:
+            ai_fields = _ai_extract_fields(
+                text,
+                settings.openrouter_api_key or "",
+                settings.ai_relevance_model,
+            )
+            if not organization and ai_fields.get("organization"):
+                organization = ai_fields["organization"][:200]
+            if price is None and ai_fields.get("price"):
+                try:
+                    price = float(ai_fields["price"].replace(" ", "").replace(",", "."))
+                except (ValueError, TypeError):
+                    pass
+            if ai_fields.get("currency") and ai_fields["currency"] in ("USD", "EUR"):
+                currency = ai_fields["currency"]
+            if not deadline and ai_fields.get("deadline"):
+                deadline = ai_fields["deadline"]
 
         # Build source URL
         channel_name = (self.config.telegram_channel or "").lstrip("@")
