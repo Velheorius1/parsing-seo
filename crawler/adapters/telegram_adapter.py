@@ -110,7 +110,12 @@ class TelegramAdapter(BaseAdapter):
             )
 
     async def _fetch_items(self) -> List[RawTender]:
-        """Connect to Telegram, read channel messages, parse tenders."""
+        """Connect to Telegram, read channel messages, parse tenders.
+
+        Uses incremental collection: tracks last_message_id per channel
+        so we only fetch NEW messages each run (inspired by tg_content_factory).
+        Handles FloodWait gracefully instead of skipping.
+        """
         if not settings.telegram_api_id or not settings.telegram_api_hash:
             logger.warning(
                 "[%s] Telegram credentials not set (TELEGRAM_API_ID, "
@@ -119,9 +124,11 @@ class TelegramAdapter(BaseAdapter):
             )
             return []
 
+        import asyncio
         import os
 
         from telethon import TelegramClient
+        from telethon.errors import FloodWaitError, ChannelPrivateError
 
         # Resolve session path relative to crawler package dir
         session_path = settings.telegram_session
@@ -137,6 +144,9 @@ class TelegramAdapter(BaseAdapter):
         tenders = []  # type: List[RawTender]
         cutoff = datetime.now(timezone.utc) - timedelta(days=MAX_AGE_DAYS)
 
+        # Load last_message_id for incremental collection
+        last_id = self._load_last_message_id()
+
         try:
             await client.connect()
 
@@ -149,28 +159,72 @@ class TelegramAdapter(BaseAdapter):
                 return []
 
             channel = self.config.telegram_channel
-            # Normalize channel name
             if channel and not channel.startswith("@"):
                 channel = "@" + channel
 
-            async for message in client.iter_messages(
-                channel, limit=self.config.telegram_limit
-            ):
+            # Incremental: if we have last_id, only get newer messages
+            # Otherwise fall back to limit-based collection
+            iter_kwargs = {}  # type: dict
+            if last_id > 0:
+                iter_kwargs["min_id"] = last_id
+                iter_kwargs["reverse"] = True  # oldest first when using min_id
+                logger.info(
+                    "[%s] Incremental: fetching messages after ID %d",
+                    self.config.name, last_id,
+                )
+            else:
+                iter_kwargs["limit"] = self.config.telegram_limit
+                logger.info(
+                    "[%s] First run: fetching last %d messages",
+                    self.config.name, self.config.telegram_limit,
+                )
+
+            max_seen_id = last_id
+
+            async for message in client.iter_messages(channel, **iter_kwargs):
+                # Track highest message ID for next incremental run
+                if message.id > max_seen_id:
+                    max_seen_id = message.id
+
                 # Skip non-text messages
                 if not message.text:
                     continue
 
-                # Skip messages older than cutoff
-                msg_date = message.date
-                if msg_date.tzinfo is None:
-                    msg_date = msg_date.replace(tzinfo=timezone.utc)
-                if msg_date < cutoff:
-                    break  # Messages are in reverse chronological order
+                # Skip messages older than cutoff (only for non-incremental)
+                if last_id == 0:
+                    msg_date = message.date
+                    if msg_date.tzinfo is None:
+                        msg_date = msg_date.replace(tzinfo=timezone.utc)
+                    if msg_date < cutoff:
+                        break
 
                 tender = self._parse_message(message)
                 if tender is not None:
                     tenders.append(tender)
 
+            # Save last_message_id for next run
+            if max_seen_id > last_id:
+                self._save_last_message_id(max_seen_id)
+
+        except FloodWaitError as e:
+            wait_secs = e.seconds
+            if wait_secs <= 120:
+                logger.warning(
+                    "[%s] FloodWait %ds — waiting...",
+                    self.config.name, wait_secs,
+                )
+                await asyncio.sleep(wait_secs)
+                # Don't retry here — will be picked up next cron cycle
+            else:
+                logger.warning(
+                    "[%s] FloodWait %ds (>2min) — skipping this cycle",
+                    self.config.name, wait_secs,
+                )
+        except ChannelPrivateError:
+            logger.warning(
+                "[%s] Channel is private or deleted — consider disabling",
+                self.config.name,
+            )
         except Exception as exc:
             logger.warning(
                 "[%s] Telegram error: %s", self.config.name, str(exc)
@@ -179,6 +233,34 @@ class TelegramAdapter(BaseAdapter):
             await client.disconnect()
 
         return tenders
+
+    def _load_last_message_id(self):
+        # type: () -> int
+        """Load last collected message ID from file-based cache."""
+        import os
+        cache_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "cache",
+        )
+        cache_file = os.path.join(cache_dir, "tg_last_id_%s.txt" % self.config.id)
+        try:
+            with open(cache_file, "r") as f:
+                return int(f.read().strip())
+        except (FileNotFoundError, ValueError):
+            return 0
+
+    def _save_last_message_id(self, msg_id):
+        # type: (int) -> None
+        """Save last collected message ID to file-based cache."""
+        import os
+        cache_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "cache",
+        )
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_file = os.path.join(cache_dir, "tg_last_id_%s.txt" % self.config.id)
+        with open(cache_file, "w") as f:
+            f.write(str(msg_id))
 
     def _parse_message(self, message) -> Optional[RawTender]:  # type: ignore[no-untyped-def]
         """Parse a Telegram message into a RawTender."""
