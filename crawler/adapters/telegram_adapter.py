@@ -59,23 +59,42 @@ _DEMAND_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-# False positives: job postings, vacancies, team hiring
-_VACANCY_PATTERNS = re.compile(
+# False positives: ads, job postings, vacancies, service offers
+_AD_FILTER = re.compile(
     r"(?:"
+    # ── Vacancies (UZ) ──
     r"pechatnik\s+kerak"  # вакансия печатника
     r"|dizayner\s+kerak"  # вакансия дизайнера
     r"|operator\s+kerak"
     r"|master\s+kerak"
     r"|ishchi\s+kerak"  # нужен работник
+    r"|\bish\b\s+kerak"  # ищу работу
+    r"|jamoaga\s+\S+\s+kerak"  # "в команду нужен X"
+    r"|xizmatlari\b"  # "grafik dizayner xizmatlari" = реклама услуг
+    r"|xizmatlar\b"
+    # ── Vacancies (RU) ──
     r"|сдельщик"
     r"|набор\s+(?:идет|на\s+работу)"
     r"|требуются\s+мастер"
     r"|ищу\s+работу"
-    r"|xizmatlari\b"  # "grafik dizayner xizmatlari" = услуги дизайнера (реклама)
-    r"|\bish\b\s+kerak"  # ищу работу (word boundary — не "qilish kerak")
-    r"|jamoaga\s+\S+\s+kerak"  # "в команду нужен X"
+    r"|ищу\s+заказ"  # фрилансер ищет заказы = не наш клиент
+    # ── Service ads (RU) — someone OFFERING, not requesting ──
+    r"|услуги\s+\S+"  # "Услуги графического дизайнера"
+    r"|предлагаем\s+"
+    r"|предоставляем\s+"
+    r"|выполняем\s+"
+    r"|звоните\b"
+    r"|обращайтесь\b"
+    r"|наши\s+(?:цены|услуги|работы)"
+    r"|под\s+заказ\s*[!.]"  # "Печать на лентах под заказ!" = реклама
+    r"|beramiz\b"  # "biz bosib beramiz" = мы делаем
+    r"|qilamiz\b"  # "biz qilamiz" = мы делаем
+    r"|tayyorlaymiz\b"  # мы изготовим
+    # ── Greetings without substance ──
+    r"|^(?:всем\s+)?добр(?:ый|ое|ой|ого)\s+(?:день|утро|вечер|ночи)[!.\s]*$"
+    r"|^assalomu?\s+alaykum[!.\s]*$"
     r")",
-    re.IGNORECASE,
+    re.IGNORECASE | re.MULTILINE,
 )
 
 # AI prompt — ONLY for confirmed demand messages (after regex pre-filter)
@@ -409,7 +428,7 @@ class TelegramAdapter(BaseAdapter):
             return None
 
         # Step 1b: Exclude job postings and vacancies
-        if _VACANCY_PATTERNS.search(text):
+        if _AD_FILTER.search(text):
             logger.debug("[%s] Vacancy/job posting, skipping: %s",
                          self.config.name, fallback_title[:60])
             return None
