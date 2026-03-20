@@ -94,6 +94,16 @@ _AD_FILTER = re.compile(
     r"|beramiz\b"  # "biz bosib beramiz" = мы делаем
     r"|qilamiz\b"  # "biz qilamiz" = мы делаем
     r"|tayyorlaymiz\b"  # мы изготовим
+    # ── Off-topic requests ──
+    r"|видеооператор"
+    r"|видеосъемк"
+    r"|(?:настро\S+|запуст\S+)\s+рекламу"  # настроить рекламу в Google
+    r"|google\s+(?:ads|эдс)"
+    r"|instagram\s+(?:uchun|для)\s+post"
+    r"|ивент|мероприят"
+    r"|алюкобонд|alyukobond"
+    r"|нарвон|лесам|stremyank"  # лестницы/леса (стройка)
+    r"|монтажник"
     # ── Greetings without substance ──
     r"|^(?:всем\s+)?добр(?:ый|ое|ой|ого)\s+(?:день|утро|вечер|ночи)[!.\s]*$"
     r"|^assalomu?\s+alaykum[!.\s]*$"
