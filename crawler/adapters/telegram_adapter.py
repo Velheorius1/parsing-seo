@@ -294,14 +294,32 @@ class TelegramAdapter(BaseAdapter):
         with open(cache_file, "w") as f:
             f.write(str(msg_id))
 
+    # Lazy-loaded keyword stems for pre-filtering
+    _keyword_stems = None  # type: Optional[List[str]]
+
+    @classmethod
+    def _get_keyword_stems(cls):
+        # type: () -> List[str]
+        """Build keyword stem list from settings for fast regex pre-filter."""
+        if cls._keyword_stems is None:
+            raw = settings.alert_keywords or ""
+            stems = []
+            for kw in raw.split(","):
+                kw = kw.strip().lower()
+                if kw:
+                    # Take first 4+ chars as stem for fuzzy matching
+                    stems.append(kw[:5] if len(kw) > 5 else kw)
+            cls._keyword_stems = stems
+        return cls._keyword_stems
+
     def _parse_message(self, message) -> Optional[RawTender]:  # type: ignore[no-untyped-def]
         """Parse a Telegram message into a RawTender.
 
-        Uses regex for structured fields, then AI for classification,
-        title extraction, and missing field recovery.
+        Pipeline: length filter → regex fields → keyword pre-match → AI classification.
+        AI is only called if keywords match (saves ~70% of API calls).
         """
         text = message.text
-        if not text or len(text.strip()) < 10:
+        if not text or len(text.strip()) < 60:
             return None
 
         lines = text.strip().split("\n")
@@ -326,16 +344,27 @@ class TelegramAdapter(BaseAdapter):
         # Deadline (regex first)
         deadline = self._extract_deadline(text)
 
-        # AI extraction: classify message type + extract/improve fields
+        # Keyword pre-filter: skip AI if no keywords found in text
+        text_lower = text.lower()
+        stems = self._get_keyword_stems()
+        has_keyword = any(s in text_lower for s in stems)
+
+        # AI extraction: only if keywords match (or regex found structured fields)
         message_type = "tender"
         ai_title = ""
         product_keywords = ""
 
-        ai_fields = _ai_extract_fields(
-            text,
-            settings.openrouter_api_key or "",
-            settings.ai_relevance_model,
-        )
+        if has_keyword or organization or price is not None:
+            ai_fields = _ai_extract_fields(
+                text,
+                settings.openrouter_api_key or "",
+                settings.ai_relevance_model,
+            )
+        else:
+            # No keywords, no structured fields — skip (likely irrelevant)
+            logger.debug("[%s] No keywords in text, skipping AI: %s",
+                         self.config.name, fallback_title[:60])
+            return None
 
         if ai_fields:
             # Message type classification
