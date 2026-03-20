@@ -185,9 +185,14 @@ class TelegramAdapter(BaseAdapter):
                 )
                 return []
 
-            channel = self.config.telegram_channel
-            if channel and not channel.startswith("@"):
-                channel = "@" + channel
+            channel_raw = self.config.telegram_channel or ""
+            # Support numeric IDs for private groups (no username)
+            try:
+                channel = int(channel_raw)  # type: ignore[assignment]
+            except (ValueError, TypeError):
+                channel = channel_raw
+                if channel and not channel.startswith("@"):
+                    channel = "@" + channel
 
             # Incremental: if we have last_id, only get newer messages
             # Otherwise fall back to limit-based collection
@@ -368,9 +373,14 @@ class TelegramAdapter(BaseAdapter):
         # Use AI title if available, fallback to first line
         title = ai_title if ai_title else fallback_title
 
-        # Build source URL
-        channel_name = (self.config.telegram_channel or "").lstrip("@")
-        source_url = "https://t.me/%s/%d" % (channel_name, message.id)
+        # Build source URL (supports both usernames and numeric IDs)
+        channel_raw = (self.config.telegram_channel or "").lstrip("@")
+        try:
+            # Numeric ID → private group link format
+            chan_id = int(channel_raw)
+            source_url = "https://t.me/c/%d/%d" % (chan_id, message.id)
+        except (ValueError, TypeError):
+            source_url = "https://t.me/%s/%d" % (channel_raw, message.id)
 
         external_id = str(message.id)
         tender_id = "%s-%s" % (self.config.id_prefix, external_id)
