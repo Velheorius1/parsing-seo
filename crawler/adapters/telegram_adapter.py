@@ -112,26 +112,34 @@ _AD_FILTER = re.compile(
 )
 
 # AI prompt — ONLY for confirmed demand messages (after regex pre-filter)
-_AI_EXTRACT_PROMPT = """Это сообщение из Telegram-группы. Кто-то ИЩЕТ услугу или товар (спрос).
+_AI_EXTRACT_PROMPT = """Сообщение из Telegram-группы рекламщиков Узбекистана.
 
-Извлеки:
-- title: что именно ищут (5-15 слов)
-- organization: кто ищет (если указано)
-- price: бюджет (число, если указан)
-- currency: UZS/USD/EUR
-- deadline: срок (DD.MM.YYYY, если указан)
-- product_keywords: ключевые слова продукции (через запятую)
+СНАЧАЛА определи — это СПРОС или ПРЕДЛОЖЕНИЕ:
+
+СПРОС (intent: demand) — человек ИЩЕТ кого-то для выполнения работы:
+- "Кто делает коробки?" "kim qiladi?" "kerak" (в контексте заказа)
+- "Нужен баннер 3x5", "10 ta futbolka pechat kerak"
+- Указывает ЧТО нужно, СКОЛЬКО штук, КОГДА
+
+ПРЕДЛОЖЕНИЕ (intent: ad) — человек/компания РЕКЛАМИРУЕТ свои услуги:
+- "Мы делаем печать", "Качественная печать на футболках!"
+- "Наша компания предлагает...", "TAKLIF!!!", "Звоните!"
+- Перечисление СВОИХ услуг, цен, контактов
+- "Нужна печать?" с ответом "мы делаем" = ЭТО РЕКЛАМА
+- "Эксклюзив совға қутилар" = продают свой товар = РЕКЛАМА
+- "ДИЛЕРЛАР УЧУН ТАКЛИФ" = предложение для дилеров = РЕКЛАМА
 
 Текст:
 {text}
 
-Формат ответа (каждое поле на отдельной строке):
-title: ...
-organization: ...
-price: ...
-currency: ...
-deadline: ...
-product_keywords: ...
+Формат (каждое поле на строке):
+intent: demand ИЛИ ad
+title: что нужно (5-15 слов, только для demand)
+organization: кто ищет
+price: бюджет (число)
+currency: UZS/USD/EUR
+deadline: срок (DD.MM.YYYY)
+product_keywords: ключевые слова
 
 Если поле не найдено: НЕТ
 /no_think"""
@@ -463,6 +471,13 @@ class TelegramAdapter(BaseAdapter):
             settings.ai_relevance_model,
         )
         if ai_fields:
+            # AI intent verification — last defense against ads
+            intent = ai_fields.get("intent", "").lower().strip()
+            if intent == "ad":
+                logger.info("[%s] AI: ad (not demand), skipping: %s",
+                            self.config.name, fallback_title[:60])
+                return None
+
             if ai_fields.get("title"):
                 ai_title = ai_fields["title"][:300]
             if ai_fields.get("organization"):
