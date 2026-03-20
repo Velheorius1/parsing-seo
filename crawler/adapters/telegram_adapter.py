@@ -22,52 +22,58 @@ _DEMAND_PATTERNS = re.compile(
     r"(?:"
     # ── Russian demand signals ──
     r"кто\s+(?:делает|занимается|производит|печатает|изготавливает|может|шьёт|шьет)"
-    r"|ищу\s+\S+"  # "ищу поставщика", "ищу типографию", "ищу мастера"
-    r"|(?:нужн[оыа]|требуется|требуются|необходим[оыа]?)\s+\S+"
+    r"|ищу\s+(?:поставщик|исполнител|подрядчик|типографи|производител|мастер|работ)"
+    r"|(?:нужно|нужны|нужна|нужен)\s+\S+"
+    r"|(?:требуется|требуются|необходим[оыа]?)\s+(?!мастер\S*\s+по\s+наруж)\S+"
     r"|кому\s+(?:заказать|обратиться)"
     r"|(?:подскажите|посоветуйте|порекомендуйте)\s+\S+"
     r"|где\s+(?:можно|заказать|найти|купить|напечатать|сделать)"
     r"|есть\s+(?:кто|те\s+кто)"
     r"|(?:срочно|сроч)\s+нужн"
     # ── Uzbek demand signals (Latin) ──
-    # "kerak" = нужно (самый частый маркер спроса)
-    r"|kerak\b"
-    r"|kera[kq]\b"  # typo: keraq
-    # "kim qiladi/qiberoladi/qilib beradi" = кто сделает
-    r"|kim\s+\S+"  # "kim qiladi", "kim bosadi", "kim qiberoladi"
-    r"|kimda\s+\S+"  # "kimda bor" = у кого есть
-    r"|kimga\s+"  # "kimga buyurtma bersa" = кому заказать
+    # "N ta/dona PRODUCT kerak" = нужно N штук (самый надёжный паттерн)
+    r"|\d+\s*(?:ta|dona|sht)\s+\S+\s+\S*kerak"
+    r"|\d+\s*(?:ta|dona|sht)\s+\S+\s+(?:pechat|bos|tortish)"
+    # "PRODUCT kerak" — продукт + kerak (не "pechatnik kerak" = вакансия)
+    r"|(?:pechat|banner|paket|korobka|etiketka|stiker|vizitka|buklet|futbolka|katalog|kitob|bloknot|kalendar|flayer|nakleyk|bayroq|flag)\S*\s+\S*kera[kq]"
+    # "VERB kerak" — действие + kerak
+    r"|(?:tortish|bosish|chop\s+etish|chop\s+qilish|tayyorlash|qilish|yasash)\s+kera[kq]"
+    # "kim qiladi/qiberoladi/bosadi" = кто сделает (+ конкретный продукт)
+    r"|kim\s+(?:qiladi|qilib|bosadi|bosib|qiberol|tayyorl)"
+    r"|kimda\s+(?:bor|bormi)"  # "kimda bor" = у кого есть
+    r"|kimga\s+buyurtma"  # кому заказать
     # "qidiryapman/izlayapman" = ищу
     r"|qidiryap"
-    r"|qidirya"  # typo
     r"|izlayap"
-    r"|izlayotir"
-    # "qayerda/qayerga" = где
-    r"|qayerd[a]?\s+\S+"
-    r"|qayerg[a]?\s+\S+"
-    # "bormi/bormu" = есть ли
-    r"|bormi\b"
-    r"|borm[iu]\b"
-    # "kerakman" = мне нужно (разговорное)
-    r"|kerakman\b"
-    # "bor\s+ekan?" = у кого есть
-    r"|bor\s+ek[ae]n"
-    # "ta/dona + product + kerak" = количество + нужно
-    r"|\d+\s*(?:ta|dona|sht)\s+\S+"
-    # "tortish/bosish/chop" = печать (действия)
-    r"|tortish\s+kerak"
-    r"|bosish\s+kerak"
-    r"|chop\s+(?:etish|qilish)"
-    # "buyurtma" = заказ
-    r"|buyurtma\s+\S+"
-    # "tayyorla" = изготовить
-    r"|tayyorla\S*\s+kerak"
+    # "qayerda" = где (+ действие)
+    r"|qayerd[a]?\s+(?:bos|tor|chop|qil|ola|topa)"
+    # "buyurtma bermoqchi/qilmoqchi" = хочу заказать
+    r"|buyurtma\s+(?:ber|qil)"
     # ── Uzbek demand signals (Cyrillic) ──
     r"|керак\b"
-    r"|кимда\s+"
+    r"|кимда\s+бор"
     r"|қидиряпман"
     r"|излаяпман"
-    r"|буюртма\s+"
+    r"|буюртма\s+бер"
+    r")",
+    re.IGNORECASE,
+)
+
+# False positives: job postings, vacancies, team hiring
+_VACANCY_PATTERNS = re.compile(
+    r"(?:"
+    r"pechatnik\s+kerak"  # вакансия печатника
+    r"|dizayner\s+kerak"  # вакансия дизайнера
+    r"|operator\s+kerak"
+    r"|master\s+kerak"
+    r"|ishchi\s+kerak"  # нужен работник
+    r"|сдельщик"
+    r"|набор\s+(?:идет|на\s+работу)"
+    r"|требуются\s+мастер"
+    r"|ищу\s+работу"
+    r"|xizmatlari\b"  # "grafik dizayner xizmatlari" = услуги дизайнера (реклама)
+    r"|\bish\b\s+kerak"  # ищу работу (word boundary — не "qilish kerak")
+    r"|jamoaga\s+\S+\s+kerak"  # "в команду нужен X"
     r")",
     re.IGNORECASE,
 )
@@ -400,6 +406,12 @@ class TelegramAdapter(BaseAdapter):
         # Step 1: Demand regex — is someone LOOKING for something?
         if not _DEMAND_PATTERNS.search(text):
             # No demand signal → it's an ad/offer from competitor → skip
+            return None
+
+        # Step 1b: Exclude job postings and vacancies
+        if _VACANCY_PATTERNS.search(text):
+            logger.debug("[%s] Vacancy/job posting, skipping: %s",
+                         self.config.name, fallback_title[:60])
             return None
 
         logger.info("[%s] Demand detected: %s", self.config.name, fallback_title[:80])
