@@ -770,7 +770,7 @@ sources:
     url: ""
     id_prefix: "tg-pruzb"
     telegram_channel: "1043210647"
-    telegram_limit: 200
+    telegram_limit: 500
     rate_limit: 1.0
 
   - id: tg-beeline-tenders

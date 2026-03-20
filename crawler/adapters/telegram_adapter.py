@@ -55,6 +55,10 @@ _DEMAND_PATTERNS = re.compile(
     r"|қидиряпман"
     r"|излаяпман"
     r"|буюртма\s+бер"
+    # Кириллический узбекский (разговорный, с ошибками)
+    r"|ким\s+(?:қилади|қилиб|босади|босиб|чиқазиб|чиказиб|беролади|беролиди)"
+    r"|(?:босиш|тортиш|чоп\s+этиш|чиқазиш)\s+керак"
+    r"|(?:штук|шт|дона|та)\s+\S+\s+керак"
     r")",
     re.IGNORECASE,
 )
@@ -397,7 +401,7 @@ class TelegramAdapter(BaseAdapter):
         - CHANNEL mode (tender channels): old regex+AI extraction.
         """
         text = message.text
-        if not text or len(text.strip()) < 60:
+        if not text or len(text.strip()) < 30:
             return None
 
         lines = text.strip().split("\n")
