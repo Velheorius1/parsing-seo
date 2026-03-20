@@ -20,7 +20,27 @@ class Settings(BaseSettings):
     # Telegram alerts (bot token for sending notifications)
     telegram_bot_token: Optional[str] = None
     telegram_alert_chat_id: Optional[str] = None
-    alert_keywords: str = "упаковка,полиграфия,гофра,гофрокоробка,печать полиграф,этикетка,типография,книга,книж,каталог,брошюр,блокнот,календар,полиэтилен пакет,конверт,папка,ежедневник,сувенирная продукция,журнал печать,картон,подарочн,зонт,ручка,флешк,power bank,плакат,постер,стенд выставочн,вывеск,packaging,printing,cardboard,label,qadoqlash,bosma,pechat,paket,korobka,etiketka,banner,futbolka,katalog,kitob,bloknot,kalendar,stiker,nakleyk,vizitka,buklet,listovk,flayer"
+    alert_keywords: str = ",".join([
+        # Русские
+        "упаковка", "полиграфия", "гофра", "гофрокоробка", "печать", "этикетка",
+        "типография", "книга", "книж", "каталог", "брошюр", "блокнот", "календар",
+        "пакет", "конверт", "папка", "ежедневник", "сувенирн", "картон", "подарочн",
+        "зонт", "ручка", "флешк", "плакат", "постер", "стенд", "вывеск",
+        "визитк", "буклет", "листовк", "флаер", "наклейк", "стикер",
+        "баннер", "футболк", "флаг", "ленты", "оракал", "аракал",
+        "ламинир", "сублимац", "коробк", "дтф", "dtf",
+        # Узбекские (латиница)
+        "pechat", "paket", "korobka", "karobka", "etiketka", "banner", "futbolka",
+        "katalog", "kitob", "bloknot", "kalendar", "stiker", "nakleyk", "vizitka",
+        "buklet", "listovk", "flayer", "orakal", "arakal", "laminat",
+        "sublimats", "fomiks", "bayroq", "lenta", "quti", "sovga",
+        "bosma", "qadoqlash",
+        # Узбекские (кириллица)
+        "босма", "қадоқлаш", "қути", "совга", "совға", "байроқ", "байрок", "оракал",
+        "фомикс", "трико", "коробка",
+        # English
+        "packaging", "printing", "cardboard", "label", "sticker",
+    ])
 
     # AI relevance filter (OpenRouter / Qwen)
     openrouter_api_key: Optional[str] = None
