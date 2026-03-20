@@ -94,16 +94,28 @@ _AD_FILTER = re.compile(
     r"|beramiz\b"  # "biz bosib beramiz" = мы делаем
     r"|qilamiz\b"  # "biz qilamiz" = мы делаем
     r"|tayyorlaymiz\b"  # мы изготовим
-    # ── Off-topic requests ──
-    r"|видеооператор"
-    r"|видеосъемк"
-    r"|(?:настро\S+|запуст\S+)\s+рекламу"  # настроить рекламу в Google
+    # ── Not our profile (outdoor advertising, banners, orakal) ──
+    r"|баннер|banner"
+    r"|оракал|orakal|arakal|аракал"
+    r"|наружн\S+\s+реклам"
+    r"|монтаж|montaj"
+    r"|вывеск|буква.короб|световой.короб"
+    r"|фомикс|fomiks|fomeks"
+    r"|акрил|alyukobond|алюкобонд"
+    r"|плоттер|ploter|широкоформат"
+    r"|тонировк|оклейк\S+\s+авто"
+    # ── Off-topic ──
+    r"|видеооператор|видеосъемк"
+    r"|(?:настро\S+|запуст\S+)\s+рекламу"
     r"|google\s+(?:ads|эдс)"
     r"|instagram\s+(?:uchun|для)\s+post"
     r"|ивент|мероприят"
-    r"|алюкобонд|alyukobond"
-    r"|нарвон|лесам|stremyank"  # лестницы/леса (стройка)
+    r"|нарвон|лесам|stremyank"
     r"|монтажник"
+    r"|ремонт\S*\s+принтер"
+    # ── Repeated spam ──
+    r"|renova\s+print"
+    r"|taklif\b"
     # ── Greetings without substance ──
     r"|^(?:всем\s+)?добр(?:ый|ое|ой|ого)\s+(?:день|утро|вечер|ночи)[!.\s]*$"
     r"|^assalomu?\s+alaykum[!.\s]*$"

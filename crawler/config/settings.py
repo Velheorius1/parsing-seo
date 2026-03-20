@@ -27,17 +27,17 @@ class Settings(BaseSettings):
         "пакет", "конверт", "папка", "ежедневник", "сувенирн", "картон", "подарочн",
         "зонт", "ручка", "флешк", "плакат", "постер", "стенд", "вывеск",
         "визитк", "буклет", "листовк", "флаер", "наклейк", "стикер",
-        "баннер", "футболк", "флаг", "ленты", "оракал", "аракал",
+        "футболк", "флаг", "ленты",
         "ламинир", "сублимац", "коробк", "дтф", "dtf",
         # Узбекские (латиница)
-        "pechat", "paket", "korobka", "karobka", "etiketka", "banner", "futbolka",
+        "pechat", "paket", "korobka", "karobka", "etiketka", "futbolka",
         "katalog", "kitob", "bloknot", "kalendar", "stiker", "nakleyk", "vizitka",
         "buklet", "listovk", "flayer", "orakal", "arakal", "laminat",
-        "sublimats", "fomiks", "bayroq", "lenta", "quti", "sovga",
+        "sublimats", "lenta", "quti", "sovga",
         "bosma", "qadoqlash",
         # Узбекские (кириллица)
-        "босма", "қадоқлаш", "қути", "совга", "совға", "байроқ", "байрок", "оракал",
-        "фомикс", "трико", "коробка",
+        "босма", "қадоқлаш", "қути", "совга", "совға",
+        "коробка",
         # English
         "packaging", "printing", "cardboard", "label", "sticker",
     ])
