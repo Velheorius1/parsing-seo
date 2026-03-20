@@ -13,42 +13,45 @@ import httpx as _httpx
 
 logger = logging.getLogger(__name__)
 
-# AI extraction prompt — classifies message type AND extracts fields
-_AI_EXTRACT_PROMPT = """Классифицируй сообщение из Telegram-канала и извлеки данные.
+# ── Demand detection: regex patterns for CUSTOMER REQUESTS ──────
+# Key insight: PR Media Group is 95% ads from competitors.
+# We only want DEMAND (someone LOOKING for a service/product).
+# Regex detects demand intent BEFORE wasting AI calls.
 
-Шаг 1 — Определи тип:
-- tender: объявление о закупке/тендере (есть заказчик, требования, лот)
-- customer_request: запрос потенциального клиента ("кто делает...", "нужны...", "ищем поставщика...", "требуется...")
-- info: новость, реклама, объявление (не тендер и не запрос)
-- spam: мусор, только приветствие, нет содержания
+_DEMAND_PATTERNS = re.compile(
+    r"(?:"
+    # Russian demand signals
+    r"кто\s+(?:делает|занимается|производит|печатает|изготавливает|может)"
+    r"|ищу\s+(?:поставщик|исполнител|подрядчик|типографи|производител|мастер)"
+    r"|(?:нужн[оыа]|требуется|требуются|необходим[оыа]?)\s+\S+"
+    r"|кому\s+(?:заказать|обратиться)"
+    r"|(?:подскажите|посоветуйте|порекомендуйте)\s+\S+"
+    r"|где\s+(?:можно|заказать|найти|купить|напечатать)"
+    r"|есть\s+(?:кто|те\s+кто)"
+    # Uzbek demand signals
+    r"|kim\s+(?:qiladi|ishlab|bosadi)"
+    r"|kerak\b"
+    r"|qidiryapman"
+    r"|qayerda\s+\S+"
+    r")",
+    re.IGNORECASE,
+)
 
-Шаг 2 — Извлеки поля:
+# AI prompt — ONLY for confirmed demand messages (after regex pre-filter)
+_AI_EXTRACT_PROMPT = """Это сообщение из Telegram-группы. Кто-то ИЩЕТ услугу или товар (спрос).
 
-Примеры:
-Сообщение: "Ассалому алайкум! Кто делает коробки из гофрокартона? Нужно 5000 шт, размер 30x20x15. Бюджет обсуждаемо. Тел: +998901234567"
-→ message_type: customer_request
-→ title: Запрос на коробки из гофрокартона 5000 шт
-→ product_keywords: коробки, гофрокартон, упаковка
+Извлеки:
+- title: что именно ищут (5-15 слов)
+- organization: кто ищет (если указано)
+- price: бюджет (число, если указан)
+- currency: UZS/USD/EUR
+- deadline: срок (DD.MM.YYYY, если указан)
+- product_keywords: ключевые слова продукции (через запятую)
 
-Сообщение: "Тендер №45-2026. Закупка этикеток для АО Узфармсаноат. Сумма: 150 000 000 сум. Дедлайн: 25.04.2026"
-→ message_type: tender
-→ title: Закупка этикеток для АО Узфармсаноат
-→ organization: АО Узфармсаноат
-→ price: 150000000
-→ currency: UZS
-→ deadline: 25.04.2026
-→ product_keywords: этикетки, печать
-
-Сообщение: "Кому нужна полиграфия? Печатаем каталоги, буклеты, визитки. Звоните!"
-→ message_type: info
-→ title: Предложение полиграфических услуг
-→ product_keywords: полиграфия, каталоги, буклеты, визитки
-
-Текст сообщения:
+Текст:
 {text}
 
-Ответь СТРОГО в формате (каждое поле на отдельной строке):
-message_type: ...
+Формат ответа (каждое поле на отдельной строке):
 title: ...
 organization: ...
 price: ...
@@ -59,19 +62,39 @@ product_keywords: ...
 Если поле не найдено: НЕТ
 /no_think"""
 
+# AI prompt for non-group sources (tenders, channels)
+_AI_TENDER_PROMPT = """Извлеки из текста тендера/закупки:
+- organization: заказчик
+- price: сумма (число)
+- currency: UZS/USD/EUR
+- deadline: дата (DD.MM.YYYY)
 
-def _ai_extract_fields(text, openrouter_key, model):
-    # type: (str, str, str) -> dict
-    """Use Qwen to extract org/price/deadline from unstructured text."""
+Текст:
+{text}
+
+Формат (каждое поле на строке):
+organization: ...
+price: ...
+currency: ...
+deadline: ...
+
+Если не найдено: НЕТ
+/no_think"""
+
+
+def _ai_extract_fields(text, openrouter_key, model, prompt_template=None):
+    # type: (str, str, str, Optional[str]) -> dict
+    """Use Qwen to extract fields from unstructured text."""
     if not openrouter_key:
         return {}
+    template = prompt_template or _AI_EXTRACT_PROMPT
     try:
         resp = _httpx.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": "Bearer %s" % openrouter_key},
             json={
                 "model": model,
-                "messages": [{"role": "user", "content": _AI_EXTRACT_PROMPT.format(text=text[:500])}],
+                "messages": [{"role": "user", "content": template.format(text=text[:500])}],
                 "max_tokens": 150,
                 "temperature": 0,
             },
@@ -294,118 +317,93 @@ class TelegramAdapter(BaseAdapter):
         with open(cache_file, "w") as f:
             f.write(str(msg_id))
 
-    # Lazy-loaded keyword stems for pre-filtering
-    _keyword_stems = None  # type: Optional[List[str]]
-
-    @classmethod
-    def _get_keyword_stems(cls):
-        # type: () -> List[str]
-        """Build keyword stem list from settings for fast regex pre-filter."""
-        if cls._keyword_stems is None:
-            raw = settings.alert_keywords or ""
-            stems = []
-            for kw in raw.split(","):
-                kw = kw.strip().lower()
-                if kw:
-                    # Take first 4+ chars as stem for fuzzy matching
-                    stems.append(kw[:5] if len(kw) > 5 else kw)
-            cls._keyword_stems = stems
-        return cls._keyword_stems
+    def _is_group_source(self):
+        # type: () -> bool
+        """Check if this source is a group (numeric ID = private group)."""
+        ch = self.config.telegram_channel or ""
+        try:
+            int(ch)
+            return True
+        except (ValueError, TypeError):
+            return False
 
     def _parse_message(self, message) -> Optional[RawTender]:  # type: ignore[no-untyped-def]
         """Parse a Telegram message into a RawTender.
 
-        Pipeline: length filter → regex fields → keyword pre-match → AI classification.
-        AI is only called if keywords match (saves ~70% of API calls).
+        Two modes:
+        - GROUP mode (PR Media Group etc): demand-first detection.
+          Only messages with DEMAND regex pass → AI extracts details.
+          All ads/offers from competitors are silently skipped.
+        - CHANNEL mode (tender channels): old regex+AI extraction.
         """
         text = message.text
         if not text or len(text.strip()) < 60:
             return None
 
         lines = text.strip().split("\n")
-
-        # Fallback title: first non-empty line
         fallback_title = ""
         for line in lines:
             stripped = line.strip()
             if stripped:
                 fallback_title = stripped
                 break
-
         if not fallback_title:
             return None
 
-        # Organization (regex first)
-        organization = self._extract_organization(text)
+        if self._is_group_source():
+            return self._parse_group_message(message, text, fallback_title)
+        else:
+            return self._parse_channel_message(message, text, fallback_title)
 
-        # Price (regex first)
-        price, currency = self._extract_price(text)
+    def _parse_group_message(self, message, text, fallback_title):
+        # type: (object, str, str) -> Optional[RawTender]
+        """Parse a GROUP message — only DEMAND (someone looking for service).
 
-        # Deadline (regex first)
-        deadline = self._extract_deadline(text)
+        Pipeline: demand regex → AI extraction → RawTender(customer_request).
+        No demand regex match → skip entirely (it's an ad).
+        """
+        # Step 1: Demand regex — is someone LOOKING for something?
+        if not _DEMAND_PATTERNS.search(text):
+            # No demand signal → it's an ad/offer from competitor → skip
+            return None
 
-        # Keyword pre-filter: skip AI if no keywords found in text
-        text_lower = text.lower()
-        stems = self._get_keyword_stems()
-        has_keyword = any(s in text_lower for s in stems)
+        logger.info("[%s] Demand detected: %s", self.config.name, fallback_title[:80])
 
-        # AI extraction: only if keywords match (or regex found structured fields)
-        message_type = "tender"
+        # Step 2: AI extraction (only for confirmed demand)
+        organization = ""
+        price = None  # type: Optional[float]
+        currency = "UZS"
+        deadline = None  # type: Optional[str]
         ai_title = ""
         product_keywords = ""
 
-        if has_keyword or organization or price is not None:
-            ai_fields = _ai_extract_fields(
-                text,
-                settings.openrouter_api_key or "",
-                settings.ai_relevance_model,
-            )
-        else:
-            # No keywords, no structured fields — skip (likely irrelevant)
-            logger.debug("[%s] No keywords in text, skipping AI: %s",
-                         self.config.name, fallback_title[:60])
-            return None
-
+        ai_fields = _ai_extract_fields(
+            text,
+            settings.openrouter_api_key or "",
+            settings.ai_relevance_model,
+        )
         if ai_fields:
-            # Message type classification
-            msg_type = ai_fields.get("message_type", "").lower().strip()
-            if msg_type in ("tender", "customer_request", "info", "spam"):
-                message_type = msg_type
-
-            # Skip spam
-            if message_type == "spam":
-                logger.debug("[%s] AI classified as spam, skipping: %s",
-                             self.config.name, fallback_title[:60])
-                return None
-
-            # AI-extracted title (the ESSENCE, not first line)
             if ai_fields.get("title"):
                 ai_title = ai_fields["title"][:300]
-
-            # Fill missing fields from AI
-            if not organization and ai_fields.get("organization"):
+            if ai_fields.get("organization"):
                 organization = ai_fields["organization"][:200]
-            if price is None and ai_fields.get("price"):
+            if ai_fields.get("price"):
                 try:
                     price = float(ai_fields["price"].replace(" ", "").replace(",", "."))
                 except (ValueError, TypeError):
                     pass
             if ai_fields.get("currency") and ai_fields["currency"] in ("USD", "EUR"):
                 currency = ai_fields["currency"]
-            if not deadline and ai_fields.get("deadline"):
+            if ai_fields.get("deadline"):
                 deadline = ai_fields["deadline"]
-
-            # Product keywords for search_text enrichment
             if ai_fields.get("product_keywords"):
                 product_keywords = ai_fields["product_keywords"]
 
-        # Use AI title if available, fallback to first line
         title = ai_title if ai_title else fallback_title
 
-        # Build source URL (supports both usernames and numeric IDs)
+        # Build source URL
         channel_raw = (self.config.telegram_channel or "").lstrip("@")
         try:
-            # Numeric ID → private group link format
             chan_id = int(channel_raw)
             source_url = "https://t.me/c/%d/%d" % (chan_id, message.id)
         except (ValueError, TypeError):
@@ -414,15 +412,8 @@ class TelegramAdapter(BaseAdapter):
         external_id = str(message.id)
         tender_id = "%s-%s" % (self.config.id_prefix, external_id)
 
-        # search_text: full message body + AI keywords (not just title+org)
         search_text = " ".join(
-            filter(None, [
-                title,
-                organization,
-                text[:1000],
-                product_keywords,
-                deadline or "",
-            ])
+            filter(None, [title, organization, text[:1000], product_keywords])
         ).lower()
 
         return RawTender(
@@ -436,7 +427,60 @@ class TelegramAdapter(BaseAdapter):
             source=self.config.name,
             source_url=source_url,
             search_text=search_text,
-            message_type=message_type,
+            message_type="customer_request",
+        )
+
+    def _parse_channel_message(self, message, text, fallback_title):
+        # type: (object, str, str) -> Optional[RawTender]
+        """Parse a CHANNEL message — standard tender extraction."""
+        organization = self._extract_organization(text)
+        price, currency = self._extract_price(text)
+        deadline = self._extract_deadline(text)
+
+        # AI fallback for missing fields
+        if not organization or price is None or not deadline:
+            ai_fields = _ai_extract_fields(
+                text,
+                settings.openrouter_api_key or "",
+                settings.ai_relevance_model,
+                prompt_template=_AI_TENDER_PROMPT,
+            )
+            if ai_fields:
+                if not organization and ai_fields.get("organization"):
+                    organization = ai_fields["organization"][:200]
+                if price is None and ai_fields.get("price"):
+                    try:
+                        price = float(ai_fields["price"].replace(" ", "").replace(",", "."))
+                    except (ValueError, TypeError):
+                        pass
+                if ai_fields.get("currency") and ai_fields["currency"] in ("USD", "EUR"):
+                    currency = ai_fields["currency"]
+                if not deadline and ai_fields.get("deadline"):
+                    deadline = ai_fields["deadline"]
+
+        # Build source URL
+        channel_raw = (self.config.telegram_channel or "").lstrip("@")
+        source_url = "https://t.me/%s/%d" % (channel_raw, message.id)
+
+        external_id = str(message.id)
+        tender_id = "%s-%s" % (self.config.id_prefix, external_id)
+
+        search_text = " ".join(
+            filter(None, [fallback_title, organization, text[:1000], deadline or ""])
+        ).lower()
+
+        return RawTender(
+            id=tender_id,
+            external_id=external_id,
+            title=fallback_title,
+            organization=organization,
+            price=price,
+            currency=currency,
+            deadline=deadline,
+            source=self.config.name,
+            source_url=source_url,
+            search_text=search_text,
+            message_type="tender",
         )
 
     @staticmethod
