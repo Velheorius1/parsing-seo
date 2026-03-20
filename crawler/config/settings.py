@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # Telegram alerts (bot token for sending notifications)
     telegram_bot_token: Optional[str] = None
     telegram_alert_chat_id: Optional[str] = None
-    alert_keywords: str = "упаковка,полиграфия,гофра,гофрокоробка,печать полиграф,этикетка,типография,книга,книж,каталог,брошюр,блокнот,календар,полиэтилен пакет,конверт,папка,ежедневник,сувенирная продукция,журнал печать,картон,подарочн,зонт,ручка,флешк,power bank,плакат,постер,стенд выставочн,вывеск,packaging,printing,cardboard,label,qadoqlash,bosma"
+    alert_keywords: str = "упаковка,полиграфия,гофра,гофрокоробка,печать полиграф,этикетка,типография,книга,книж,каталог,брошюр,блокнот,календар,полиэтилен пакет,конверт,папка,ежедневник,сувенирная продукция,журнал печать,картон,подарочн,зонт,ручка,флешк,power bank,плакат,постер,стенд выставочн,вывеск,packaging,printing,cardboard,label,qadoqlash,bosma,pechat,paket,korobka,etiketka,banner,futbolka,katalog,kitob,bloknot,kalendar,stiker,nakleyk,vizitka,buklet,listovk,flayer"
 
     # AI relevance filter (OpenRouter / Qwen)
     openrouter_api_key: Optional[str] = None
