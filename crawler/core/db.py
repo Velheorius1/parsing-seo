@@ -37,6 +37,7 @@ def _tender_to_row(t: RawTender) -> dict:
         "status": t.status,
         "search_text": t.search_text,
         "collected_at": t.collected_at.isoformat(),
+        "message_type": t.message_type,
     }
     # Optional result fields — only include if set
     if t.winner:

@@ -108,6 +108,7 @@ class RawTender(BaseModel):
     status: str = "active"  # active | closed | cancelled | completed
     search_text: str = ""
     collected_at: datetime = Field(default_factory=datetime.utcnow)
+    message_type: str = "tender"  # tender | customer_request | info
     # Result tracking
     winner: Optional[str] = None
     winning_price: Optional[float] = None

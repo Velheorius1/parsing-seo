@@ -13,23 +13,50 @@ import httpx as _httpx
 
 logger = logging.getLogger(__name__)
 
-# AI extraction prompt for unstructured Telegram messages
-_AI_EXTRACT_PROMPT = """Извлеки из текста тендера/закупки следующие поля (если есть):
-- organization: название заказчика/организации
-- price: сумма в числовом формате (только число)
-- currency: валюта (UZS/USD/EUR)
-- deadline: дата дедлайна (формат DD.MM.YYYY)
+# AI extraction prompt — classifies message type AND extracts fields
+_AI_EXTRACT_PROMPT = """Классифицируй сообщение из Telegram-канала и извлеки данные.
 
-Текст:
+Шаг 1 — Определи тип:
+- tender: объявление о закупке/тендере (есть заказчик, требования, лот)
+- customer_request: запрос потенциального клиента ("кто делает...", "нужны...", "ищем поставщика...", "требуется...")
+- info: новость, реклама, объявление (не тендер и не запрос)
+- spam: мусор, только приветствие, нет содержания
+
+Шаг 2 — Извлеки поля:
+
+Примеры:
+Сообщение: "Ассалому алайкум! Кто делает коробки из гофрокартона? Нужно 5000 шт, размер 30x20x15. Бюджет обсуждаемо. Тел: +998901234567"
+→ message_type: customer_request
+→ title: Запрос на коробки из гофрокартона 5000 шт
+→ product_keywords: коробки, гофрокартон, упаковка
+
+Сообщение: "Тендер №45-2026. Закупка этикеток для АО Узфармсаноат. Сумма: 150 000 000 сум. Дедлайн: 25.04.2026"
+→ message_type: tender
+→ title: Закупка этикеток для АО Узфармсаноат
+→ organization: АО Узфармсаноат
+→ price: 150000000
+→ currency: UZS
+→ deadline: 25.04.2026
+→ product_keywords: этикетки, печать
+
+Сообщение: "Кому нужна полиграфия? Печатаем каталоги, буклеты, визитки. Звоните!"
+→ message_type: info
+→ title: Предложение полиграфических услуг
+→ product_keywords: полиграфия, каталоги, буклеты, визитки
+
+Текст сообщения:
 {text}
 
 Ответь СТРОГО в формате (каждое поле на отдельной строке):
+message_type: ...
+title: ...
 organization: ...
 price: ...
 currency: ...
 deadline: ...
+product_keywords: ...
 
-Если поле не найдено, пиши: НЕТ
+Если поле не найдено: НЕТ
 /no_think"""
 
 
@@ -263,25 +290,29 @@ class TelegramAdapter(BaseAdapter):
             f.write(str(msg_id))
 
     def _parse_message(self, message) -> Optional[RawTender]:  # type: ignore[no-untyped-def]
-        """Parse a Telegram message into a RawTender."""
+        """Parse a Telegram message into a RawTender.
+
+        Uses regex for structured fields, then AI for classification,
+        title extraction, and missing field recovery.
+        """
         text = message.text
         if not text or len(text.strip()) < 10:
             return None
 
         lines = text.strip().split("\n")
 
-        # Title: first non-empty line
-        title = ""
+        # Fallback title: first non-empty line
+        fallback_title = ""
         for line in lines:
             stripped = line.strip()
             if stripped:
-                title = stripped
+                fallback_title = stripped
                 break
 
-        if not title:
+        if not fallback_title:
             return None
 
-        # Organization (regex first, AI fallback)
+        # Organization (regex first)
         organization = self._extract_organization(text)
 
         # Price (regex first)
@@ -290,13 +321,34 @@ class TelegramAdapter(BaseAdapter):
         # Deadline (regex first)
         deadline = self._extract_deadline(text)
 
-        # AI fallback: if regex missed org/price/deadline, try Qwen
-        if not organization or price is None or not deadline:
-            ai_fields = _ai_extract_fields(
-                text,
-                settings.openrouter_api_key or "",
-                settings.ai_relevance_model,
-            )
+        # AI extraction: classify message type + extract/improve fields
+        message_type = "tender"
+        ai_title = ""
+        product_keywords = ""
+
+        ai_fields = _ai_extract_fields(
+            text,
+            settings.openrouter_api_key or "",
+            settings.ai_relevance_model,
+        )
+
+        if ai_fields:
+            # Message type classification
+            msg_type = ai_fields.get("message_type", "").lower().strip()
+            if msg_type in ("tender", "customer_request", "info", "spam"):
+                message_type = msg_type
+
+            # Skip spam
+            if message_type == "spam":
+                logger.debug("[%s] AI classified as spam, skipping: %s",
+                             self.config.name, fallback_title[:60])
+                return None
+
+            # AI-extracted title (the ESSENCE, not first line)
+            if ai_fields.get("title"):
+                ai_title = ai_fields["title"][:300]
+
+            # Fill missing fields from AI
             if not organization and ai_fields.get("organization"):
                 organization = ai_fields["organization"][:200]
             if price is None and ai_fields.get("price"):
@@ -309,6 +361,13 @@ class TelegramAdapter(BaseAdapter):
             if not deadline and ai_fields.get("deadline"):
                 deadline = ai_fields["deadline"]
 
+            # Product keywords for search_text enrichment
+            if ai_fields.get("product_keywords"):
+                product_keywords = ai_fields["product_keywords"]
+
+        # Use AI title if available, fallback to first line
+        title = ai_title if ai_title else fallback_title
+
         # Build source URL
         channel_name = (self.config.telegram_channel or "").lstrip("@")
         source_url = "https://t.me/%s/%d" % (channel_name, message.id)
@@ -316,8 +375,15 @@ class TelegramAdapter(BaseAdapter):
         external_id = str(message.id)
         tender_id = "%s-%s" % (self.config.id_prefix, external_id)
 
+        # search_text: full message body + AI keywords (not just title+org)
         search_text = " ".join(
-            filter(None, [title, organization, deadline or ""])
+            filter(None, [
+                title,
+                organization,
+                text[:1000],
+                product_keywords,
+                deadline or "",
+            ])
         ).lower()
 
         return RawTender(
@@ -331,6 +397,7 @@ class TelegramAdapter(BaseAdapter):
             source=self.config.name,
             source_url=source_url,
             search_text=search_text,
+            message_type=message_type,
         )
 
     @staticmethod
