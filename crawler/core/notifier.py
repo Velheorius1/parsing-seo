@@ -250,9 +250,16 @@ async def send_alerts(
         logger.debug("[Alerts] No keywords configured, skipping")
         return 0
 
+    # Filter out competitor ads (info) — only alert on tenders and customer requests
+    ALERT_TYPES = ("tender", "customer_request")
+    relevant = [t for t in new_tenders if t.message_type in ALERT_TYPES]
+    info_count = len(new_tenders) - len(relevant)
+    if info_count:
+        logger.info("[Alerts] Skipped %d info/ads (not tender or customer_request)", info_count)
+
     # Filter out tenders below minimum price (10M UZS)
     MIN_PRICE = 10_000_000
-    priced = [t for t in new_tenders if t.price is None or t.price >= MIN_PRICE]
+    priced = [t for t in relevant if t.price is None or t.price >= MIN_PRICE]
     low_price_count = len(new_tenders) - len(priced)
     if low_price_count:
         logger.info("[Alerts] Skipped %d tenders below %dM price threshold", low_price_count, MIN_PRICE // 1_000_000)
