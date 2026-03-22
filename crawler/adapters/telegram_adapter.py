@@ -64,6 +64,13 @@ _DEMAND_PATTERNS = re.compile(
 )
 
 # False positives: ads, job postings, vacancies, service offers
+_QTY_PATTERN = re.compile(
+    r"(\d[\d\s.,]*)\s*(?:ta\b|dona\b|sht\b|шт|штук|шт\.|дона|ед\b|единиц)",
+    re.IGNORECASE,
+)
+
+MIN_QTY_THRESHOLD = 50  # Ignore requests for less than 50 pcs
+
 _AD_FILTER = re.compile(
     r"(?:"
     # ── Vacancies (UZ) ──
@@ -466,6 +473,20 @@ class TelegramAdapter(BaseAdapter):
             logger.debug("[%s] Vacancy/job posting, skipping: %s",
                          self.config.name, fallback_title[:60])
             return None
+
+        # Step 1c: Min quantity filter — skip tiny orders (<50 pcs)
+        qty_match = _QTY_PATTERN.search(text)
+        if qty_match:
+            try:
+                qty_str = qty_match.group(1).replace(" ", "").replace(",", ".")
+                qty = float(qty_str)
+                if 0 < qty < MIN_QTY_THRESHOLD:
+                    logger.debug("[%s] Small order (%g pcs < %d), skipping: %s",
+                                 self.config.name, qty, MIN_QTY_THRESHOLD,
+                                 fallback_title[:60])
+                    return None
+            except (ValueError, TypeError):
+                pass
 
         logger.info("[%s] Demand detected: %s", self.config.name, fallback_title[:80])
 

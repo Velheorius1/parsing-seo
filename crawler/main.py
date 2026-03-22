@@ -45,6 +45,12 @@ def main() -> None:
         help="Only check deadline reminders, skip crawling",
     )
     parser.add_argument(
+        "--competitors",
+        action="store_true",
+        default=False,
+        help="Run competitor scan (UZEX deals + cooperation.uz)",
+    )
+    parser.add_argument(
         "--log-level",
         default=settings.log_level,
         help="Logging level (DEBUG, INFO, WARNING, ERROR)",
@@ -57,6 +63,14 @@ def main() -> None:
     dry_run = args.dry_run or settings.dry_run
     if dry_run:
         logger.info("DRY RUN mode — no database writes")
+
+    # Competitor scan mode
+    if args.competitors:
+        from crawler.scripts.competitor_scan import main as competitor_main
+
+        logger.info("Running competitor scan...")
+        competitor_main()
+        return
 
     # Deadline-only mode: just check reminders, no crawling
     if args.deadlines_only:

@@ -411,7 +411,7 @@ def main():
     competitors = load_competitors()
     if not competitors:
         logger.error('No competitors loaded. Set SUPABASE_SERVICE_ROLE_KEY or COMPETITOR_KEYWORDS env.')
-        sys.exit(1)
+        return
     logger.info('Loaded %d competitors', len(competitors))
 
     # Scan UZEX
