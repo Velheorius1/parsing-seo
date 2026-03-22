@@ -5,43 +5,36 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 99 источников (64 enabled), AI Qwen (фильтр + evaluator + TG extraction)
-Дата обновления: 16 марта 2026
+Фаза: Production — 64 источника + PR Media Group + конкурент-мониторинг
+Дата обновления: 21 марта 2026
 
 ### Что работает
-- **Crawler на VPS** (46.62.155.190): 64 enabled, cron 06:00/14:00/22:00, все pip packages установлены
-- **TG incremental collection** — min_id + reverse=True, только новые сообщения, FloodWait handling
-- **AI Qwen TG extraction** — regex не нашёл org/price → Qwen извлекает из свободного текста
-- **cooperation.uz** — Mac launchd (376k планов), AI-фильтр, lead gen, конкурент-мониторинг
-- **AI Evaluator** — ежедневный отчёт качества через Qwen
-- **Предиктивный модуль** — сезонные паттерны → "X запустит тендер в апреле"
-- **Дедупликация** — cross-source fuzzy match
-- **Дедлайн-трекер** — только для matched keywords (не кальций глюконат)
-- **Результаты** — UZEX CivilContracts (5000+ сделок, победители)
-- **Дашборд /tenders** — фильтры 20+, Excel, аналитика, избранное, DeadlineBadge, подсветка
-- **Админ-панель /tenders/settings** — keywords, конкуренты, порог цены, тоглы (POST API)
-- **Мин порог 10M сум**
+- **Crawler VPS** (46.62.155.190): 64 enabled, cron 06:00/14:00/22:00, 9500+ тендеров
+- **PR Media Group** — demand detection с 3-layer filter (regex → ad_filter → AI Qwen)
+- **62 конкурента** в `crawler_settings` — добавлены из UZEX API (победители тендеров >10M)
+- **Competitor Scanner** (`crawler/scripts/competitor_scan.py`) — сканирует UZEX + cooperation.uz, 49 конкурентов найдены, 178 сделок
+- **Results Tracker** — мониторинг победителей через UZEX CivilContracts API (5154 сделки)
+- **Дашборд /tenders** — фильтры, Excel, аналитика, избранное
+- **AI Evaluator** — ежедневный отчёт качества
 
 ### Что не работает / в процессе
-- **E-IMZO** (Данияр) — ebirja.uz, hayotbirja.uz (PFX ключ готов)
-- **Миграция 009** — RLS fix для crawler_settings (нужен Supabase SQL Editor)
-- **Beeline UZ, Bnect** — SPA, нужен Playwright
+- **Cooperation.uz** гео-блокирует VPS → скрипт работает только с Mac
+- **PR Media Group тюнинг** — мелкие запросы проходят, нужен min qty filter ≥50
+- **E-IMZO** (Данияр) — ebirja.uz, hayotbirja.uz
 
-### Последние обновления (16 марта 2026)
-- **Code review** — 4 critical + 5 major исправлены (auth, RLS, UUID, limits, dedup, escape)
-- **TG incremental** — min_id per channel, FloodWait handling, ChannelPrivateError
-- **AI Qwen TG fallback** — извлечение org/price/deadline из свободного текста
-- **Дедлайн-трекер fix** — только matched_keywords тендеры (не мусор)
-- **Settings fix** — PUT→POST для Vercel, auth optional
-- **VPS fixes** — pydantic-settings, httpx установлены, pip packages synced
-- **tg_content_factory research** — incremental pattern заимствован, парсинг у нас лучше
+### Последние обновления (21 марта 2026)
+- **62 конкурента** добавлены из UZEX API (5154 сделки, 148 в нише >10M)
+- **competitor_scan.py** — сканирует UZEX + cooperation.uz, 49 конкурентов, 178 сделок
+- **Миграция 011 применена** — `competitor_activity` таблица + RLS в Supabase
+- **Дашборд /competitors** — API route + страница + навигация из /tenders
+- **Cron competitor_scan** — launchd ежедневно 08:00 на Mac
+- **Context7 MCP** установлен — свежие доки библиотек в контексте
 
 ### Следующие шаги
-- [ ] **Применить миграцию 009** в Supabase (RLS fix)
-- [ ] **E-IMZO** (Данияр) — ebirja.uz + hayotbirja.uz
-- [ ] Настроить ADMIN_SECRET_TOKEN на Vercel
-- [ ] Расширение СНГ (goszakup.gov.kz) если нужен
-- [ ] Интеграция в Brain Bot
+- [ ] Задеплоить на Vercel (push) — проверить /competitors live
+- [ ] Min qty filter ≥50 шт (PR Media Group)
+- [ ] E-IMZO (Данияр) — ebirja.uz + hayotbirja.uz
+- [ ] Wiring COMPETITOR_KEYWORDS в основной crawler (VPS cron)
 
 ### Регистрация на площадках (TODO Данияр)
 
