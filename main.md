@@ -5,36 +5,38 @@
 ---
 
 ## ТЕКУЩЕЕ СОСТОЯНИЕ
-Фаза: Production — 64 источника + PR Media Group + конкурент-мониторинг
-Дата обновления: 21 марта 2026
+Фаза: Production — 61 источник + AI enrichment + конкурент-мониторинг
+Дата обновления: 22 марта 2026
 
 ### Что работает
-- **Crawler VPS** (46.62.155.190): 64 enabled, cron 06:00/14:00/22:00, 9500+ тендеров
-- **PR Media Group** — demand detection с 3-layer filter (regex → ad_filter → AI Qwen)
-- **62 конкурента** в `crawler_settings` — добавлены из UZEX API (победители тендеров >10M)
-- **Competitor Scanner** (`crawler/scripts/competitor_scan.py`) — сканирует UZEX + cooperation.uz, 49 конкурентов найдены, 178 сделок
-- **Results Tracker** — мониторинг победителей через UZEX CivilContracts API (5154 сделки)
-- **Дашборд /tenders** — фильтры, Excel, аналитика, избранное
-- **AI Evaluator** — ежедневный отчёт качества
+- **Crawler VPS** (46.62.155.190): 61 enabled, cron every 2h, 9409 тендеров/цикл
+- **AI Enrichment** — заполняет пустые поля (цена, дедлайн, заказчик) через Qwen (~$0.003/день)
+- **AI Evaluator v2** — query Supabase для daily truth, 3-bucket classification (ok/idle/error)
+- **PR Media Group** — demand detection + min qty filter ≥50 шт
+- **Competitor Scanner** — VPS cron ежедневно 08:00 (`--competitors --no-coop`)
+- **Дашборд /competitors** — задеплоен на Vercel (200 OK)
+- **SPA sources** работают: xt-xarid (50), hayotbirja (50), ebirja-auction (5)
+- **Docker HEALTHCHECK** + flock (защита от overlap) + cache volume mount
+- **Parallel AI relevance** — 5 concurrent вместо sequential
 
 ### Что не работает / в процессе
 - **Cooperation.uz** гео-блокирует VPS → скрипт работает только с Mac
-- **PR Media Group тюнинг** — мелкие запросы проходят, нужен min qty filter ≥50
-- **E-IMZO** (Данияр) — ebirja.uz, hayotbirja.uz
+- **E-IMZO** (Данияр) — ebirja.uz, hayotbirja.uz (регистрация)
+- **12 corporate HTML** (aab, fnpz, saneg, minzdrav...) — broken selectors, 0 результатов
 
-### Последние обновления (21 марта 2026)
-- **62 конкурента** добавлены из UZEX API (5154 сделки, 148 в нише >10M)
-- **competitor_scan.py** — сканирует UZEX + cooperation.uz, 49 конкурентов, 178 сделок
-- **Миграция 011 применена** — `competitor_activity` таблица + RLS в Supabase
-- **Дашборд /competitors** — API route + страница + навигация из /tenders
-- **Cron competitor_scan** — launchd ежедневно 08:00 на Mac
-- **Context7 MCP** установлен — свежие доки библиотек в контексте
+### Последние обновления (22 марта 2026)
+- **Phase 1:** field_map fixes (xarid org, ebirja made_in), 3 dead TG channels отключены
+- **Phase 2:** Evaluator переписан — Supabase query, 3-bucket sources, правдивые метрики
+- **Phase 3:** AI enricher (200 тендеров/цикл, 11 обогащено), parallel relevance checks
+- **Phase 4:** Docker HEALTHCHECK, flock overlap protection, cache volume mount
+- **/competitors** задеплоен на Vercel, competitor cron на VPS
 
 ### Следующие шаги
-- [ ] Задеплоить на Vercel (push) — проверить /competitors live
-- [ ] Min qty filter ≥50 шт (PR Media Group)
 - [ ] E-IMZO (Данияр) — ebirja.uz + hayotbirja.uz
-- [ ] Wiring COMPETITOR_KEYWORDS в основной crawler (VPS cron)
+- [ ] Geo-proxy для cooperation.uz (Cloudflare Workers)
+- [ ] Batch investigation 12 broken HTML sources
+- [ ] TenderZone enable (157k+ агрегатор)
+- [ ] sam.gov API (USAID тендеры в УЗ)
 
 ### Регистрация на площадках (TODO Данияр)
 

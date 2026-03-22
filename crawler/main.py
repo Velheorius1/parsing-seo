@@ -100,8 +100,8 @@ def main() -> None:
     # Write healthcheck marker for Docker HEALTHCHECK
     try:
         with open("/tmp/last_crawl_ok", "w") as f:
-            from datetime import datetime
-            f.write(datetime.utcnow().isoformat())
+            from datetime import datetime, timezone
+            f.write(datetime.now(timezone.utc).isoformat())
     except Exception:
         pass
 
