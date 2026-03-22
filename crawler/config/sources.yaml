@@ -75,7 +75,7 @@ sources:
     id_prefix: "competition"
     field_map:
       title: category_name
-      organization: ""
+      organization: customer_region_name
       price: cost
       currency: currency_name
       deadline: end_date_submitting_offers
@@ -83,7 +83,7 @@ sources:
       region: "customer_region_name"
       external_id: id
       source_url_template: "https://xarid.uzex.uz/competitions/view/{id}"
-    keywords_fields: [category_name]
+    keywords_fields: [category_name, customer_region_name]
     pagination:
       type: offset
       param: "from"
@@ -611,7 +611,7 @@ sources:
     response_path: "result.data"
     field_map:
       title: title
-      organization: ""
+      organization: made_in
       price: unit_price
       currency: "UZS"
       deadline: inactive_date
@@ -641,7 +641,7 @@ sources:
     response_path: "result.data"
     field_map:
       title: title
-      organization: ""
+      organization: made_in
       price: unit_price
       currency: "UZS"
       deadline: inactive_date
@@ -786,7 +786,7 @@ sources:
   - id: tg-davlatxaridlar
     name: "TG: davlatxaridlar"
     adapter: telegram
-    enabled: true
+    enabled: false  # Dead channel: last_id=177, 0 tenders ever
     url: ""
     id_prefix: "tg-davl"
     telegram_channel: "@davlatxaridlar"
@@ -806,7 +806,7 @@ sources:
   - id: tg-tender-uzbekistan
     name: "TG: Tender Uzbekistan"
     adapter: telegram
-    enabled: true
+    enabled: false  # Dead channel: last_id=401, 0 tenders ever
     url: ""
     id_prefix: "tg-tuzb"
     telegram_channel: "@Tenderuzbekistan1"
@@ -928,7 +928,7 @@ sources:
   - id: tg-mift
     name: "TG: Мин инвестиций"
     adapter: telegram
-    enabled: true
+    enabled: false  # Dead channel: last_id=1, never had content
     url: ""
     id_prefix: "tg-mift"
     telegram_channel: "@MIFT_UZ"

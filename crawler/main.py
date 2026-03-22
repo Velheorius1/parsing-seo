@@ -97,6 +97,14 @@ def main() -> None:
         logger.info("  %s: %d tenders", source_id, count)
     logger.info("  TOTAL: %d tenders", total)
 
+    # Write healthcheck marker for Docker HEALTHCHECK
+    try:
+        with open("/tmp/last_crawl_ok", "w") as f:
+            from datetime import datetime
+            f.write(datetime.utcnow().isoformat())
+    except Exception:
+        pass
+
 
 if __name__ == "__main__":
     main()
