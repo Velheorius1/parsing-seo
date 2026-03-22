@@ -312,13 +312,23 @@ async def send_alerts(
             logger.info("[Alerts] DRY RUN would send: [%s] %s", kw, t.title[:80])
         return len(matching)
 
-    # AI relevance filter — reject false positives via Qwen
+    # AI relevance filter — reject false positives via Qwen (parallel)
     if settings.openrouter_api_key:
-        filtered = []  # type: List[Tuple[RawTender, str]]
+        import asyncio as _asyncio
+
         async with httpx.AsyncClient(timeout=15) as ai_client:
-            for tender, kw in matching:
-                if await _ai_check_relevance(tender, ai_client):
-                    filtered.append((tender, kw))
+            sem = _asyncio.Semaphore(5)
+
+            async def _check(tender_kw):
+                # type: (Tuple[RawTender, str]) -> Optional[Tuple[RawTender, str]]
+                async with sem:
+                    if await _ai_check_relevance(tender_kw[0], ai_client):
+                        return tender_kw
+                    return None
+
+            results = await _asyncio.gather(*[_check(tk) for tk in matching])
+            filtered = [r for r in results if r is not None]  # type: List[Tuple[RawTender, str]]
+
         rejected = len(matching) - len(filtered)
         if rejected:
             logger.info("[AI Filter] Passed %d / %d (rejected %d)", len(filtered), len(matching), rejected)

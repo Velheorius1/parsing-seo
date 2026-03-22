@@ -131,6 +131,13 @@ async def run(
     )
     logger.info("Crawl complete: %s -> Total: %d", source_log, total)
 
+    # AI enrichment — fill missing fields (price, deadline, organization)
+    from crawler.core.enricher import enrich_tenders
+
+    enriched_count = await enrich_tenders(all_tenders)
+    if enriched_count:
+        logger.info("AI enriched %d tenders with missing fields", enriched_count)
+
     # Upsert to Supabase
     upserted, new_tenders = await upsert_tenders(all_tenders, dry_run=dry_run)
     logger.info("Upserted %d / %d tenders to Supabase (%d new)", upserted, total, len(new_tenders))
