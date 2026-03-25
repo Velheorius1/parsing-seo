@@ -526,13 +526,13 @@ sources:
     timeout: 15
     id_prefix: "uzair"
     html_selectors:
-      container: ".tender-item"
-      title: ".articles__title, .item-title a, h5 a"
-      deadline: "time[datetime]@datetime"
-      link: "a@href"
+      container: "div.news-item.tender-item"
+      title: "h5.item-title a.articles__title"
+      deadline: "time@datetime"
+      link: "h5.item-title a.articles__title@href"
     field_map:
       title: title
-      organization: ""
+      organization: "Uzbekistan Airways"
       deadline: deadline
       source_url_template: "https://corp.uzairways.com{link}"
     keywords_fields: [title]
@@ -1199,10 +1199,10 @@ sources:
     timeout: 20
     id_prefix: "trust"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
-      link: "a@href"
+      container: "div.tenders-list div.item"
+      title: "h3 a"
+      deadline: "div.caption"
+      link: "h3 a@href"
     field_map:
       title: title
       organization: "Трастбанк"
@@ -1214,7 +1214,7 @@ sources:
     name: "Asia Alliance Bank"
     adapter: html
     enabled: true
-    url: "https://aab.uz/ru/press_center/tenders/current/"
+    url: "https://aab.uz/ru/press_center/tenders/last/"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
@@ -1222,10 +1222,10 @@ sources:
     timeout: 20
     id_prefix: "aab"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
-      link: "a@href"
+      container: "div.post"
+      title: "a.post__title"
+      deadline: "div.post__date span"
+      link: "a.post__title@href"
     field_map:
       title: title
       organization: "Asia Alliance Bank"
@@ -1236,19 +1236,20 @@ sources:
   - id: anorbank
     name: "Anor Bank"
     adapter: html
-    enabled: false  # 403 Forbidden
+    enabled: true
     url: "https://www.anorbank.uz/about/press-center/tendery/"
     method: GET
     headers:
-      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      Accept: "text/html,application/xhtml+xml"
     rate_limit: 0.5
     timeout: 20
     id_prefix: "anor"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item, .card"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
-      link: "a@href"
+      container: "div.news_list_wrapper_items"
+      title: "h3"
+      deadline: "div.news_list_wrapper_items_article-bottom span"
+      link: "a.news_list_wrapper_items_article@href"
     field_map:
       title: title
       organization: "Anor Bank"
@@ -1387,10 +1388,10 @@ sources:
     timeout: 20
     id_prefix: "uzsm"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item, .card"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
-      link: "a@href"
+      container: "div.tenders-list div.item"
+      title: "h3 a"
+      deadline: "div.caption"
+      link: "h3 a@href"
     field_map:
       title: title
       organization: "УЗСМ"
@@ -1401,7 +1402,7 @@ sources:
   - id: utg
     name: "Узтрансгаз"
     adapter: html
-    enabled: true
+    enabled: false  # Tender list loaded via Bitrix AJAX (counterActual=0 in static HTML)
     url: "https://www.utg.uz/ru/business/zakup/tendery/"
     method: GET
     headers:
@@ -1433,10 +1434,10 @@ sources:
     timeout: 20
     id_prefix: "uzkor"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item, .card, tr"
-      title: "h3, h2, .title, a, td:nth-child(1)"
-      deadline: ".date, time, td:nth-child(2)"
-      link: "a@href"
+      container: "table.category tbody tr"
+      title: "td.list-title a"
+      deadline: "td.list-date"
+      link: "td.list-title a@href"
     field_map:
       title: title
       organization: "Уз-Кор Газ Кимё"
@@ -1447,7 +1448,7 @@ sources:
   - id: fnpz
     name: "Ферганский НПЗ"
     adapter: html
-    enabled: true
+    enabled: false  # No tender list page — only informational pages about procurement process
     url: "https://www.fnpz.uz/ru/zakupki"
     method: GET
     headers:
@@ -1481,10 +1482,10 @@ sources:
     timeout: 20
     id_prefix: "mobiuz"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item, .card"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
-      link: "a@href"
+      container: "div.news-item"
+      title: "h2.news-line__name a"
+      deadline: "div.news-line__date"
+      link: "h2.news-line__name a@href"
     field_map:
       title: title
       organization: "Mobiuz"
@@ -1521,7 +1522,7 @@ sources:
     name: "Узбекистон темир йуллари (ЖД)"
     adapter: html
     enabled: true
-    url: "https://railway.uz/ru/informatsionnaya_sluzhba/tendery/"
+    url: "https://railway.uz/ru/informatsionnaya_sluzhba/tendery/vnutregosudarstvenniye/"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
@@ -1529,10 +1530,10 @@ sources:
     timeout: 20
     id_prefix: "railw"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item, .card, tr"
-      title: "h3, h2, .title, a, td:nth-child(1)"
-      deadline: ".date, time, td:nth-child(3)"
-      link: "a@href"
+      container: "li.item"
+      title: "h4.news-item__title a"
+      deadline: "time.news-info__time"
+      link: "a.full-link@href"
     field_map:
       title: title
       organization: "Ўзбекистон темир йўллари"
@@ -1544,26 +1545,28 @@ sources:
 
   - id: tender-mc
     name: "Минстрой (tender.mc.uz)"
-    adapter: html
-    enabled: false  # SPA — needs Playwright
-    url: "https://tender.mc.uz/"
+    adapter: api
+    enabled: true
+    url: "https://apisitender.mc.uz/api/tenders"
     method: GET
     headers:
-      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
-    rate_limit: 0.5
-    timeout: 20
+      Accept: "application/json"
+    rate_limit: 1
+    timeout: 15
     id_prefix: "mstroy"
-    html_selectors:
-      container: ".tender-item, .news-item, article, .item, .card, tr"
-      title: "h3, h2, .title, a, td:nth-child(1)"
-      deadline: ".date, time, td:nth-child(3)"
-      link: "a@href"
     field_map:
-      title: title
-      organization: "Минстрой"
-      deadline: deadline
-      source_url_template: "https://tender.mc.uz{link}"
-    keywords_fields: [title]
+      title: name
+      organization: customer.name
+      price: start_price
+      currency: currency
+      deadline: placement_term
+      date_start: created_at
+      date_end: end_term_work
+      region: region.name
+      external_id: id
+      source_url_template: "https://tender.mc.uz/tender/{id}"
+    keywords_fields: [name]
+    response_path: "result.data"
 
   - id: fdg
     name: "FDG (First Development Group)"
@@ -1981,10 +1984,10 @@ sources:
     timeout: 20
     id_prefix: "tenderweek"
     html_selectors:
-      container: "a[href*='/tender-']"
-      title: ".tender-name, .name, h3, h2"
-      deadline: ".tender-date, .date, time"
-      link: "@href"
+      container: "div.short-item"
+      title: "h3 a"
+      deadline: "div.dates"
+      link: "h3 a@href"
     field_map:
       title: title
       organization: ""
@@ -2004,17 +2007,17 @@ sources:
       Accept-Language: "ru,uz;q=0.9"
     rate_limit: 0.5
     timeout: 20
-    id_prefix: "uzair"
+    id_prefix: "uzapt"
     html_selectors:
-      container: ".tender-item, .news-item, article, .card, tr"
-      title: "h3, h2, .title, a, td:nth-child(2)"
-      deadline: ".date, time, td:nth-child(3)"
-      link: "a@href"
+      container: "div.card.card--details.card--traffic-stats"
+      title: "p.title"
+      deadline: "div.rich-text-content p"
+      link: ""
     field_map:
       title: title
       organization: "Uzbekistan Airports"
       deadline: deadline
-      source_url_template: "https://uzairports.com{link}"
+      source_url_template: "https://uzairports.com/tender"
     keywords_fields: [title]
 
   - id: saneg
@@ -2031,10 +2034,10 @@ sources:
     timeout: 20
     id_prefix: "saneg"
     html_selectors:
-      container: "a[href*='/tender/']"
-      title: ".tender-name, .name, h3"
-      deadline: ".date, time"
-      link: "@href"
+      container: "div.news-one.news-list-one"
+      title: "h4.news-one-title a"
+      deadline: "span.news-one-date"
+      link: "h4.news-one-title a@href"
     field_map:
       title: title
       organization: "Saneg"
@@ -2058,8 +2061,8 @@ sources:
   - id: minzdrav-uz
     name: "Минздрав Узбекистана"
     adapter: html
-    enabled: true
-    url: "https://ssv.uz/ru/"
+    enabled: false  # SPA (Mantine/React) — tender page /ssv/sections/tenderlar is JS-rendered, needs Playwright
+    url: "https://ssv.uz/ru/ssv/sections/tenderlar"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
