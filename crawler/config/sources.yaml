@@ -995,6 +995,16 @@ sources:
     telegram_limit: 50
     rate_limit: 1.0
 
+  - id: tg-boxmaker
+    name: "TG: Box Maker Tashkent"
+    adapter: telegram
+    enabled: true
+    url: ""
+    id_prefix: "tg-boxm"
+    telegram_channel: "@box_maker_tashkent"
+    telegram_limit: 100
+    rate_limit: 1.0
+
   # ── Крупные компании (disabled — нужна верификация) ──────────────
 
   - id: tashkent-steel
