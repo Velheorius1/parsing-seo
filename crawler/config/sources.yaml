@@ -1236,7 +1236,7 @@ sources:
   - id: anorbank
     name: "Anor Bank"
     adapter: html
-    enabled: true
+    enabled: false  # 403 from VPS (geo-block), works from Mac. Selectors fixed.
     url: "https://www.anorbank.uz/about/press-center/tendery/"
     method: GET
     headers:
