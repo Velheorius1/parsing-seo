@@ -35,3 +35,13 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env.cooperation
+._*
+__pycache__/
+.venv/
+*.pyc
+crawler/cache/
+crawler/logs/
+crawler/output/
+crawler/sessions/
+.env
+crawler/.env

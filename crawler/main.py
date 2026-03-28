@@ -55,10 +55,52 @@ def main() -> None:
         default=settings.log_level,
         help="Logging level (DEBUG, INFO, WARNING, ERROR)",
     )
+    parser.add_argument(
+        "--stats",
+        nargs="?",
+        const="10",
+        default=None,
+        metavar="N",
+        help="Show last N crawl runs (default: 10)",
+    )
+    parser.add_argument(
+        "--stats-source",
+        default=None,
+        metavar="SOURCE_ID",
+        help="Show stats for a specific source over last 7 days",
+    )
+    parser.add_argument(
+        "--quality",
+        nargs="?",
+        const="5",
+        default=None,
+        metavar="N",
+        help="Show quality trend for last N runs (default: 5)",
+    )
     args = parser.parse_args()
 
     setup_logging(args.log_level)
     logger = logging.getLogger("crawler")
+
+    # Validate env vars on startup
+    from crawler.config.settings import validate_settings
+    validate_settings()
+
+    # Stats mode — show crawl history from JSONL log
+    if args.stats is not None:
+        from crawler.core.crawl_logger import print_stats
+        print_stats(last_n=int(args.stats))
+        return
+
+    if args.stats_source:
+        from crawler.core.crawl_logger import print_source_stats
+        print_source_stats(args.stats_source)
+        return
+
+    if args.quality is not None:
+        from crawler.core.quality_tracker import print_quality_report
+        print_quality_report(last_n=int(args.quality))
+        return
 
     dry_run = args.dry_run or settings.dry_run
     if dry_run:

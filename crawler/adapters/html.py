@@ -1,5 +1,6 @@
 """HTML adapter — scrapes tenders from HTML pages using BeautifulSoup."""
 
+import hashlib
 import logging
 import re
 from typing import Any, Dict, List, Optional
@@ -163,8 +164,25 @@ class HtmlAdapter(BaseAdapter):
         price = None  # type: Optional[float]
         if price_str:
             # Try to extract number from price string
+            # Handle European format: "1.000.000,50" -> "1000000.50"
             cleaned = re.sub(r"[^\d.,]", "", price_str)
-            cleaned = cleaned.replace(",", ".")
+            if "," in cleaned and "." in cleaned:
+                # Determine format by position: last separator is decimal
+                last_comma = cleaned.rfind(",")
+                last_dot = cleaned.rfind(".")
+                if last_comma > last_dot:
+                    # European: 1.000.000,50
+                    cleaned = cleaned.replace(".", "").replace(",", ".")
+                else:
+                    # US: 1,000,000.50
+                    cleaned = cleaned.replace(",", "")
+            elif "," in cleaned:
+                # Could be decimal comma (1234,50) or thousand separator (1,000)
+                parts = cleaned.split(",")
+                if len(parts) == 2 and len(parts[1]) <= 2:
+                    cleaned = cleaned.replace(",", ".")
+                else:
+                    cleaned = cleaned.replace(",", "")
             try:
                 price = float(cleaned)
             except (ValueError, TypeError):
@@ -189,7 +207,7 @@ class HtmlAdapter(BaseAdapter):
             else:
                 source_url = urljoin(page_url, link)
 
-        # External ID: from link or use index
+        # External ID: from link or generate stable hash from content
         ext_id = ""
         if link:
             # Try to extract ID from link
@@ -199,7 +217,10 @@ class HtmlAdapter(BaseAdapter):
             else:
                 ext_id = link.strip("/").split("/")[-1] if "/" in link else link
         if not ext_id:
-            ext_id = str(idx)
+            # Generate stable ID from content to avoid silent data loss on re-crawl
+            # (using index would give different tenders the same ID across crawls)
+            hash_input = "%s|%s|%s" % (title, organization, cfg.name)
+            ext_id = hashlib.md5(hash_input.encode("utf-8")).hexdigest()[:12]
 
         tender_id = "%s-%s" % (cfg.id_prefix, ext_id)
 

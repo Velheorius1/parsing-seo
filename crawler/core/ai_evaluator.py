@@ -182,44 +182,37 @@ def _compute_stats(
     }
 
 
-async def _get_ai_recommendations(stats):
-    # type: (dict) -> Optional[str]
-    """Send stats to Qwen via OpenRouter and get recommendations."""
-    if not settings.openrouter_api_key:
-        logger.debug("[AI Eval] No OpenRouter API key, skipping AI analysis")
-        return None
+def _get_template_recommendations(stats):
+    # type: (dict) -> str
+    """Generate recommendations from stats using rule-based templates (no LLM needed)."""
+    recs = []  # type: List[str]
 
-    prompt = _EVAL_PROMPT.format(stats_json=json.dumps(stats, ensure_ascii=False, indent=2))
+    # 1. Parsing quality
+    if stats.get("no_price_pct", 0) > 50:
+        recs.append("1. Высокий процент без цены (%.0f%%). Проверить field_map.price для основных источников." % stats["no_price_pct"])
+    elif stats.get("no_org_pct", 0) > 40:
+        recs.append("1. Много тендеров без заказчика (%.0f%%). Проверить field_map.organization." % stats["no_org_pct"])
+    else:
+        recs.append("1. Качество данных в норме (цена: %.0f%% заполнена, заказчик: %.0f%% заполнен)." % (
+            100 - stats.get("no_price_pct", 0), 100 - stats.get("no_org_pct", 0)))
 
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": "Bearer %s" % settings.openrouter_api_key,
-                },
-                json={
-                    "model": settings.ai_relevance_model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 500,
-                    "temperature": 0.3,
-                },
-            )
-            if resp.status_code != 200:
-                logger.warning("[AI Eval] OpenRouter %d: %s", resp.status_code, resp.text[:100])
-                return None
+    # 2. Source errors
+    error_sources = stats.get("error_sources", [])
+    if error_sources:
+        recs.append("2. Источники с ошибками: %s. Проверить доступность API/сайтов." % ", ".join(error_sources[:5]))
+    else:
+        recs.append("2. Все источники работают без ошибок.")
 
-            data = resp.json()
-            raw_answer = data["choices"][0]["message"]["content"] or ""
-            answer = raw_answer.strip()
-            if "<think>" in answer:
-                import re
-                answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.DOTALL).strip()
-            return answer if answer else None
+    # 3. Coverage
+    total = stats.get("total_today", 0)
+    if total < 50:
+        recs.append("3. Мало тендеров за день (%d). Возможно, проблема с основными источниками (etender, xarid)." % total)
+    elif total > 500:
+        recs.append("3. Хорошее покрытие (%d тендеров). %d источников активны." % (total, stats.get("sources_ok", 0)))
+    else:
+        recs.append("3. Покрытие стабильное (%d тендеров, %d источников)." % (total, stats.get("sources_ok", 0)))
 
-    except Exception as exc:
-        logger.warning("[AI Eval] Error: %s", str(exc)[:80])
-        return None
+    return "\n".join(recs)
 
 
 def _format_eval_message(stats, recommendations):
@@ -246,7 +239,7 @@ def _format_eval_message(stats, recommendations):
 
     if recommendations:
         parts.append("")
-        parts.append("*Рекомендации AI:*")
+        parts.append("*Анализ:*")
         safe_recs = recommendations.replace("*", "").replace("_", "").replace("`", "")
         parts.append(safe_recs)
 
@@ -281,8 +274,8 @@ async def evaluate_crawl_quality(
         all_tenders=all_tenders, daily_stats=daily_stats,
     )
 
-    # Get AI recommendations
-    recommendations = await _get_ai_recommendations(stats)
+    # Generate template-based recommendations (no LLM cost)
+    recommendations = _get_template_recommendations(stats)
 
     # Format and send to Telegram
     message = _format_eval_message(stats, recommendations)

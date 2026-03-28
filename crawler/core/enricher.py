@@ -44,8 +44,8 @@ async def _enrich_one(tender, client, semaphore):
     # Build text from available fields
     text_parts = [tender.title]
     if tender.search_text:
-        text_parts.append(tender.search_text[:300])
-    text = " | ".join(text_parts)[:500]
+        text_parts.append(tender.search_text[:500])
+    text = " | ".join(text_parts)[:700]
 
     prompt = _ENRICH_PROMPT.format(text=text)
 
@@ -69,12 +69,19 @@ async def _enrich_one(tender, client, semaphore):
             # Strip thinking tags
             raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
 
-            # Extract JSON from response
-            json_match = re.search(r"\{[^}]+\}", raw)
+            # Extract JSON from response (greedy match to handle nested braces)
+            json_match = re.search(r"\{.*\}", raw, re.DOTALL)
             if not json_match:
                 return False
 
-            data = json.loads(json_match.group())
+            try:
+                data = json.loads(json_match.group())
+            except json.JSONDecodeError:
+                # Fallback: try non-greedy if greedy captured too much
+                json_match2 = re.search(r"\{[^}]+\}", raw)
+                if not json_match2:
+                    return False
+                data = json.loads(json_match2.group())
             filled = False
 
             if not tender.organization and data.get("organization"):
@@ -100,7 +107,8 @@ async def _enrich_one(tender, client, semaphore):
 
             return filled
 
-        except Exception:
+        except Exception as exc:
+            logger.debug("[Enricher] Error enriching tender %s: %s", tender.id, str(exc)[:100])
             return False
 
 

@@ -15,11 +15,16 @@ UPSERT_CONFLICT = "external_id,source"
 _has_message_type_col = None  # type: Optional[bool]
 
 
-def _get_client():  # type: ignore[no-untyped-def]
-    """Lazy-init Supabase client (service_role for writes)."""
-    from supabase import create_client
+_client = None  # type: ignore[assignment]
 
-    return create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+def _get_client():  # type: ignore[no-untyped-def]
+    """Lazy-init Supabase client singleton (service_role for writes)."""
+    global _client
+    if _client is None:
+        from supabase import create_client
+        _client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    return _client
 
 
 def _tender_to_row(t: RawTender) -> dict:

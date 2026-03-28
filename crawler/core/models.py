@@ -12,6 +12,7 @@ class AdapterType(str, enum.Enum):
     HTML = "html"
     SPA = "spa"
     TELEGRAM = "telegram"
+    JSONRPC = "jsonrpc"
 
 
 class FieldMap(BaseModel):
@@ -81,6 +82,9 @@ class SourceConfig(BaseModel):
     # Filter (e.g. country code for international sources)
     country_filter: Optional[str] = None
     response_path: Optional[str] = None  # dot-path to array in JSON response
+    # JSON-RPC specific (hayotbirja, xt-xarid)
+    rpc_ref: Optional[str] = None  # ref name: "ref_reduction_object_public"
+    rpc_method: str = "ref"  # JSON-RPC method name
 
 
 class SourcesConfig(BaseModel):

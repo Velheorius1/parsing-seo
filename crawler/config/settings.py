@@ -60,3 +60,21 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def validate_settings():
+    # type: () -> None
+    """Warn about missing critical environment variables."""
+    import logging
+    _logger = logging.getLogger(__name__)
+    missing = []
+    if not settings.supabase_url:
+        missing.append("SUPABASE_URL")
+    if not settings.supabase_service_role_key:
+        missing.append("SUPABASE_SERVICE_ROLE_KEY")
+    if missing:
+        _logger.warning("Missing critical env vars: %s — DB writes will be skipped", ", ".join(missing))
+    if not settings.telegram_bot_token:
+        _logger.info("TELEGRAM_BOT_TOKEN not set — alerts disabled")
+    if not settings.openrouter_api_key:
+        _logger.info("OPENROUTER_API_KEY not set — AI enrichment/relevance disabled")

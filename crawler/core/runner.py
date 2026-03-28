@@ -72,7 +72,10 @@ async def run(
         dry_run: If True, don't write to DB
         source_ids: Optional filter — only run these source IDs
     """
+    from crawler.core.crawl_logger import CrawlRunLogger
+
     _register_all_adapters()
+    crawl_log = CrawlRunLogger(dry_run=dry_run, source_filter=source_ids)
 
     sources = load_sources(config_path)
     if source_ids:
@@ -96,15 +99,22 @@ async def run(
         except ValueError as exc:
             logger.warning("Skipping source %s: %s", src.id, str(exc))
 
+    # Log source starts
+    for a in parallel_adapters + telegram_adapters:
+        crawl_log.log_source_start(a.config.id)
+
     # Fetch non-Telegram in parallel
     tasks = [_fetch_source(a) for a in parallel_adapters]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Fetch Telegram sequentially (shared SQLite session file)
+    # Fetch Telegram sequentially (shared SQLite session file) with timeout
     tg_results = []  # type: List[object]
     for tg_adapter in telegram_adapters:
         try:
-            tg_results.append(await tg_adapter.fetch())
+            tg_results.append(await asyncio.wait_for(tg_adapter.fetch(), timeout=120))
+        except asyncio.TimeoutError:
+            logger.error("[%s] Telegram fetch timed out (120s)", tg_adapter.config.id)
+            tg_results.append(TimeoutError("Telegram fetch exceeded 120s"))
         except Exception as exc:
             tg_results.append(exc)
 
@@ -120,9 +130,11 @@ async def run(
         if isinstance(result, Exception):
             logger.error("[%s] Exception: %s", sid, str(result))
             stats[sid] = 0
+            crawl_log.log_source_result(sid, 0, error=str(result)[:200])
         else:
             stats[sid] = len(result)
             all_tenders.extend(result)
+            crawl_log.log_source_result(sid, len(result))
 
     # Log summary
     total = sum(stats.values())
@@ -137,10 +149,12 @@ async def run(
     enriched_count = await enrich_tenders(all_tenders)
     if enriched_count:
         logger.info("AI enriched %d tenders with missing fields", enriched_count)
+    crawl_log.log_enrichment(enriched_count, ai_calls=enriched_count)
 
     # Upsert to Supabase
     upserted, new_tenders = await upsert_tenders(all_tenders, dry_run=dry_run)
     logger.info("Upserted %d / %d tenders to Supabase (%d new)", upserted, total, len(new_tenders))
+    crawl_log.log_upsert(upserted, len(new_tenders))
 
     # Deduplicate cross-source before alerting
     from crawler.core.dedup import group_for_alerts
@@ -169,6 +183,7 @@ async def run(
         )
         if alerts_sent:
             logger.info("Sent %d Telegram alerts", alerts_sent)
+        crawl_log.log_alerts(alerts_sent)
 
     # Check tender results (who won)
     if not dry_run:
@@ -218,6 +233,45 @@ async def run(
         predictions_stored = await run_predictions(dry_run=dry_run)
         if predictions_stored:
             logger.info("Stored %d new tender predictions", predictions_stored)
+
+    # Quality tracking — snapshot + regression detection
+    from crawler.core.quality_tracker import (
+        QualitySnapshot, compare_snapshots, load_baseline, save_snapshot,
+    )
+
+    dedup_info = {
+        "total": len(all_tenders),
+        "groups": len(group_sources) if group_sources else 0,
+        "duplicates": len(new_tenders) - len(deduped_new),
+    }
+    snapshot = QualitySnapshot.from_tenders(all_tenders, source_stats=stats, dedup_info=dedup_info)
+    snapshot.total_new = len(new_tenders)
+    snapshot.enriched = enriched_count
+    snapshot.alerts_sent = alerts_sent
+    snapshot.errors_count = len(crawl_log.errors)
+
+    baseline = load_baseline()
+    if baseline:
+        report = compare_snapshots(baseline, snapshot)
+        if report.has_regression:
+            logger.warning("Quality regression detected:\n%s", report.summary())
+        if report.has_critical:
+            # Send critical regression alert to Telegram
+            from crawler.core.notifier import send_quality_alert
+            await send_quality_alert(report, dry_run=dry_run)
+    else:
+        logger.info("First quality snapshot recorded (baseline)")
+
+    save_snapshot(snapshot)
+    logger.info("Quality score: %.1f (org=%.1f%% price=%.1f%% deadline=%.1f%%)",
+        snapshot.overall_score(),
+        snapshot.overall.pct("org"),
+        snapshot.overall.pct("price"),
+        snapshot.overall.pct("deadline"),
+    )
+
+    # Finalize crawl run log
+    await crawl_log.finalize()
 
     return stats
 
@@ -291,3 +345,11 @@ def _register_all_adapters() -> None:
         register_adapter(AdapterType.TELEGRAM, TelegramAdapter)
     except ImportError:
         logger.debug("Telegram adapter not available")
+
+    # JSON-RPC adapter (hayotbirja, xt-xarid)
+    try:
+        from crawler.adapters.jsonrpc import JsonRpcAdapter
+
+        register_adapter(AdapterType.JSONRPC, JsonRpcAdapter)
+    except ImportError:
+        logger.debug("JSON-RPC adapter not available")

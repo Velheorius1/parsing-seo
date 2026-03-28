@@ -35,6 +35,7 @@ class SpaAdapter(BaseAdapter):
 
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
+            page = None
             try:
                 page = await browser.new_page()
                 await page.goto(
@@ -59,9 +60,9 @@ class SpaAdapter(BaseAdapter):
                     tenders = await self._paginate(
                         page, tenders, selectors.next_page, timeout_ms
                     )
-
-                await page.close()
             finally:
+                if page:
+                    await page.close()
                 await browser.close()
 
         return tenders

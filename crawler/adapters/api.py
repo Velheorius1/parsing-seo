@@ -1,5 +1,6 @@
 """API adapter — fetches tenders from JSON REST APIs."""
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -273,14 +274,43 @@ class ApiAdapter(BaseAdapter):
         params: Optional[Dict[str, Any]],
         body: Optional[Dict[str, Any]],
     ) -> Any:
-        """Make a single HTTP request and return parsed JSON."""
-        if method.upper() == "POST":
-            resp = await client.post(url, json=body, params=params)
-        else:
-            resp = await client.get(url, params=params)
+        """Make a single HTTP request with retry/backoff. Returns parsed JSON."""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if method.upper() == "POST":
+                    resp = await client.post(url, json=body, params=params)
+                else:
+                    resp = await client.get(url, params=params)
 
-        resp.raise_for_status()
-        return resp.json()
+                if resp.status_code in (429, 503) and attempt < max_retries - 1:
+                    retry_after = resp.headers.get("Retry-After")
+                    wait = min(int(retry_after), 60) if retry_after and retry_after.isdigit() else min(2 ** (attempt + 1), 30)
+                    logger.warning(
+                        "[%s] HTTP %d, retrying in %ds (attempt %d/%d)",
+                        self.config.name, resp.status_code, wait, attempt + 1, max_retries,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+
+                resp.raise_for_status()
+
+                try:
+                    return resp.json()
+                except Exception as json_exc:
+                    logger.warning("[%s] Invalid JSON from %s: %s", self.config.name, url, str(json_exc)[:80])
+                    raise
+
+            except (httpx.ConnectError, httpx.ReadTimeout) as exc:
+                if attempt < max_retries - 1:
+                    wait = 2 ** (attempt + 1)
+                    logger.warning(
+                        "[%s] %s, retrying in %ds (attempt %d/%d)",
+                        self.config.name, type(exc).__name__, wait, attempt + 1, max_retries,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise
 
     def _extract_items(self, raw: Any) -> List[Dict[str, Any]]:
         """Extract list of items from response, navigating via response_path."""

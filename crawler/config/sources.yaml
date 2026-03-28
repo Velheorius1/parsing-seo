@@ -662,7 +662,7 @@ sources:
   - id: cooperation-plans
     name: "Cooperation.uz Закупочные планы"
     adapter: api
-    enabled: false  # GEO-BLOCKED: cooperation.uz blocks Russian IPs
+    enabled: true  # Works from Mac (UZ IP), geo-blocked from VPS
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
@@ -2119,3 +2119,220 @@ sources:
     field_map:
       title: title
     keywords_fields: [title]
+
+  # ===== HAYOTBIRJA.UZ — JSON-RPC 2.0 (публичный API) =====
+
+  - id: hayotbirja-reduction
+    name: "Hayotbirja встречные аукционы"
+    adapter: jsonrpc
+    enabled: true
+    url: "https://api.hayotbirja.uz/rpc"
+    rpc_ref: "ref_reduction_object_public"
+    rpc_method: "ref"
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "hayot-red"
+    field_map:
+      title: "_goods_title"
+      organization: "company.title"
+      price: "start_price"
+      currency: "currency"
+      deadline: "close_at"
+      external_id: "id"
+      region: "company.region.title_ru"
+      source_url_template: "https://hayotbirja.uz/#/procedure/reduction/{id}"
+    keywords_fields: ["meta.good_maps"]
+    pagination:
+      type: offset
+      param: offset
+      page_size: 100
+      max_pages: 5
+
+  - id: hayotbirja-tender
+    name: "Hayotbirja тендеры"
+    adapter: jsonrpc
+    enabled: true
+    url: "https://api.hayotbirja.uz/rpc"
+    rpc_ref: "ref_tender_public"
+    rpc_method: "ref"
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "hayot-tend"
+    field_map:
+      title: "name"
+      organization: "company_name"
+      price: "totalcost"
+      currency: "currency"
+      deadline: "close_at"
+      external_id: "id"
+      region: "area"
+      source_url_template: "https://hayotbirja.uz/#/procedure/tender/{id}"
+    keywords_fields: ["name", "meta"]
+    pagination:
+      type: offset
+      param: offset
+      page_size: 100
+      max_pages: 5
+
+  - id: hayotbirja-selection
+    name: "Hayotbirja отбор"
+    adapter: jsonrpc
+    enabled: true
+    url: "https://api.hayotbirja.uz/rpc"
+    rpc_ref: "ref_selection_public"
+    rpc_method: "ref"
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "hayot-sel"
+    field_map:
+      title: "name"
+      organization: "company_name"
+      price: "totalcost"
+      currency: "currency"
+      deadline: "close_at"
+      external_id: "id"
+      region: "area"
+      source_url_template: "https://hayotbirja.uz/#/procedure/selection/{id}"
+    keywords_fields: ["name", "meta"]
+    pagination:
+      type: offset
+      param: offset
+      page_size: 100
+      max_pages: 5
+
+  # ===== XT-XARID.UZ — тот же бэкенд что hayotbirja =====
+
+  - id: xt-xarid-reduction
+    name: "XT-Xarid встречные аукционы"
+    adapter: jsonrpc
+    enabled: true
+    url: "https://api.xt-xarid.uz/rpc"
+    rpc_ref: "ref_reduction_object_public"
+    rpc_method: "ref"
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "xtx-red"
+    field_map:
+      title: "_goods_title"
+      organization: "company.title"
+      price: "start_price"
+      currency: "currency"
+      deadline: "close_at"
+      external_id: "id"
+      region: "company.region.title_ru"
+      source_url_template: "https://xt-xarid.uz/#/procedure/reduction/{id}"
+    keywords_fields: ["meta.good_maps"]
+    pagination:
+      type: offset
+      param: offset
+      page_size: 100
+      max_pages: 5
+
+  - id: xt-xarid-tender
+    name: "XT-Xarid тендеры"
+    adapter: jsonrpc
+    enabled: true
+    url: "https://api.xt-xarid.uz/rpc"
+    rpc_ref: "ref_tender_public"
+    rpc_method: "ref"
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "xtx-tend"
+    field_map:
+      title: "name"
+      organization: "company_name"
+      price: "totalcost"
+      currency: "currency"
+      deadline: "close_at"
+      external_id: "id"
+      region: "area"
+      source_url_template: "https://xt-xarid.uz/#/procedure/tender/{id}"
+    keywords_fields: ["name", "meta"]
+    pagination:
+      type: offset
+      param: offset
+      page_size: 100
+      max_pages: 5
+
+  # ===== EBIRJA.UZ — публичные REST endpoints =====
+
+  - id: ebirja-ext-products
+    name: "E-Birja товары на продажу"
+    adapter: api
+    enabled: true
+    url: "https://api.ebirja.uz/fond-api/api/external/seller-product/all"
+    method: GET
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "ebirja-prod"
+    response_path: "data.content"
+    field_map:
+      title: "productName"
+      organization: "sellerName"
+      price: "price"
+      currency: "currency"
+      deadline: ""
+      external_id: "id"
+    keywords_fields: ["productName", "sellerName"]
+    pagination:
+      type: page
+      param: "page"
+      size_param: "size"
+      page_size: 100
+      max_pages: 20
+      page_start: 0
+
+  - id: ebirja-ext-contracts
+    name: "E-Birja завершённые сделки"
+    adapter: api
+    enabled: true
+    url: "https://api.ebirja.uz/fond-api/api/external/contract/all"
+    method: GET
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "ebirja-deal"
+    response_path: "data.content"
+    field_map:
+      title: "productName"
+      organization: "buyerName"
+      price: "contractSum"
+      currency: "currency"
+      deadline: ""
+      external_id: "id"
+    keywords_fields: ["productName", "buyerName", "sellerName"]
+    pagination:
+      type: page
+      param: "page"
+      size_param: "size"
+      page_size: 100
+      max_pages: 35
+      page_start: 0
+
+  - id: ebirja-auctions-active
+    name: "E-Birja активные аукционы (xarid)"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api.ebirja.uz/auction/auction/active"
+    method: GET
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "ebirja-auc"
+    response_path: "result.data"
+    field_map:
+      title: "title"
+      organization: "company.title"
+      price: "total_sum"
+      currency: "UZS"
+      deadline: "auction_end"
+      date_start: "begin_date"
+      external_id: "id"
+      region: "region.title_ru"
+      source_url_template: "https://xarid.ebirja.uz/ru/auction/{id}"
+    keywords_fields: ["title", "company.title"]
+    pagination:
+      type: page
+      param: "page"
+      size_param: "size"
+      page_size: 100
+      max_pages: 5
+      page_start: 0

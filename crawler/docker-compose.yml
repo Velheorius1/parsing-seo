@@ -11,6 +11,7 @@ services:
     volumes:
       - ./config/sources.yaml:/app/crawler/config/sources.yaml:ro
       - ./sessions:/app/crawler/sessions
+      - ./logs:/app/crawler/logs
       - crawler-logs:/var/log
     restart: unless-stopped
     logging:

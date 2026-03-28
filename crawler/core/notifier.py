@@ -24,17 +24,17 @@ _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и У�
 - Этикетки, стикеры, наклейки
 - Полиграфия (каталоги, книги, брошюры, блокноты, визитки, буклеты)
 - Пакеты (полиэтилен, крафт)
-- Баннеры, постеры, плакаты (bosma, pechat)
+- Постеры, плакаты, интерьерная печать (bosma, pechat)
 - Сувенирная продукция (ручки, флешки, ежедневники, кружки)
 - Печать на футболках, флагах, лентах, ткани (DTF, сублимация)
-- Оракал, плоттерная резка
 - UV печать (на фомиксе, пластике, стекле)
 - Ламинирование, переплёт
 - Пластиковые карты (скидочные, дисконтные)
 
 НЕ НАШЕ (NO):
-- Баннеры, широкоформатная печать, оракал, плоттерная резка
-- Наружная реклама, вывески, буквы, монтаж, световые короба
+- Наружная реклама: баннеры на фасадах, вывески, световые короба, монтаж
+- Широкоформатная печать ТОЛЬКО для наружной рекламы (билборды, растяжки)
+- Оракал, плоттерная резка для рекламных конструкций
 - Оклейка авто, тонировка, плёнки
 - Фомикс, акрил, алюкобонд (рекламные конструкции)
 - Вакансии, поиск работы, набор сотрудников
@@ -46,6 +46,11 @@ _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и У�
 - Только дизайн без печати
 - Реклама ЧУЖИХ услуг ("мы делаем...", "звоните нам...")
 - Мелкий заказ (менее 50 штук)
+
+Пример:
+Название: Закупка этикеток для пищевой продукции (500 000 шт)
+Заказчик: ООО Nestle Uzbekistan
+Ответ: YES
 
 Объявление:
 Название: {title}
@@ -417,3 +422,29 @@ async def send_healthcheck(
             })
     except Exception as exc:
         logger.warning("[Healthcheck] Failed to send: %s", str(exc)[:80])
+
+
+async def send_quality_alert(report, dry_run=False):
+    # type: (Any, bool) -> None
+    """Send critical quality regression alert to Telegram."""
+    if not settings.telegram_bot_token or not settings.telegram_alert_chat_id:
+        return
+
+    text = "Quality regression detected!\n\n%s" % report.summary()
+    if len(text) > 3900:
+        text = text[:3900] + "..."
+
+    if dry_run:
+        logger.info("[Quality Alert] DRY RUN: %s", text[:200])
+        return
+
+    bot_url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(bot_url, json={
+                "chat_id": settings.telegram_alert_chat_id,
+                "text": text,
+                "disable_notification": False,
+            })
+    except Exception as exc:
+        logger.warning("[Quality Alert] Failed to send: %s", str(exc)[:80])
