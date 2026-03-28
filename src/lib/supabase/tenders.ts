@@ -105,6 +105,63 @@ function rowToTender(row: TenderRow): Tender {
   };
 }
 
+// Получить тендер по ID (Supabase UUID или external_id)
+export async function getTenderById(id: string): Promise<Tender | null> {
+  const supabase = getSupabaseServer();
+  if (!supabase) return null;
+
+  // Сначала ищем по Supabase UUID
+  const { data, error } = await supabase
+    .from('tenders')
+    .select('*')
+    .eq('id', id)
+    .limit(1)
+    .single();
+
+  if (!error && data) {
+    return rowToTender(data as TenderRow);
+  }
+
+  // Если не нашли — ищем по external_id (может быть несколько с разных площадок)
+  const { data: extData, error: extError } = await supabase
+    .from('tenders')
+    .select('*')
+    .eq('external_id', id)
+    .limit(1)
+    .single();
+
+  if (!extError && extData) {
+    return rowToTender(extData as TenderRow);
+  }
+
+  return null;
+}
+
+// Получить тендер по prefixed ID (e.g. "xtx-red-6899401")
+export async function getTenderByPrefixedId(prefixedId: string): Promise<Tender | null> {
+  const supabase = getSupabaseServer();
+  if (!supabase) return null;
+
+  // prefixed ID format: "{id_prefix}-{external_id}" stored in tenders as external_id
+  // But we store just the numeric external_id, and source separately.
+  // Try to extract external_id from the prefixed form
+  const parts = prefixedId.split('-');
+  if (parts.length >= 2) {
+    const externalId = parts[parts.length - 1];
+    const { data } = await supabase
+      .from('tenders')
+      .select('*')
+      .eq('external_id', externalId)
+      .limit(1)
+      .single();
+
+    if (data) return rowToTender(data as TenderRow);
+  }
+
+  // Fallback: try as-is
+  return getTenderById(prefixedId);
+}
+
 // Получить тендеры с фильтрами
 export async function queryTenders(
   params: TenderQueryParams = {},
@@ -150,7 +207,9 @@ export async function queryTenders(
   // Исключить тендеры, содержащие указанные слова в title
   if (params.exclude && params.exclude.length > 0) {
     for (const word of params.exclude) {
-      query = query.not('title', 'ilike', `%${word}%`);
+      // Escape SQL wildcards to prevent pattern injection
+      const escaped = word.replace(/%/g, '\\%').replace(/_/g, '\\_');
+      query = query.not('title', 'ilike', `%${escaped}%`);
     }
   }
 
