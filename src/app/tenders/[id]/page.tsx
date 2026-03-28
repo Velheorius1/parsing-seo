@@ -4,6 +4,17 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import type { Tender } from '@/types/parsing';
 
+// SPA-площадки без deep links — кнопка "Открыть на площадке" бесполезна
+const BROKEN_SPA_HOSTS = ['hayotbirja.uz', 'xt-xarid.uz'];
+
+function isOurUrl(url: string): boolean {
+  return url.includes('parsing-seo.vercel.app');
+}
+
+function isBrokenSpa(url: string): boolean {
+  return BROKEN_SPA_HOSTS.some((host) => url.includes(host));
+}
+
 function formatPrice(price: number | null, currency: string): string {
   if (price === null || price === undefined) return 'Не указана';
   return price.toLocaleString('ru-RU') + ' ' + currency;
@@ -228,8 +239,8 @@ export default function TenderDetailPage() {
             </div>
           )}
 
-          {/* Ссылка на площадку */}
-          {tender.sourceUrl && (
+          {/* Ссылка на площадку (только если deep link рабочий) */}
+          {tender.sourceUrl && !isOurUrl(tender.sourceUrl) && !isBrokenSpa(tender.sourceUrl) && (
             <a
               href={tender.sourceUrl}
               target="_blank"
