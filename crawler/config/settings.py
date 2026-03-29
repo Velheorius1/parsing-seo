@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     batch_size: int = 500
 
+    # Proxy (residential proxy for geo-blocked sources)
+    proxy_secret: Optional[str] = None
+    cooperation_proxy_url: str = "https://parsing-seo.vercel.app/api/proxy/cooperation"
+    residential_proxy_url: Optional[str] = None  # socks5://user:pass@host:port
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

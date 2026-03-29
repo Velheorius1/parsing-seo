@@ -2619,15 +2619,15 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "ebirja-prod"
-    response_path: "data.content"
+    response_path: "data"
     field_map:
-      title: "productName"
-      organization: "sellerName"
+      title: "productDetailNameRu"
+      organization: "ptNameRu"
       price: "price"
-      currency: "currency"
+      currency: "UZS"
       deadline: ""
       external_id: "id"
-    keywords_fields: ["productName", "sellerName"]
+    keywords_fields: ["productDetailNameRu", "ptNameRu"]
     pagination:
       type: page
       param: "page"
@@ -2645,15 +2645,15 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "ebirja-deal"
-    response_path: "data.content"
+    response_path: "data"
     field_map:
-      title: "productName"
-      organization: "buyerName"
-      price: "contractSum"
-      currency: "currency"
-      deadline: ""
+      title: "productDetailNameRu"
+      organization: "ptNameRu"
+      price: "totalPrice"
+      currency: "UZS"
+      deadline: "contractDate"
       external_id: "id"
-    keywords_fields: ["productName", "buyerName", "sellerName"]
+    keywords_fields: ["productDetailNameRu", "ptNameRu"]
     pagination:
       type: page
       param: "page"
