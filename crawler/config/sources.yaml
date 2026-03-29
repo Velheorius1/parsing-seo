@@ -575,6 +575,63 @@ sources:
       link: "a.title"
     keywords_fields: []
 
+  # ── Ebirja Договоры (contracts) — SPA, Playwright, победители + цены ──
+  # Данные: заказчик, исполнитель (победитель), цена, номер договора
+  # API закрыт (Next.js RSC), парсим HTML
+  - id: ebirja-contracts-shop
+    name: "Ebirja Договоры (Э-магазин)"
+    adapter: spa
+    enabled: false  # Парсится скриптом fetch_ebirja_contracts.py (не crawler)
+    url: "https://xarid.ebirja.uz/ru/contracts/shop"
+    rate_limit: 0.3
+    timeout: 45
+    id_prefix: "ebirja-ctr"
+    wait_selector: "a[href*='/contracts/shop/']"
+    html_selectors:
+      container: "a[href*='/contracts/shop/']"
+      title: "span.font-bold"
+      organization: "div:has(> span:contains('Заказчик')) + div, *:nth-child(6)"
+      price: "span:contains('UZS')"
+      deadline: "span.text-v2-grayScale-40"
+      link: "a[href*='/contracts/shop/']"
+    keywords_fields: []
+
+  - id: ebirja-contracts-auction
+    name: "Ebirja Договоры (Аукцион)"
+    adapter: spa
+    enabled: false  # Парсится скриптом fetch_ebirja_contracts.py
+    url: "https://xarid.ebirja.uz/ru/contracts/auction"
+    rate_limit: 0.3
+    timeout: 45
+    id_prefix: "ebirja-ctr"
+    wait_selector: "a[href*='/contracts/auction/']"
+    html_selectors:
+      container: "a[href*='/contracts/auction/']"
+      title: "span.font-bold"
+      organization: "*:nth-child(6)"
+      price: "span:contains('UZS')"
+      deadline: "span.text-v2-grayScale-40"
+      link: "a[href*='/contracts/auction/']"
+    keywords_fields: []
+
+  - id: ebirja-contracts-tender
+    name: "Ebirja Договоры (Тендер)"
+    adapter: spa
+    enabled: false  # Парсится скриптом fetch_ebirja_contracts.py
+    url: "https://xarid.ebirja.uz/ru/contracts/tender"
+    rate_limit: 0.3
+    timeout: 45
+    id_prefix: "ebirja-ctr"
+    wait_selector: "a[href*='/contracts/tender/']"
+    html_selectors:
+      container: "a[href*='/contracts/tender/']"
+      title: "span.font-bold"
+      organization: "*:nth-child(6)"
+      price: "span:contains('UZS')"
+      deadline: "span.text-v2-grayScale-40"
+      link: "a[href*='/contracts/tender/']"
+    keywords_fields: []
+
   - id: ebirja-auction
     name: "Ebirja Аукционы"
     adapter: spa
@@ -655,31 +712,303 @@ sources:
       page_size: 500
       max_pages: 2
 
-  # cooperation.uz — GEO-BLOCKED from Russian VPS (46.62.155.190)
-  # Public REST API found (no auth). Need UZ proxy/VPS to use.
+  # cooperation.uz — crawl runs from Mac (API geo-restricted)
   # API: GET /ocelot/api-client/Client/GetAllPlanSchedule?Skip=0&Take=500
-  # Returns 375k procurement plans with productName, companyName, etc.
-  - id: cooperation-plans
-    name: "Cooperation.uz Закупочные планы"
+  # 375k+ procurement plans with productName, companyName, etc.
+  # cooperation.uz — crawl runs from Mac (API geo-restricted)
+  # Uses ProductName filter to fetch only relevant records (~6k out of 375k)
+  - id: cooperation-print
+    name: "Cooperation.uz Полиграфия"
     adapter: api
-    enabled: true  # Works from Mac (UZ IP), geo-blocked from VPS
+    enabled: true
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
       Skip: 0
       Take: 500
+      ProductName: "полиграф"
     rate_limit: 2
-    timeout: 15
+    timeout: 30
     id_prefix: "coop"
     response_path: "result.data"
     field_map:
-      title: productName
-      organization: companyName
+      title: productName.ru
+      organization: companyName.ru
+      region: regionName.ru
       price: ""
       currency: "UZS"
       deadline: ""
       external_id: id
-    keywords_fields: [productName, companyName]
+      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+    keywords_fields: [productName.ru, productName.uz, companyName.ru]
+    pagination:
+      type: offset
+      param: "Skip"
+      size_param: ~
+      page_size: 500
+      max_pages: 20
+      total_field: "result.total"
+
+  - id: cooperation-etiketka
+    name: "Cooperation.uz Этикетки"
+    adapter: api
+    enabled: true
+    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    method: GET
+    params:
+      Skip: 0
+      Take: 500
+      ProductName: "этикетка"
+    rate_limit: 2
+    timeout: 30
+    id_prefix: "coop"
+    response_path: "result.data"
+    field_map:
+      title: productName.ru
+      organization: companyName.ru
+      region: regionName.ru
+      external_id: id
+      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+    keywords_fields: [productName.ru, productName.uz]
+    pagination:
+      type: offset
+      param: "Skip"
+      size_param: ~
+      page_size: 500
+      max_pages: 20
+      total_field: "result.total"
+
+  - id: cooperation-pechat
+    name: "Cooperation.uz Печать"
+    adapter: api
+    enabled: true
+    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    method: GET
+    params:
+      Skip: 0
+      Take: 500
+      ProductName: "печать"
+    rate_limit: 2
+    timeout: 30
+    id_prefix: "coop"
+    response_path: "result.data"
+    field_map:
+      title: productName.ru
+      organization: companyName.ru
+      region: regionName.ru
+      external_id: id
+      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+    keywords_fields: [productName.ru, productName.uz]
+    pagination:
+      type: offset
+      param: "Skip"
+      size_param: ~
+      page_size: 500
+      max_pages: 20
+      total_field: "result.total"
+
+  - id: cooperation-paket
+    name: "Cooperation.uz Пакеты"
+    adapter: api
+    enabled: true
+    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    method: GET
+    params:
+      Skip: 0
+      Take: 500
+      ProductName: "пакет"
+    rate_limit: 2
+    timeout: 30
+    id_prefix: "coop"
+    response_path: "result.data"
+    field_map:
+      title: productName.ru
+      organization: companyName.ru
+      region: regionName.ru
+      external_id: id
+      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+    keywords_fields: [productName.ru, productName.uz]
+    pagination:
+      type: offset
+      param: "Skip"
+      size_param: ~
+      page_size: 500
+      max_pages: 20
+      total_field: "result.total"
+
+  - id: cooperation-bloknot
+    name: "Cooperation.uz Блокноты/Ежедневники"
+    adapter: api
+    enabled: true
+    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    method: GET
+    params:
+      Skip: 0
+      Take: 500
+      ProductName: "блокнот"
+    rate_limit: 2
+    timeout: 30
+    id_prefix: "coop"
+    response_path: "result.data"
+    field_map:
+      title: productName.ru
+      organization: companyName.ru
+      region: regionName.ru
+      external_id: id
+      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+    keywords_fields: [productName.ru, productName.uz]
+    pagination:
+      type: offset
+      param: "Skip"
+      size_param: ~
+      page_size: 500
+      max_pages: 20
+      total_field: "result.total"
+
+  - id: cooperation-konvert
+    name: "Cooperation.uz Конверты"
+    adapter: api
+    enabled: true
+    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    method: GET
+    params:
+      Skip: 0
+      Take: 500
+      ProductName: "конверт"
+    rate_limit: 2
+    timeout: 30
+    id_prefix: "coop"
+    response_path: "result.data"
+    field_map:
+      title: productName.ru
+      organization: companyName.ru
+      region: regionName.ru
+      external_id: id
+      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+    keywords_fields: [productName.ru, productName.uz]
+    pagination:
+      type: offset
+      param: "Skip"
+      size_param: ~
+      page_size: 500
+      max_pages: 20
+      total_field: "result.total"
+
+  - id: cooperation-stiker
+    name: "Cooperation.uz Стикеры/Наклейки"
+    adapter: api
+    enabled: true
+    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    method: GET
+    params:
+      Skip: 0
+      Take: 500
+      ProductName: "стикер"
+    rate_limit: 2
+    timeout: 30
+    id_prefix: "coop"
+    response_path: "result.data"
+    field_map:
+      title: productName.ru
+      organization: companyName.ru
+      region: regionName.ru
+      external_id: id
+      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+    keywords_fields: [productName.ru, productName.uz]
+    pagination:
+      type: offset
+      param: "Skip"
+      size_param: ~
+      page_size: 500
+      max_pages: 20
+      total_field: "result.total"
+
+  - id: cooperation-broshyura
+    name: "Cooperation.uz Брошюры/Буклеты"
+    adapter: api
+    enabled: true
+    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    method: GET
+    params:
+      Skip: 0
+      Take: 500
+      ProductName: "брошюра"
+    rate_limit: 2
+    timeout: 30
+    id_prefix: "coop"
+    response_path: "result.data"
+    field_map:
+      title: productName.ru
+      organization: companyName.ru
+      region: regionName.ru
+      external_id: id
+      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+    keywords_fields: [productName.ru, productName.uz]
+    pagination:
+      type: offset
+      param: "Skip"
+      size_param: ~
+      page_size: 500
+      max_pages: 20
+      total_field: "result.total"
+
+  - id: cooperation-kalendar
+    name: "Cooperation.uz Календари"
+    adapter: api
+    enabled: true
+    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    method: GET
+    params:
+      Skip: 0
+      Take: 500
+      ProductName: "календарь"
+    rate_limit: 2
+    timeout: 30
+    id_prefix: "coop"
+    response_path: "result.data"
+    field_map:
+      title: productName.ru
+      organization: companyName.ru
+      region: regionName.ru
+      external_id: id
+      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+    keywords_fields: [productName.ru, productName.uz]
+    pagination:
+      type: offset
+      param: "Skip"
+      size_param: ~
+      page_size: 500
+      max_pages: 20
+      total_field: "result.total"
+
+  - id: cooperation-bosma
+    name: "Cooperation.uz Bosma (узб.)"
+    adapter: api
+    enabled: true
+    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    method: GET
+    params:
+      Skip: 0
+      Take: 500
+      ProductName: "bosma"
+    rate_limit: 2
+    timeout: 30
+    id_prefix: "coop"
+    response_path: "result.data"
+    field_map:
+      title: productName.ru
+      organization: companyName.ru
+      region: regionName.ru
+      external_id: id
+      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+    keywords_fields: [productName.ru, productName.uz]
+    pagination:
+      type: offset
+      param: "Skip"
+      size_param: ~
+      page_size: 500
+      max_pages: 20
+      total_field: "result.total"
 
   - id: agro-uzex
     name: "agro.uzex.uz"
@@ -2140,7 +2469,7 @@ sources:
       deadline: "close_at"
       external_id: "id"
       region: "company.region.title_ru"
-      source_url_template: "https://hayotbirja.uz/#/procedure/reduction/{id}"
+      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
     keywords_fields: ["meta.good_maps"]
     pagination:
       type: offset
@@ -2166,7 +2495,7 @@ sources:
       deadline: "close_at"
       external_id: "id"
       region: "area"
-      source_url_template: "https://hayotbirja.uz/#/procedure/tender/{id}"
+      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
     keywords_fields: ["name", "meta"]
     pagination:
       type: offset
@@ -2192,13 +2521,38 @@ sources:
       deadline: "close_at"
       external_id: "id"
       region: "area"
-      source_url_template: "https://hayotbirja.uz/#/procedure/selection/{id}"
+      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
     keywords_fields: ["name", "meta"]
     pagination:
       type: offset
       param: offset
       page_size: 100
       max_pages: 5
+
+  - id: hayotbirja-shop
+    name: "Hayotbirja э-магазин"
+    adapter: jsonrpc
+    enabled: true
+    url: "https://api.hayotbirja.uz/rpc"
+    rpc_ref: "ref_online_shop_public"
+    rpc_method: "ref"
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "hayot-shop"
+    field_map:
+      title: "name"
+      organization: ""
+      price: "price"
+      currency: "UZS"
+      deadline: ""
+      external_id: "id"
+      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
+    keywords_fields: ["name", "product"]
+    pagination:
+      type: offset
+      param: offset
+      page_size: 100
+      max_pages: 50
 
   # ===== XT-XARID.UZ — тот же бэкенд что hayotbirja =====
 
@@ -2220,7 +2574,7 @@ sources:
       deadline: "close_at"
       external_id: "id"
       region: "company.region.title_ru"
-      source_url_template: "https://xt-xarid.uz/#/procedure/reduction/{id}"
+      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
     keywords_fields: ["meta.good_maps"]
     pagination:
       type: offset
@@ -2246,7 +2600,7 @@ sources:
       deadline: "close_at"
       external_id: "id"
       region: "area"
-      source_url_template: "https://xt-xarid.uz/#/procedure/tender/{id}"
+      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
     keywords_fields: ["name", "meta"]
     pagination:
       type: offset
@@ -2335,4 +2689,38 @@ sources:
       size_param: "size"
       page_size: 100
       max_pages: 5
+      page_start: 0
+
+  # ── Ebirja встречные торги (counter-trade) — требует JWT через E-IMZO ──
+  # TODO: правильный endpoint неизвестен (все варианты 404). Исследовать через DevTools после E-IMZO входа
+  - id: ebirja-counter-trade
+    name: "E-Birja встречные торги"
+    adapter: api
+    enabled: false  # DISABLED: endpoint 404, нужно найти правильный URL
+    url: "https://xarid-api.ebirja.uz/counter-trade/list"
+    method: GET
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "ebirja-ct"
+    auth_platform: "ebirja"
+    auth_header_name: "Authorization"
+    auth_header_prefix: "Bearer"
+    response_path: "result.data"
+    field_map:
+      title: "title"
+      organization: "company.title"
+      price: "total_sum"
+      currency: "UZS"
+      deadline: "close_at"
+      date_start: "begin_date"
+      external_id: "id"
+      region: "region.title_ru"
+      source_url_template: "https://xarid.ebirja.uz/ru/counter-trade/{id}"
+    keywords_fields: ["title", "company.title"]
+    pagination:
+      type: page
+      param: "page"
+      size_param: "size"
+      page_size: 100
+      max_pages: 10
       page_start: 0

@@ -60,9 +60,40 @@ class ApiAdapter(BaseAdapter):
     def __init__(self, config: SourceConfig) -> None:
         super().__init__(config)
 
+    def _inject_auth(self):
+        # type: () -> bool
+        """Load token from SessionStore and inject into headers. Returns False if no valid token."""
+        cfg = self.config
+        if not cfg.auth_platform:
+            return True
+        try:
+            from crawler.auth.session_store import session_store
+            token = session_store.get_token(cfg.auth_platform)
+            if not token:
+                return False
+            prefix = cfg.auth_header_prefix
+            if prefix:
+                cfg.headers[cfg.auth_header_name] = "%s %s" % (prefix, token)
+            else:
+                cfg.headers[cfg.auth_header_name] = token
+            return True
+        except Exception as exc:
+            logger.warning("[%s] Auth error: %s", cfg.name, str(exc)[:80])
+            return False
+
     async def _fetch_items(self) -> List[RawTender]:
         """Fetch all items from the API, handling pagination."""
         cfg = self.config
+
+        # Inject auth token if configured
+        if cfg.auth_platform:
+            if not self._inject_auth():
+                logger.warning(
+                    "[%s] No valid token for '%s', skipping",
+                    cfg.name, cfg.auth_platform,
+                )
+                return []
+
         all_items = []  # type: List[Dict[str, Any]]
 
         async with httpx.AsyncClient(
@@ -282,6 +313,21 @@ class ApiAdapter(BaseAdapter):
                     resp = await client.post(url, json=body, params=params)
                 else:
                     resp = await client.get(url, params=params)
+
+                # Auth expired — mark token and skip
+                if resp.status_code in (401, 403) and self.config.auth_platform:
+                    logger.warning(
+                        "[%s] HTTP %d — token expired for '%s'",
+                        self.config.name, resp.status_code, self.config.auth_platform,
+                    )
+                    try:
+                        from crawler.auth.session_store import session_store
+                        session_store.mark_expired(self.config.auth_platform)
+                    except Exception:
+                        pass
+                    raise httpx.HTTPStatusError(
+                        "Auth expired", request=resp.request, response=resp
+                    )
 
                 if resp.status_code in (429, 503) and attempt < max_retries - 1:
                     retry_after = resp.headers.get("Retry-After")

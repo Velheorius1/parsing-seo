@@ -34,10 +34,13 @@ class Settings(BaseSettings):
         "katalog", "kitob", "bloknot", "kalendar", "stiker", "nakleyk", "vizitka",
         "buklet", "listovk", "flayer", "orakal", "arakal", "laminat",
         "sublimats", "lenta", "quti", "sovga",
-        "bosma", "qadoqlash",
+        "bosma", "qadoqlash", "qadoq", "quti", "gofra", "karton",
+        "yorliq", "plyonka", "qogoz", "konvert", "afisha", "menyu",
+        "sertifikat", "diplom", "ofset", "shtamp", "chop",
+        "kerak", "zarur", "lozim",
         # Узбекские (кириллица)
         "босма", "қадоқлаш", "қути", "совга", "совға",
-        "коробка",
+        "коробка", "керак", "зарур", "лозим", "ёрлиқ",
         # English
         "packaging", "printing", "cardboard", "label", "sticker",
     ])

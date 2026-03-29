@@ -32,33 +32,67 @@ _DEMAND_PATTERNS = re.compile(
     r"|(?:срочно|сроч)\s+нужн"
     # ── Uzbek demand signals (Latin) ──
     # "N ta/dona PRODUCT kerak" = нужно N штук (самый надёжный паттерн)
-    r"|\d+\s*(?:ta|dona|sht)\s+\S+\s+\S*kerak"
+    r"|\d+\s*(?:ta|dona|sht)\s+\S+\s+\S*(?:kerak|zarur|lozim)"
     r"|\d+\s*(?:ta|dona|sht)\s+\S+\s+(?:pechat|bos|tortish)"
-    # "PRODUCT kerak" — продукт + kerak (не "pechatnik kerak" = вакансия)
-    r"|(?:pechat|banner|paket|korobka|etiketka|stiker|vizitka|buklet|futbolka|katalog|kitob|bloknot|kalendar|flayer|nakleyk|bayroq|flag)\S*\s+\S*kera[kq]"
-    # "VERB kerak" — действие + kerak
-    r"|(?:tortish|bosish|chop\s+etish|chop\s+qilish|tayyorlash|qilish|yasash)\s+kera[kq]"
-    # "kim qiladi/qiberoladi/bosadi" = кто сделает (+ конкретный продукт)
-    r"|kim\s+(?:qiladi|qilib|bosadi|bosib|qiberol|tayyorl)"
+    # "PRODUCT kerak/zarur/lozim" — продукт + need-word
+    r"|(?:pechat|banner|paket|korobka|etiketka|stiker|vizitka|buklet|futbolka"
+    r"|katalog|kitob|bloknot|kalendar|flayer|nakleyk|bayroq|flag"
+    r"|quti|gofra|karton|qadoq|yorliq|lenta|plyonka|qogoz|sumka"
+    r"|konvert|broshyura|afisha|menyu|sertifikat|diplom|ofset|shtamp"
+    r")\S*\s+\S*(?:kera[kq]|zarur|lozim|darkor)"
+    # "VERB kerak/zarur" — действие + need-word
+    r"|(?:tortish|bosish|chop\s+etish|chop\s+qilish|tayyorlash|qilish|yasash)\s+(?:kera[kq]|zarur|lozim)"
+    # "kim qiladi/qilib berolidi/bosadi" = кто сделает (+ все формы)
+    r"|kim\s+(?:qiladi|qilib|bosadi|bosib|qiberol|tayyorl|berad|berol|yasay)"
+    r"|kim\s+qilib\s+ber"  # "kim qilib berolidi/beradi/bervoring"
     r"|kimda\s+(?:bor|bormi)"  # "kimda bor" = у кого есть
-    r"|kimga\s+buyurtma"  # кому заказать
+    r"|kimga\s+(?:buyurtma|zakaz)"  # кому заказать
     # "qidiryapman/izlayapman" = ищу
     r"|qidiryap"
     r"|izlayap"
     # "qayerda" = где (+ действие)
     r"|qayerd[a]?\s+(?:bos|tor|chop|qil|ola|topa)"
-    # "buyurtma bermoqchi/qilmoqchi" = хочу заказать
+    # "buyurtma/zakaz bermoqchi/qilmoqchi" = хочу заказать
     r"|buyurtma\s+(?:ber|qil)"
+    r"|zakaz\s+(?:qil|ber)"
+    # ── NEW: Price inquiry = demand signal ──
+    r"|narxi\s+qancha"
+    r"|qancha\s+tur(?:adi|idi)"
+    r"|narxini\s+ayt"
+    # ── NEW: "sotib olmoqchi" = want to buy ──
+    r"|sotib\s+ol"
+    r"|olmoqchi"
+    # ── NEW: Polite request forms ──
+    r"|maslahat\s+ber"
+    r"|tavsiya\s+qil"
+    r"|topib\s+ber"
+    r"|tayyorlab\s+ber"
+    # ── NEW: "qila oladimi / bera oladimi" ──
+    r"|(?:qila|bera|qilib\s*bera)\s+ola"
+    # ── NEW: "bormi" with product context ──
+    r"|(?:pechat|paket|korobka|quti|etiketka|stiker|vizitka|karton|gofra|qadoq|bloknot)\S*\s+bormi"
+    # ── NEW: Urgency markers ──
+    r"|shoshilinch"
+    r"|(?:bugun|ertaga)\s+(?:kerak|zarur|lozim)"
+    # ── NEW: Standalone "kerak" (Latin) — broad but effective ──
+    r"|\bkerak\b"
     # ── Uzbek demand signals (Cyrillic) ──
     r"|керак\b"
+    r"|зарур\b"
+    r"|лозим\b"
+    r"|даркор\b"
     r"|кимда\s+бор"
     r"|қидиряпман"
     r"|излаяпман"
     r"|буюртма\s+бер"
+    r"|нархи\s+қанча"
+    r"|сотиб\s+ол"
+    r"|заказ\s+(?:қил|бер)"
     # Кириллический узбекский (разговорный, с ошибками)
     r"|ким\s+(?:қилади|қилиб|босади|босиб|чиқазиб|чиказиб|беролади|беролиди)"
-    r"|(?:босиш|тортиш|чоп\s+этиш|чиқазиш)\s+керак"
-    r"|(?:штук|шт|дона|та)\s+\S+\s+керак"
+    r"|ким\s+қилиб\s+бер"  # "ким қилиб беролиди"
+    r"|(?:босиш|тортиш|чоп\s+этиш|чиқазиш)\s+(?:керак|зарур|лозим)"
+    r"|(?:штук|шт|дона|та)\s+\S+\s+(?:керак|зарур|лозим)"
     r")",
     re.IGNORECASE,
 )
@@ -101,6 +135,12 @@ _AD_FILTER = re.compile(
     r"|beramiz\b"  # "biz bosib beramiz" = мы делаем
     r"|qilamiz\b"  # "biz qilamiz" = мы делаем
     r"|tayyorlaymiz\b"  # мы изготовим
+    r"|bosib\s+beramiz"  # "мы напечатаем"
+    r"|chop\s+etamiz"  # "мы печатаем"
+    r"|murojaat\s+qiling"  # "обращайтесь" (= реклама)
+    r"|aloqaga\s+chiqing"  # "свяжитесь" (= реклама)
+    r"|arzon\s+narx"  # "дёшево" (= реклама)
+    r"|sifatli\S*\s+\S*narx"  # "качественно + цена" (= реклама)
     # ── Not our profile (outdoor advertising, banners, orakal) ──
     r"|баннер|banner"
     r"|оракал|orakal|arakal|аракал"
@@ -111,6 +151,9 @@ _AD_FILTER = re.compile(
     r"|акрил|alyukobond|алюкобонд"
     r"|плоттер|ploter|широкоформат"
     r"|тонировк|оклейк\S+\s+авто"
+    # ── Not our product (tech cards, NFC) ──
+    r"|nfc"
+    r"|(?:elektron|цифров|smart|смарт)\S*\s*визитк"
     # ── Off-topic ──
     r"|видеооператор|видеосъемк"
     r"|(?:настро\S+|запуст\S+)\s+рекламу"
@@ -161,7 +204,7 @@ _AI_EXTRACT_PROMPT = """Сообщение из Telegram-группы рекла
 - "Нужна печать?" с ответом "мы делаем" = ЭТО РЕКЛАМА
 - "Эксклюзив совға қутилар" = продают свой товар = РЕКЛАМА
 - "ДИЛЕРЛАР УЧУН ТАКЛИФ" = предложение для дилеров = РЕКЛАМА
-
+{few_shot}
 Текст:
 {text}
 
@@ -197,19 +240,28 @@ deadline: ...
 /no_think"""
 
 
-def _ai_extract_fields(text, openrouter_key, model, prompt_template=None):
-    # type: (str, str, str, Optional[str]) -> dict
+def _ai_extract_fields(text, openrouter_key, model, prompt_template=None, few_shot=""):
+    # type: (str, str, str, Optional[str], str) -> dict
     """Use Qwen to extract fields from unstructured text."""
     if not openrouter_key:
         return {}
     template = prompt_template or _AI_EXTRACT_PROMPT
+    # Inject few-shot examples if available
+    few_shot_block = ""
+    if few_shot:
+        few_shot_block = "\n\nПримеры из обратной связи пользователя (УЧИТЫВАЙ ИХ):\n%s\n" % few_shot
+    try:
+        prompt_text = template.format(text=text[:500], few_shot=few_shot_block)
+    except KeyError:
+        # Template without {few_shot} placeholder (e.g. _AI_TENDER_PROMPT)
+        prompt_text = template.format(text=text[:500])
     try:
         resp = _httpx.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": "Bearer %s" % openrouter_key},
             json={
                 "model": model,
-                "messages": [{"role": "user", "content": template.format(text=text[:500])}],
+                "messages": [{"role": "user", "content": prompt_text}],
                 "max_tokens": 150,
                 "temperature": 0,
             },
@@ -477,15 +529,27 @@ class TelegramAdapter(BaseAdapter):
         Pipeline: demand regex → AI extraction → RawTender(customer_request).
         No demand regex match → skip entirely (it's an ad).
         """
+        # Shadow log helper — logs ALL messages for feedback learning
+        from crawler.core.feedback import log_message as _log_msg
+
+        def _shadow_log(label):
+            # type: (str) -> None
+            try:
+                _log_msg(self.config.name, message.id, text[:2000], label)
+            except Exception:
+                pass  # best-effort
+
         # Step 1: Demand regex — is someone LOOKING for something?
         if not _DEMAND_PATTERNS.search(text):
             # No demand signal → it's an ad/offer from competitor → skip
+            _shadow_log("skipped")
             return None
 
         # Step 1b: Exclude job postings and vacancies
         if _AD_FILTER.search(text):
             logger.debug("[%s] Vacancy/job posting, skipping: %s",
                          self.config.name, fallback_title[:60])
+            _shadow_log("ad")
             return None
 
         # Step 1c: Min quantity filter — skip tiny orders (<50 pcs)
@@ -498,6 +562,7 @@ class TelegramAdapter(BaseAdapter):
                     logger.debug("[%s] Small order (%g pcs < %d), skipping: %s",
                                  self.config.name, qty, MIN_QTY_THRESHOLD,
                                  fallback_title[:60])
+                    _shadow_log("low_qty")
                     return None
             except (ValueError, TypeError):
                 pass
@@ -505,6 +570,10 @@ class TelegramAdapter(BaseAdapter):
         logger.info("[%s] Demand detected: %s", self.config.name, fallback_title[:80])
 
         # Step 2: AI extraction (only for confirmed demand)
+        # Inject few-shot examples from user feedback
+        from crawler.core.feedback import get_few_shot_examples
+        few_shot = get_few_shot_examples(5)
+
         organization = ""
         price = None  # type: Optional[float]
         currency = "UZS"
@@ -516,6 +585,7 @@ class TelegramAdapter(BaseAdapter):
             text,
             settings.openrouter_api_key or "",
             settings.ai_relevance_model,
+            few_shot=few_shot,
         )
         if ai_fields:
             # AI intent verification — last defense against ads
@@ -523,6 +593,7 @@ class TelegramAdapter(BaseAdapter):
             if intent == "ad":
                 logger.info("[%s] AI: ad (not demand), skipping: %s",
                             self.config.name, fallback_title[:60])
+                _shadow_log("ai_ad")
                 return None
 
             if ai_fields.get("title"):
@@ -542,6 +613,9 @@ class TelegramAdapter(BaseAdapter):
                 product_keywords = ai_fields["product_keywords"]
 
         title = ai_title if ai_title else fallback_title
+
+        # Log successful demand detection
+        _shadow_log("demand")
 
         # Build source URL
         channel_raw = (self.config.telegram_channel or "").lstrip("@")

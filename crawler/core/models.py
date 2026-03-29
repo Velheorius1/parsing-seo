@@ -85,6 +85,10 @@ class SourceConfig(BaseModel):
     # JSON-RPC specific (hayotbirja, xt-xarid)
     rpc_ref: Optional[str] = None  # ref name: "ref_reduction_object_public"
     rpc_method: str = "ref"  # JSON-RPC method name
+    # Auth (ebirja JWT, etc.)
+    auth_platform: Optional[str] = None  # key in session store: "ebirja"
+    auth_header_name: str = "Authorization"
+    auth_header_prefix: str = "Bearer"
 
 
 class SourcesConfig(BaseModel):

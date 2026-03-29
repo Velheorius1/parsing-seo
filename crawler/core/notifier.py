@@ -229,14 +229,20 @@ def _format_alert(
     tender: RawTender,
     matched_kw: str,
     extra_sources: Optional[List[str]] = None,
+    alert_seq: Optional[int] = None,
 ) -> str:
     """Format a single tender alert message for Telegram."""
     parts = []
-    # Prefix by message type
+    # Alert number + prefix by message type
+    prefix = ""
+    if alert_seq is not None:
+        prefix = "#%03d " % alert_seq
     if tender.message_type == "customer_request":
-        parts.append("[ЗАПРОС КЛИЕНТА]")
+        parts.append("%s[ЗАПРОС КЛИЕНТА]" % prefix)
     elif tender.message_type == "info":
-        parts.append("[ИНФО]")
+        parts.append("%s[ИНФО]" % prefix)
+    else:
+        parts.append("%s[ТЕНДЕР]" % prefix if prefix else "")
     parts.append("*%s*" % _escape_md(tender.title[:200]))
     if tender.organization:
         parts.append("Заказчик: %s" % _escape_md(tender.organization))
@@ -313,8 +319,8 @@ async def send_alerts(
     logger.info("[Alerts] %d tenders match keywords (out of %d new)", len(matching), len(new_tenders))
 
     if dry_run:
-        for t, kw in matching:
-            logger.info("[Alerts] DRY RUN would send: [%s] %s", kw, t.title[:80])
+        for i, (t, kw) in enumerate(matching):
+            logger.info("[Alerts] DRY RUN would send: #%03d [%s] %s", i + 1, kw, t.title[:80])
         return len(matching)
 
     # AI relevance filter — reject false positives via Qwen (parallel)
@@ -342,6 +348,10 @@ async def send_alerts(
             logger.info("[Alerts] All tenders rejected by AI filter")
             return 0
 
+    # Reserve sequential alert numbers
+    from crawler.core.feedback import get_next_seq, save_alert_seq
+    start_seq = get_next_seq(len(matching))
+
     # Send via Telegram Bot API (no Telethon needed — just HTTP)
     bot_url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
     sent = 0
@@ -349,9 +359,18 @@ async def send_alerts(
     _group_sources = group_sources or {}
 
     async with httpx.AsyncClient(timeout=10) as client:
-        for tender, kw in matching:
+        for i, (tender, kw) in enumerate(matching):
+            seq = start_seq + i
             extra = _group_sources.get(tender.id)
-            text = _format_alert(tender, kw, extra_sources=extra)
+            text = _format_alert(tender, kw, extra_sources=extra, alert_seq=seq)
+            # Inline keyboard for feedback
+            reply_markup = {
+                "inline_keyboard": [[
+                    {"text": "\U0001f464 \u041a\u043b\u0438\u0435\u043d\u0442", "callback_data": "fb:%d:ok" % seq},
+                    {"text": "\U0001f4e2 \u0420\u0435\u043a\u043b\u0430\u043c\u0430", "callback_data": "fb:%d:ad" % seq},
+                    {"text": "\u274c \u041c\u0438\u043c\u043e", "callback_data": "fb:%d:skip" % seq},
+                ]]
+            }
             try:
                 resp = await client.post(bot_url, json={
                     "chat_id": settings.telegram_alert_chat_id,
@@ -359,19 +378,25 @@ async def send_alerts(
                     "parse_mode": "Markdown",
                     "disable_web_page_preview": True,
                     "protect_content": True,
+                    "reply_markup": reply_markup,
                 })
                 if resp.status_code == 200:
                     sent += 1
+                    # Save alert_seq and telegram_message_id
+                    resp_data = resp.json()
+                    tg_msg_id = None
+                    if resp_data.get("ok") and resp_data.get("result"):
+                        tg_msg_id = resp_data["result"].get("message_id")
+                    save_alert_seq(tender.external_id, tender.source, seq, tg_msg_id)
                 else:
                     logger.warning(
-                        "[Alerts] Failed to send alert: %d %s",
-                        resp.status_code,
-                        resp.text[:200],
+                        "[Alerts] Failed to send alert #%d: %d %s",
+                        seq, resp.status_code, resp.text[:200],
                     )
             except Exception as exc:
-                logger.warning("[Alerts] Error sending alert: %s", str(exc))
+                logger.warning("[Alerts] Error sending alert #%d: %s", seq, str(exc))
 
-    logger.info("[Alerts] Sent %d / %d alerts", sent, len(matching))
+    logger.info("[Alerts] Sent %d / %d alerts (seq #%d-#%d)", sent, len(matching), start_seq, start_seq + len(matching) - 1)
     return sent
 
 
