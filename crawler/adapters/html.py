@@ -10,6 +10,7 @@ import httpx
 from bs4 import BeautifulSoup, Tag
 
 from crawler.adapters.base import BaseAdapter
+from crawler.config.settings import settings
 from crawler.core.models import HtmlSelectors, RawTender, SourceConfig
 
 logger = logging.getLogger(__name__)
@@ -41,10 +42,17 @@ class HtmlAdapter(BaseAdapter):
 
         all_items = []  # type: List[RawTender]
 
+        # Use residential proxy for geo-restricted sources
+        proxy_url = None  # type: Optional[str]
+        if cfg.use_proxy and settings.residential_proxy_url:
+            proxy_url = settings.residential_proxy_url
+            logger.info("[%s] Using residential proxy", cfg.name)
+
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(cfg.timeout, connect=10.0),
             headers=cfg.headers,
             follow_redirects=True,
+            proxy=proxy_url,
         ) as client:
             html = await self._fetch_page(client, cfg.url)
             if not html:

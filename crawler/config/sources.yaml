@@ -1042,7 +1042,8 @@ sources:
   - id: uzex-auctions
     name: "UZEX Обратные аукционы"
     adapter: api
-    enabled: false  # GEO-BLOCKED: 89.236.218.118 blocks Russian VPS. Runs from Mac via fetch_uzex_auctions.py
+    enabled: true
+    use_proxy: true  # UZ geo-IP required (Russian VPS blocked)
     url: "https://xarid-api-auctionx.uzex.uz/api/Lot/GetList"
     method: POST
     headers:
@@ -1068,7 +1069,8 @@ sources:
   - id: uzex-prequest
     name: "UZEX Предквалификации"
     adapter: api
-    enabled: false  # GEO-BLOCKED: 89.236.218.118 blocks Russian VPS. Runs from Mac via fetch_uzex_auctions.py
+    enabled: true
+    use_proxy: true  # UZ geo-IP required (Russian VPS blocked)
     url: "https://xarid-api-prequest.uzex.uz/api/Public/GetLots"
     method: POST
     headers:
@@ -1584,7 +1586,8 @@ sources:
   - id: anorbank
     name: "Anor Bank"
     adapter: html
-    enabled: false  # 403 from VPS (geo-block), works from Mac. Selectors fixed.
+    enabled: true
+    use_proxy: true  # 403 from VPS without proxy (geo-block)
     url: "https://www.anorbank.uz/about/press-center/tendery/"
     method: GET
     headers:
