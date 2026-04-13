@@ -1,7 +1,7 @@
 """Pydantic models for crawler config and data."""
 
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -89,6 +89,8 @@ class SourceConfig(BaseModel):
     auth_platform: Optional[str] = None  # key in session store: "ebirja"
     auth_header_name: str = "Authorization"
     auth_header_prefix: str = "Bearer"
+    # Proxy — use residential proxy for geo-restricted sources
+    use_proxy: bool = False
 
 
 class SourcesConfig(BaseModel):
@@ -115,7 +117,7 @@ class RawTender(BaseModel):
     source_url: str = ""
     status: str = "active"  # active | closed | cancelled | completed
     search_text: str = ""
-    collected_at: datetime = Field(default_factory=datetime.utcnow)
+    collected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     message_type: str = "tender"  # tender | customer_request | info
     # Result tracking
     winner: Optional[str] = None

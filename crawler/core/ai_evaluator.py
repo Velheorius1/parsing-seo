@@ -7,7 +7,7 @@ into 3 buckets (ok/idle/error), sends actionable summary to Telegram once per da
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 import httpx
@@ -41,7 +41,7 @@ def _already_evaluated_today():
         if os.path.exists(_EVAL_MARKER):
             with open(_EVAL_MARKER, "r") as f:
                 last_date = f.read().strip()
-            return last_date == datetime.utcnow().strftime("%Y-%m-%d")
+            return last_date == datetime.now(timezone.utc).strftime("%Y-%m-%d")
     except Exception:
         pass
     return False
@@ -52,7 +52,7 @@ def _mark_evaluated():
     """Mark today as evaluated."""
     try:
         with open(_EVAL_MARKER, "w") as f:
-            f.write(datetime.utcnow().strftime("%Y-%m-%d"))
+            f.write(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
     except Exception as exc:
         logger.warning("[AI Eval] Failed to write marker: %s", str(exc)[:80])
 
@@ -67,7 +67,7 @@ def _query_daily_stats():
         from supabase import create_client
         client = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         # Total tenders collected today
         resp = (

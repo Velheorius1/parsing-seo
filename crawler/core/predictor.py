@@ -7,7 +7,7 @@ Algorithm:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 import httpx
@@ -246,7 +246,7 @@ async def run_predictions(dry_run: bool = False) -> int:
 
     Returns number of new predictions stored.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     patterns = await _fetch_org_month_patterns()
     if not patterns:

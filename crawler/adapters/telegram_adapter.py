@@ -119,10 +119,12 @@ _AD_FILTER = re.compile(
     r"|xizmatlar\b"
     # ── Vacancies (RU) ──
     r"|сдельщик"
+    r"|сдельн\S+\s+работ"  # "на сдельную работу"
     r"|набор\s+(?:идет|на\s+работу)"
-    r"|требуются\s+мастер"
+    r"|требуются\s+(?:мастер|сотрудник|работник|специалист|оператор|менеджер)"
     r"|ищу\s+работу"
     r"|ищу\s+заказ"  # фрилансер ищет заказы = не наш клиент
+    r"|(?:с\s+\d+\s+до\s+\d+|график\s+работы)"  # "с 9 до 6" = вакансия
     # ── Service ads (RU) — someone OFFERING, not requesting ──
     r"|услуги\s+\S+"  # "Услуги графического дизайнера"
     r"|предлагаем\s+"
@@ -151,9 +153,16 @@ _AD_FILTER = re.compile(
     r"|акрил|alyukobond|алюкобонд"
     r"|плоттер|ploter|широкоформат"
     r"|тонировк|оклейк\S+\s+авто"
-    # ── Not our product (tech cards, NFC) ──
+    # ── Not our product (tech cards, NFC, textile printing) ──
     r"|nfc"
     r"|(?:elektron|цифров|smart|смарт)\S*\s*визитк"
+    # Textile/merch printing — not our profile (полиграфия ≠ текстиль)
+    r"|печат\S*\s+на\s+(?:футболк|ткан|текстил|майк|кепк|толстовк|одежд|кружк|бейсболк|худи|свитшот)"
+    r"|futbolka\S*\s+(?:pechat|bosish|chop)"
+    r"|(?:pechat|bosish|chop)\S*\s+(?:futbolka|kiyim|kurtka|kepka)"
+    # Animated/digital stickers — not physical stickers
+    r"|анимацион\S+\s+стикер"
+    r"|стикер\S*\s+(?:в\s+)?телеграм"
     # ── Off-topic ──
     r"|видеооператор|видеосъемк"
     r"|(?:настро\S+|запуст\S+)\s+рекламу"
@@ -176,7 +185,10 @@ _AD_FILTER = re.compile(
     r"|шелкограф"  # шелкография
     r"|(?:сила|качество)\s+вашей\s+работы"
     r"|всё.*нужно\s+для\s+ваших"
-    r"|нужн\S+\s+качественн\S+\s+печат\S+\s+на\s+\S+\?"  # "Нужна качественная печать на X?" (rhetorical)
+    r"|нужн\S+\s+качественн\S+\s+печат\S+\s+на\s+\S+[?!]?"  # "Нужна качественная печать на X?" (rhetorical, с ? и без)
+    # Marketing slogans
+    r"|(?:печатн\S+\s+)?продукци\S+\s+для\s+вашего"  # "Печатная продукция для вашего бизнеса"
+    r"|для\s+вашего\s+бизнеса"
     # ── Repeated spam ──
     r"|renova\s+print"
     r"|taklif\b"

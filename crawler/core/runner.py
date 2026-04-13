@@ -338,7 +338,8 @@ def _register_all_adapters() -> None:
     except ImportError:
         logger.debug("SPA adapter not available")
 
-    # Telegram adapter
+    # Telegram adapter — file does not exist yet (planned feature).
+    # ImportError is expected and handled gracefully.
     try:
         from crawler.adapters.telegram_adapter import TelegramAdapter
 

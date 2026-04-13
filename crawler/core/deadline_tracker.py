@@ -6,7 +6,7 @@ Tracks sent reminders to avoid duplicates.
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import httpx
@@ -79,7 +79,7 @@ async def check_deadlines(dry_run: bool = False) -> int:
     from supabase import create_client
     client = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     sent = 0
 
     for reminder_type, days_ahead in [("3_days", 3), ("1_day", 1)]:

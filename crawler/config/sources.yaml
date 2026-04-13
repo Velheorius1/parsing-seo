@@ -2235,7 +2235,7 @@ sources:
   - id: dxarid-uzex
     name: "DXarid UZEX (госзакупки)"
     adapter: api
-    enabled: false  # API domain apidxarid.uzex.uz does not resolve — shares etender API
+    enabled: false  # DNS dead: apidxarid.uzex.uz не резолвится (2026-04-13)
     url: "https://apidxarid.uzex.uz/api/Common/TradeList"
     method: POST
     headers:
@@ -2266,7 +2266,7 @@ sources:
   - id: exarid-uzex
     name: "EXarid UZEX (электронные закупки)"
     adapter: api
-    enabled: false  # API domain apiexarid.uzex.uz does not resolve — shares etender API
+    enabled: false  # DNS dead: apiexarid.uzex.uz не резолвится (2026-04-13)
     url: "https://apiexarid.uzex.uz/api/Common/TradeList"
     method: POST
     headers:
@@ -2398,15 +2398,20 @@ sources:
 
   - id: beeline-uz
     name: "Beeline UZ Тендеры"
-    adapter: spa
-    enabled: false  # SPA (Nuxt) — needs Playwright
-    url: "https://beeline.uz/ru/about/tenderi"
-    rate_limit: 0.5
-    timeout: 30
+    adapter: api
+    enabled: true
+    url: "https://beeline.uz/msapi/web/page/tenderi"
+    method: GET
+    params: {"locale": "ru"}
+    rate_limit: 2.0
+    timeout: 15
     id_prefix: "beeline"
+    response_path: "constructor.0.fields.rows"
     field_map:
       title: title
       organization: "Beeline Uzbekistan"
+      external_id: title
+      source_url_template: "https://beeline.uz/ru/about/tenderi"
     keywords_fields: [title]
 
   - id: minzdrav-uz

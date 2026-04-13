@@ -11,8 +11,6 @@ logger = logging.getLogger(__name__)
 TABLE = "tenders"
 UPSERT_CONFLICT = "external_id,source"
 
-# Cache for column existence check (avoid repeated queries)
-_has_message_type_col = None  # type: Optional[bool]
 
 
 _client = None  # type: ignore[assignment]
@@ -46,19 +44,7 @@ def _tender_to_row(t: RawTender) -> dict:
         "search_text": t.search_text,
         "collected_at": t.collected_at.isoformat(),
     }
-    # message_type — only include if column exists (migration 010)
-    global _has_message_type_col
-    if _has_message_type_col is None:
-        # Check once per process lifetime
-        try:
-            client = _get_client()
-            client.table(TABLE).select("message_type").limit(1).execute()
-            _has_message_type_col = True
-        except Exception:
-            _has_message_type_col = False
-            logger.info("[DB] message_type column not found — apply migration 010")
-    if _has_message_type_col:
-        row["message_type"] = t.message_type
+    row["message_type"] = t.message_type
     # Optional result fields — only include if set
     if t.winner:
         row["winner"] = t.winner

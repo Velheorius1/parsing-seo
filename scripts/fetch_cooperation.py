@@ -749,9 +749,66 @@ def _ai_check_relevance(title, organization, client):
         return True
 
 
+def _get_next_alert_seq(count=1):
+    """Reserve sequential alert numbers from Supabase."""
+    try:
+        sb = _get_supabase()
+        result = sb.rpc("get_next_alert_seq", {"p_count": count}).execute()
+        if result.data is not None:
+            return int(result.data)
+    except Exception:
+        pass
+    try:
+        sb = _get_supabase()
+        result = sb.table("tenders").select("alert_seq").not_.is_("alert_seq", "null").order("alert_seq", desc=True).limit(1).execute()
+        if result.data:
+            return int(result.data[0]["alert_seq"]) + 1
+    except Exception:
+        pass
+    return 9999
+
+
+def _save_alert_seq(external_id, source, alert_seq, telegram_message_id=None):
+    """Save alert_seq to tenders table."""
+    try:
+        sb = _get_supabase()
+        update = {"alert_seq": alert_seq}
+        if telegram_message_id is not None:
+            update["telegram_message_id"] = telegram_message_id
+        sb.table("tenders").update(update).eq("external_id", external_id).eq("source", source).execute()
+    except Exception as exc:
+        logger.warning("[Feedback] Failed to save alert_seq %d: %s", alert_seq, str(exc)[:80])
+
+
+def _lookup_tender_uuid(external_id, source):
+    """Look up Supabase UUID for detail page link."""
+    try:
+        sb = _get_supabase()
+        result = sb.table("tenders").select("id").eq("external_id", external_id).eq("source", source).limit(1).execute()
+        if result.data:
+            return result.data[0]["id"]
+    except Exception:
+        pass
+    return None
+
+
+_DETAIL_PAGE = "https://parsing-seo.vercel.app/tenders"
+
+_REJECT_TITLES = [
+    "книги печатные",
+    "подписке и доставке периодического печатного издания",
+    "подписке и доставке периодических печатных изданий",
+    "марля полиграфическая",
+    "nfc визитк",
+]
+
+
 def send_alerts(new_rows, source_label):
     # type: (List[Dict[str, Any]], str) -> int
-    """Send Telegram alerts for new tenders matching keywords."""
+    """Send Telegram alerts for new tenders matching keywords.
+
+    Unified version: numbered alerts, inline buttons, detail page URL, fast reject filter.
+    """
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return 0
 
@@ -759,11 +816,10 @@ def send_alerts(new_rows, source_label):
     if not keywords:
         return 0
 
-    MIN_PRICE = 10_000_000  # Минимальная сумма для алерта (10M сум)
+    MIN_PRICE = 10_000_000
 
     matching = []  # type: List[tuple]
     for row in new_rows:
-        # Пропускаем тендеры с суммой меньше 10M
         price = row.get('price')
         if price is not None and price < MIN_PRICE:
             continue
@@ -775,9 +831,19 @@ def send_alerts(new_rows, source_label):
         logger.info('[Alerts/%s] No matches (%d checked)', source_label, len(new_rows))
         return 0
 
+    # Fast reject filter — remove obvious non-relevant items
+    before = len(matching)
+    matching = [(r, kw) for r, kw in matching if not any(rej in r['title'].lower() for rej in _REJECT_TITLES)]
+    rejected_fast = before - len(matching)
+    if rejected_fast:
+        logger.info('[Fast Reject/%s] Removed %d non-relevant by title', source_label, rejected_fast)
+    if not matching:
+        logger.info('[Alerts/%s] All rejected by fast filter', source_label)
+        return 0
+
     logger.info('[Alerts/%s] %d keyword matches, running AI filter...', source_label, len(matching))
 
-    # AI relevance filter — reject false positives via Qwen
+    # AI relevance filter
     if OPENROUTER_API_KEY:
         filtered = []  # type: List[tuple]
         with httpx.Client(timeout=15) as ai_client:
@@ -792,12 +858,25 @@ def send_alerts(new_rows, source_label):
             logger.info('[Alerts/%s] All rejected by AI filter', source_label)
             return 0
 
+    # Reserve alert sequence numbers
+    start_seq = _get_next_alert_seq(len(matching))
+
     bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
     sent = 0
 
     with httpx.Client(timeout=10) as client:
-        for row, kw in matching:
-            parts = ['*%s*' % _escape_md(row['title'][:200])]
+        for i, (row, kw) in enumerate(matching):
+            seq = start_seq + i
+            parts = []
+
+            # Header with alert number
+            msg_type = row.get('message_type', 'tender')
+            if msg_type == 'customer_request':
+                parts.append('#%03d [ЗАПРОС КЛИЕНТА]' % seq)
+            else:
+                parts.append('#%03d [ТЕНДЕР]' % seq)
+
+            parts.append('*%s*' % _escape_md(row['title'][:200]))
             if row.get('organization'):
                 parts.append('Заказчик: %s' % _escape_md(row['organization']))
             if row.get('price'):
@@ -805,10 +884,26 @@ def send_alerts(new_rows, source_label):
             if row.get('deadline'):
                 parts.append('Дедлайн: %s' % row['deadline'])
             parts.append('Источник: %s' % row['source'])
-            url = row.get('source_url', 'https://new.cooperation.uz')
-            if url:
-                parts.append(url)
+
+            # Detail page URL (accessible without auth)
+            db_id = _lookup_tender_uuid(row.get('external_id', ''), row['source'])
+            if db_id:
+                parts.append('%s/%s' % (_DETAIL_PAGE, db_id))
+            else:
+                url = row.get('source_url', '')
+                if url:
+                    parts.append(url)
+
             parts.append('#%s' % kw.replace(' ', '_'))
+
+            # Inline keyboard for feedback
+            reply_markup = {
+                "inline_keyboard": [[
+                    {"text": "\U0001f464 Клиент", "callback_data": "fb:%d:ok" % seq},
+                    {"text": "\U0001f4e2 Реклама", "callback_data": "fb:%d:ad" % seq},
+                    {"text": "\u274c Мимо", "callback_data": "fb:%d:skip" % seq},
+                ]]
+            }
 
             try:
                 resp = client.post(bot_url, json={
@@ -817,15 +912,21 @@ def send_alerts(new_rows, source_label):
                     'parse_mode': 'Markdown',
                     'disable_web_page_preview': True,
                     'protect_content': True,
+                    'reply_markup': reply_markup,
                 })
                 if resp.status_code == 200:
                     sent += 1
+                    resp_data = resp.json()
+                    tg_msg_id = None
+                    if resp_data.get('ok') and resp_data.get('result'):
+                        tg_msg_id = resp_data['result'].get('message_id')
+                    _save_alert_seq(row.get('external_id', ''), row['source'], seq, tg_msg_id)
                 else:
                     logger.warning('[Alerts] Telegram %d: %s', resp.status_code, resp.text[:200])
             except Exception as exc:
                 logger.warning('[Alerts] Error: %s', str(exc))
 
-    logger.info('[Alerts/%s] Sent %d / %d', source_label, sent, len(matching))
+    logger.info('[Alerts/%s] Sent %d / %d (seq #%d-#%d)', source_label, sent, len(matching), start_seq, start_seq + len(matching) - 1)
     return sent
 
 

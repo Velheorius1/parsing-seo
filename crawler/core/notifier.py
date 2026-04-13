@@ -5,7 +5,7 @@ Pipeline: deadline filter → keyword match → AI relevance check (Qwen via Ope
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import httpx
@@ -22,7 +22,7 @@ _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и У�
 МЫ ДЕЛАЕМ (YES):
 - Коробки (гофро, картон, подарочные, совга кутилар)
 - Этикетки, стикеры, наклейки
-- Полиграфия (каталоги, книги, брошюры, блокноты, визитки, буклеты)
+- Полиграфия (каталоги, брошюры, блокноты, визитки, буклеты)
 - Пакеты (полиэтилен, крафт)
 - Постеры, плакаты, интерьерная печать (bosma, pechat)
 - Сувенирная продукция (ручки, флешки, ежедневники, кружки)
@@ -46,6 +46,9 @@ _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и У�
 - Только дизайн без печати
 - Реклама ЧУЖИХ услуг ("мы делаем...", "звоните нам...")
 - Мелкий заказ (менее 50 штук)
+- Закупка готовых книг, учебников, тетрадей (не печать на заказ)
+- Подписка и доставка периодических печатных изданий (газеты, журналы)
+- Марля полиграфическая, расходные материалы для типографии
 
 Пример:
 Название: Закупка этикеток для пищевой продукции (500 000 шт)
@@ -122,17 +125,42 @@ _DATE_PATTERNS = [
 
 
 def _parse_deadline(deadline_str: Optional[str]) -> Optional[datetime]:
-    """Try to parse a deadline string into a datetime. Returns None if unparseable."""
+    """Try to parse a deadline string into a datetime. Returns None if unparseable.
+
+    If string contains 'Истекает'/'expires'/'deadline', use the date after that keyword.
+    Otherwise use the LAST date found (most likely the expiry, not published date).
+    """
     if not deadline_str:
         return None
+
+    # If string contains expiry keyword, only search after it
+    text = deadline_str
+    for kw in ("Истекает", "истекает", "expires", "Expires", "deadline", "Deadline", "до "):
+        idx = text.find(kw)
+        if idx >= 0:
+            text = text[idx:]
+            break
+
+    # Find ALL dates and take the last one (most likely expiry)
+    last_dt = None
     for pattern, fmt in _DATE_PATTERNS:
-        m = pattern.search(deadline_str)
-        if m:
+        for m in pattern.finditer(text):
             try:
-                return datetime.strptime(m.group(0), fmt)
+                last_dt = datetime.strptime(m.group(0), fmt)
             except ValueError:
                 continue
-    return None
+    if last_dt:
+        return last_dt
+
+    # Fallback: search original string for last date
+    if text != deadline_str:
+        for pattern, fmt in _DATE_PATTERNS:
+            for m in pattern.finditer(deadline_str):
+                try:
+                    last_dt = datetime.strptime(m.group(0), fmt)
+                except ValueError:
+                    continue
+    return last_dt
 
 
 def _is_deadline_expired(tender: RawTender) -> bool:
@@ -140,7 +168,7 @@ def _is_deadline_expired(tender: RawTender) -> bool:
     dt = _parse_deadline(tender.deadline)
     if dt is None:
         return False  # no deadline or unparseable = let it through
-    return dt < datetime.utcnow() - timedelta(days=1)  # 1 day grace period
+    return dt < datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1)  # 1 day grace period
 
 
 # Minimum stem length for fuzzy matching (Russian word roots)
@@ -225,11 +253,36 @@ def _escape_md(text: str) -> str:
     return text
 
 
+def _lookup_tender_uuid(external_id: str, source: str) -> Optional[str]:
+    """Look up Supabase UUID for a tender by external_id + source."""
+    try:
+        from crawler.core.feedback import _get_client
+        client = _get_client()
+        result = (
+            client.table("tenders")
+            .select("id")
+            .eq("external_id", external_id)
+            .eq("source", source)
+            .limit(1)
+            .execute()
+        )
+        if result.data:
+            return result.data[0]["id"]
+    except Exception:
+        pass
+    return None
+
+
+# Detail page base URL
+_DETAIL_PAGE_BASE = "https://parsing-seo.vercel.app/tenders"
+
+
 def _format_alert(
     tender: RawTender,
     matched_kw: str,
     extra_sources: Optional[List[str]] = None,
     alert_seq: Optional[int] = None,
+    db_id: Optional[str] = None,
 ) -> str:
     """Format a single tender alert message for Telegram."""
     parts = []
@@ -255,7 +308,10 @@ def _format_alert(
         parts.append("Площадки (%d): %s" % (len(extra_sources), ", ".join(extra_sources)))
     else:
         parts.append("Источник: %s" % tender.source)
-    if tender.source_url:
+    # Detail page link (always accessible, no auth needed)
+    if db_id:
+        parts.append("%s/%s" % (_DETAIL_PAGE_BASE, db_id))
+    elif tender.source_url:
         parts.append(tender.source_url)
     parts.append("#%s" % matched_kw.replace(" ", "_"))
     return "\n".join(parts)
@@ -318,6 +374,27 @@ async def send_alerts(
 
     logger.info("[Alerts] %d tenders match keywords (out of %d new)", len(matching), len(new_tenders))
 
+    # Fast reject filter — remove obvious non-relevant items before AI
+    _REJECT_TITLES = [
+        "книги печатные",
+        "подписке и доставке периодического печатного издания",
+        "подписке и доставке периодических печатных изданий",
+        "марля полиграфическая",
+        "nfc визитк",
+    ]
+    before_reject = len(matching)
+    matching = [
+        (t, kw) for t, kw in matching
+        if not any(rej in t.title.lower() for rej in _REJECT_TITLES)
+    ]
+    rejected_fast = before_reject - len(matching)
+    if rejected_fast:
+        logger.info("[Fast Reject] Removed %d non-relevant tenders by title", rejected_fast)
+
+    if not matching:
+        logger.info("[Alerts] All tenders rejected by fast filter")
+        return 0
+
     if dry_run:
         for i, (t, kw) in enumerate(matching):
             logger.info("[Alerts] DRY RUN would send: #%03d [%s] %s", i + 1, kw, t.title[:80])
@@ -362,7 +439,9 @@ async def send_alerts(
         for i, (tender, kw) in enumerate(matching):
             seq = start_seq + i
             extra = _group_sources.get(tender.id)
-            text = _format_alert(tender, kw, extra_sources=extra, alert_seq=seq)
+            # Look up Supabase UUID for detail page link
+            db_id = _lookup_tender_uuid(tender.external_id, tender.source)
+            text = _format_alert(tender, kw, extra_sources=extra, alert_seq=seq, db_id=db_id)
             # Inline keyboard for feedback
             reply_markup = {
                 "inline_keyboard": [[

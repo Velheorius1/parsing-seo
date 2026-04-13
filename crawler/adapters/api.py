@@ -2,12 +2,13 @@
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
 
 from crawler.adapters.base import BaseAdapter
+from crawler.config.settings import settings
 from crawler.core.models import RawTender, SourceConfig
 
 logger = logging.getLogger(__name__)
@@ -96,9 +97,16 @@ class ApiAdapter(BaseAdapter):
 
         all_items = []  # type: List[Dict[str, Any]]
 
+        # Use residential proxy for geo-restricted sources
+        proxy_url = None  # type: Optional[str]
+        if cfg.use_proxy and settings.residential_proxy_url:
+            proxy_url = settings.residential_proxy_url
+            logger.info("[%s] Using residential proxy", cfg.name)
+
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(cfg.timeout, connect=10.0),
             headers=cfg.headers,
+            proxy=proxy_url,
         ) as client:
             if cfg.pagination is not None:
                 all_items = await self._fetch_paginated(client)
@@ -468,9 +476,10 @@ class ApiAdapter(BaseAdapter):
         if deadline:
             try:
                 dl = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
-                if dl < datetime.utcnow().replace(
-                    tzinfo=dl.tzinfo if dl.tzinfo else None
-                ):
+                now_utc = datetime.now(timezone.utc)
+                if dl.tzinfo is None:
+                    now_utc = now_utc.replace(tzinfo=None)
+                if dl < now_utc:
                     status = "closed"
             except (ValueError, TypeError):
                 pass
