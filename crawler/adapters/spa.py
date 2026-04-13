@@ -4,6 +4,7 @@ import logging
 from typing import List, Optional
 
 from crawler.adapters.base import BaseAdapter
+from crawler.config.settings import settings
 from crawler.core.models import RawTender, SourceConfig
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,18 @@ class SpaAdapter(BaseAdapter):
         timeout_ms = self.config.timeout * 1000
 
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
+            # Use residential proxy for geo-restricted sources
+            proxy_cfg = None
+            if self.config.use_proxy and settings.residential_proxy_url:
+                # Parse proxy URL: http://user:pass@host:port
+                proxy_url = settings.residential_proxy_url
+                logger.info("[%s] Using residential proxy for Playwright", self.config.name)
+                proxy_cfg = {"server": proxy_url}
+
+            browser = await pw.chromium.launch(
+                headless=True,
+                proxy=proxy_cfg,
+            )
             page = None
             try:
                 page = await browser.new_page()
