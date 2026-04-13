@@ -712,15 +712,15 @@ sources:
       page_size: 500
       max_pages: 2
 
-  # cooperation.uz — crawl runs from Mac (API geo-restricted)
+  # cooperation.uz — uses residential proxy (UZ geo-IP required)
   # API: GET /ocelot/api-client/Client/GetAllPlanSchedule?Skip=0&Take=500
   # 375k+ procurement plans with productName, companyName, etc.
-  # cooperation.uz — crawl runs from Mac (API geo-restricted)
   # Uses ProductName filter to fetch only relevant records (~6k out of 375k)
   - id: cooperation-print
     name: "Cooperation.uz Полиграфия"
     adapter: api
     enabled: true
+    use_proxy: true
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
@@ -753,6 +753,7 @@ sources:
     name: "Cooperation.uz Этикетки"
     adapter: api
     enabled: true
+    use_proxy: true
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
@@ -782,6 +783,7 @@ sources:
     name: "Cooperation.uz Печать"
     adapter: api
     enabled: true
+    use_proxy: true
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
@@ -811,6 +813,7 @@ sources:
     name: "Cooperation.uz Пакеты"
     adapter: api
     enabled: true
+    use_proxy: true
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
@@ -840,6 +843,7 @@ sources:
     name: "Cooperation.uz Блокноты/Ежедневники"
     adapter: api
     enabled: true
+    use_proxy: true
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
@@ -869,6 +873,7 @@ sources:
     name: "Cooperation.uz Конверты"
     adapter: api
     enabled: true
+    use_proxy: true
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
@@ -898,6 +903,7 @@ sources:
     name: "Cooperation.uz Стикеры/Наклейки"
     adapter: api
     enabled: true
+    use_proxy: true
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
@@ -927,6 +933,7 @@ sources:
     name: "Cooperation.uz Брошюры/Буклеты"
     adapter: api
     enabled: true
+    use_proxy: true
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
@@ -956,6 +963,7 @@ sources:
     name: "Cooperation.uz Календари"
     adapter: api
     enabled: true
+    use_proxy: true
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
@@ -985,6 +993,7 @@ sources:
     name: "Cooperation.uz Bosma (узб.)"
     adapter: api
     enabled: true
+    use_proxy: true
     url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
     method: GET
     params:
@@ -2691,36 +2700,76 @@ sources:
       max_pages: 5
       page_start: 0
 
-  # ── Ebirja встречные торги (counter-trade) — требует JWT через E-IMZO ──
-  # TODO: правильный endpoint неизвестен (все варианты 404). Исследовать через DevTools после E-IMZO входа
-  - id: ebirja-counter-trade
-    name: "E-Birja встречные торги"
+  # ── Ebirja встречные аукционные торги (reverse-auction) ──
+  # Биржевая сторона ebirja.uz (не госзакупки xarid.ebirja.uz)
+  # 2026-04-13: переключен на API (SPA wait_selector "table" таймаутит — API отдаёт {"success":true} без данных)
+  # API endpoint обнаружен через Playwright network intercept: fond-api/api/external/auction-product/all
+  # Пока API пуст — оставляем enabled, будем мониторить
+  - id: ebirja-reverse-auction
+    name: "E-Birja встречные аукционы"
     adapter: api
-    enabled: false  # DISABLED: endpoint 404, нужно найти правильный URL
-    url: "https://xarid-api.ebirja.uz/counter-trade/list"
+    enabled: true
+    url: "https://api.ebirja.uz/fond-api/api/external/auction-product/all"
     method: GET
+    headers:
+      Accept: "application/json"
+      Referer: "https://ebirja.uz/ru/trade/reverse-auction"
+      Origin: "https://ebirja.uz"
+    params: {"page": 0, "size": 1000}
     rate_limit: 2.0
     timeout: 15
-    id_prefix: "ebirja-ct"
-    auth_platform: "ebirja"
-    auth_header_name: "Authorization"
-    auth_header_prefix: "Bearer"
-    response_path: "result.data"
+    id_prefix: "ebirja-ra"
+    response_path: "data"
     field_map:
-      title: "title"
-      organization: "company.title"
-      price: "total_sum"
+      title: "name"
+      organization: "company_name"
+      price: "price"
       currency: "UZS"
-      deadline: "close_at"
-      date_start: "begin_date"
+      deadline: "end_date"
       external_id: "id"
-      region: "region.title_ru"
-      source_url_template: "https://xarid.ebirja.uz/ru/counter-trade/{id}"
-    keywords_fields: ["title", "company.title"]
-    pagination:
-      type: page
-      param: "page"
-      size_param: "size"
-      page_size: 100
-      max_pages: 10
-      page_start: 0
+      source_url_template: "https://ebirja.uz/ru/trade/reverse-auction"
+    keywords_fields: ["name", "company_name"]
+
+  # ── Ebirja встречные аукционы — листинг ──
+  - id: ebirja-reverse-listing
+    name: "E-Birja встречный аукцион (листинг)"
+    adapter: spa
+    enabled: true
+    url: "https://ebirja.uz/ru/trade/reverse-listing"
+    rate_limit: 0.3
+    timeout: 45
+    id_prefix: "ebirja-rl"
+    wait_selector: "table"
+    html_selectors:
+      container: "table tbody tr"
+      title: "td:nth-child(2)"
+      organization: "td:nth-child(6)"
+      price: "td:nth-child(8)"
+      deadline: "td:nth-child(11)"
+      link: "td:nth-child(2) a"
+    field_map:
+      currency: "UZS"
+      source_url_template: "https://ebirja.uz/ru/trade/reverse-listing"
+    keywords_fields: ["title"]
+
+  # ── Ebirja ежедневные объявления торгов ──
+  - id: ebirja-announcements
+    name: "E-Birja объявления торгов"
+    adapter: spa
+    enabled: true
+    url: "https://ebirja.uz/ru/trade/announcements"
+    rate_limit: 0.3
+    timeout: 45
+    id_prefix: "ebirja-ann"
+    wait_selector: "table"
+    html_selectors:
+      container: "table tbody tr"
+      title: "td:nth-child(4)"
+      organization: "td:nth-child(6)"
+      price: "td:nth-child(8)"
+      deadline: "td:nth-child(11)"
+      link: "td:nth-child(4) a"
+    field_map:
+      currency: "UZS"
+      source_url_template: "https://ebirja.uz/ru/trade/announcements"
+    keywords_fields: ["title"]

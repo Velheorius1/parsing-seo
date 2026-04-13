@@ -1,10 +1,12 @@
 """Results tracker — monitors completed tenders for winners and prices.
 
 Uses UZEX CivilContracts/GetResulted API (public, 5000+ results).
-Updates tender records with winner info and sends Telegram alerts.
+Upserts completed deals into tenders table with winner, price, discount.
+Sends Telegram alerts for results in our niche.
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 import httpx
@@ -15,12 +17,14 @@ logger = logging.getLogger(__name__)
 
 # UZEX CivilContracts API — public endpoint for completed deals
 _UZEX_RESULTS_URL = "https://apietender.uzex.uz/api/CivilContracts/GetResulted"
-_UZEX_NOT_RESULTED_URL = "https://apietender.uzex.uz/api/CivilContracts/GetNotResulted"
+
+# Source name for upserted results
+_RESULTS_SOURCE = "UZEX Результаты"
 
 
 async def _fetch_uzex_results(
     client: httpx.AsyncClient,
-    limit: int = 200,
+    limit: int = 500,
 ) -> List[dict]:
     """Fetch completed deals from UZEX CivilContracts API.
 
@@ -53,11 +57,9 @@ async def _fetch_uzex_results(
         if isinstance(data, list):
             return data
         if isinstance(data, dict):
-            # UZEX wraps in {0: [...], total_count: N} or {data: [...]}
             for key in ("data", "items", "result"):
                 if key in data and isinstance(data[key], list):
                     return data[key]
-            # Indexed pattern
             if "0" in data and isinstance(data["0"], list):
                 return data["0"]
         return []
@@ -66,15 +68,26 @@ async def _fetch_uzex_results(
         return []
 
 
-def _extract_winner_info(item: dict) -> Optional[Dict[str, str]]:
-    """Extract winner info from a CivilContracts result item."""
-    # display_id is the public lot number (e.g. "26120000010097")
-    ext_id = item.get("display_id") or item.get("civil_contract_id")
-    if not ext_id:
+def _calc_discount(start_price, final_price):
+    # type: (Optional[float], Optional[float]) -> Optional[float]
+    """Calculate discount percentage: (start - final) / start * 100."""
+    if not start_price or not final_price or start_price <= 0:
         return None
-    ext_id = str(ext_id).strip()
+    discount = (start_price - final_price) / start_price * 100.0
+    return round(discount, 1)
 
-    result = {"external_id": ext_id}
+
+def _build_result_row(item):
+    # type: (dict) -> Optional[dict]
+    """Build a tenders table row from a CivilContracts result item."""
+    display_id = item.get("display_id") or item.get("civil_contract_id")
+    if not display_id:
+        return None
+
+    ext_id = str(display_id).strip()
+    title = (item.get("civil_name") or "").strip()
+    if not title:
+        return None
 
     # Winner: provider_name or fallback to provider_inn
     winner = item.get("provider_name")
@@ -82,36 +95,98 @@ def _extract_winner_info(item: dict) -> Optional[Dict[str, str]]:
         inn = item.get("provider_inn")
         if inn:
             winner = "ИНН: %s" % inn
-        addr = item.get("provider_address")
-        if addr and not winner:
-            winner = addr
+        else:
+            addr = item.get("provider_address")
+            if addr:
+                winner = str(addr).strip()
     if winner:
-        result["winner"] = str(winner).strip()
+        winner = str(winner).strip()
 
-    # Price: result_cost (final deal price) > cost (starting price)
-    price = item.get("result_cost") or item.get("cost")
-    if price:
-        try:
-            result["winning_price"] = str(float(price))
-        except (ValueError, TypeError):
-            pass
+    # Prices
+    start_price = None
+    final_price = None
+    try:
+        cost = item.get("cost")
+        if cost:
+            start_price = float(cost)
+    except (ValueError, TypeError):
+        pass
+    try:
+        result_cost = item.get("result_cost")
+        if result_cost:
+            final_price = float(result_cost)
+    except (ValueError, TypeError):
+        pass
+
+    discount = _calc_discount(start_price, final_price)
+
+    # Status
+    status_name = item.get("status_name", "")
+    status = "completed" if "совершена" in status_name.lower() else "cancelled"
+
+    # Customer
+    customer = (item.get("customer_name") or "").strip()
 
     # Deal date
     deal_date = item.get("deal_date")
-    if deal_date:
-        result["result_date"] = str(deal_date)
+    result_date = str(deal_date) if deal_date else None
 
-    # Status
-    status = item.get("status_name", "")
-    result["status"] = "completed" if status.lower() == "сделка совершена" else "cancelled"
+    # Currency
+    currency_name = item.get("currency_name", "")
+    currency = "UZS"
+    if currency_name and "сом" not in currency_name.lower():
+        currency = currency_name
 
-    return result
+    row = {
+        "external_id": "result-%s" % ext_id,
+        "title": title,
+        "organization": customer,
+        "price": start_price,
+        "winning_price": final_price,
+        "currency": currency,
+        "winner": winner,
+        "status": status,
+        "result_date": result_date,
+        "source": _RESULTS_SOURCE,
+        "source_url": "https://etender.uzex.uz/lot/%s" % ext_id,
+        "search_text": ("%s %s %s" % (title, customer, winner or "")).strip(),
+        "collected_at": datetime.now(timezone.utc).isoformat(),
+        "message_type": "result",
+    }
+    # Add discount as JSON metadata (no extra DB column needed)
+    # We store it in the 'region' field as "discount:XX.X%"
+    if discount is not None:
+        row["region"] = "скидка: %.1f%%" % discount
+
+    return row
 
 
-async def update_results(dry_run: bool = False) -> int:
-    """Fetch completed tender results and update DB records.
+def _matches_niche(text):
+    # type: (str) -> bool
+    """Check if text matches our niche keywords (printing/packaging)."""
+    text_lower = text.lower()
+    niche_keywords = [
+        "упаков", "полиграф", "печат", "этикет", "стикер",
+        "коробк", "гофр", "картон", "пакет", "конверт",
+        "блокнот", "брошюр", "календар", "каталог",
+        "bosma", "pechat", "paket", "konvert", "etiket",
+        "qadoq", "quti", "yorliq", "stikerlar",
+    ]
+    for kw in niche_keywords:
+        if kw in text_lower:
+            return True
+    return False
 
-    Returns number of tenders updated with result info.
+
+async def update_results(dry_run=False):
+    # type: (bool) -> int
+    """Fetch completed tender results and upsert into DB.
+
+    Strategy: upsert results as separate records (source='UZEX Результаты')
+    with winner, winning_price, discount info. This avoids the ID mismatch
+    between TradeList display_no and CivilContracts display_id.
+
+    Returns number of results upserted.
     """
     if not settings.supabase_url or not settings.supabase_service_role_key:
         logger.debug("[Results] Supabase not configured, skipping")
@@ -120,10 +195,7 @@ async def update_results(dry_run: bool = False) -> int:
     from supabase import create_client
     db = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
-    updated = 0
-
     async with httpx.AsyncClient(timeout=20) as client:
-        # Fetch UZEX completed deals
         results = await _fetch_uzex_results(client)
         if not results:
             logger.info("[Results] No UZEX results fetched")
@@ -131,107 +203,132 @@ async def update_results(dry_run: bool = False) -> int:
 
         logger.info("[Results] Fetched %d UZEX deal results", len(results))
 
+        # Build rows for upsert (deduplicate by external_id)
+        seen_ids = {}  # type: Dict[str, dict]
+        niche_rows = []
         for item in results:
-            info = _extract_winner_info(item)
-            if not info:
+            row = _build_result_row(item)
+            if not row:
                 continue
+            # Only completed deals
+            if row["status"] != "completed":
+                continue
+            # Deduplicate — keep last occurrence
+            seen_ids[row["external_id"]] = row
+            if _matches_niche(row["search_text"]):
+                niche_rows.append(row)
+        rows = list(seen_ids.values())
 
-            ext_id = info["external_id"]
-            update_data = {"status": info.get("status", "completed")}
-            if "winner" in info:
-                update_data["winner"] = info["winner"]
-            if "winning_price" in info:
-                update_data["winning_price"] = float(info["winning_price"])
-            if "result_date" in info:
-                update_data["result_date"] = info["result_date"]
+        if not rows:
+            logger.info("[Results] No completed deals to upsert")
+            return 0
 
-            if dry_run:
+        logger.info(
+            "[Results] %d completed deals (%d in our niche)",
+            len(rows), len(niche_rows),
+        )
+
+        if dry_run:
+            for r in niche_rows[:10]:
+                discount_info = r.get("region", "")
                 logger.info(
-                    "[Results] DRY RUN: %s winner=%s price=%s",
-                    ext_id, info.get("winner", "?")[:40], info.get("winning_price", "?"),
+                    "[Results] DRY RUN NICHE: %s | winner=%s | price=%.0f | %s",
+                    (r["title"])[:60],
+                    (r.get("winner") or "?")[:30],
+                    r.get("winning_price") or 0,
+                    discount_info,
                 )
-                updated += 1
-                continue
+            return len(rows)
 
-            # Try to match by display_id in external_id field
-            # ETender external_id format: "etender-{display_no}"
+        # Upsert in batches of 500
+        upserted = 0
+        batch_size = 500
+        for i in range(0, len(rows), batch_size):
+            batch = rows[i:i + batch_size]
             try:
-                resp = (
-                    db.table("tenders")
-                    .update(update_data)
-                    .eq("external_id", "etender-%s" % ext_id)
-                    .execute()
-                )
-                if resp.data:
-                    updated += 1
+                db.table("tenders").upsert(
+                    batch, on_conflict="external_id,source"
+                ).execute()
+                upserted += len(batch)
             except Exception as exc:
-                logger.warning("[Results] DB update failed for %s: %s", ext_id, str(exc)[:80])
+                logger.error("[Results] Upsert batch %d failed: %s", i, str(exc)[:120])
 
-    if updated:
-        logger.info("[Results] Updated %d tenders with result data", updated)
+        logger.info("[Results] Upserted %d result records", upserted)
 
-    # Send alert for results in our niche (only if we actually updated something)
-    if updated > 0 and not dry_run:
-        await _alert_niche_results(db)
+        # Send alert for niche results
+        if niche_rows:
+            await _alert_niche_results(niche_rows)
 
-    return updated
+        return upserted
 
 
-async def _alert_niche_results(db) -> None:
-    """Send Telegram alert for recently completed tenders in our niche.
-
-    Only alerts for tenders that matched our keywords (have matched_keywords).
-    """
+async def _alert_niche_results(niche_rows):
+    # type: (List[dict]) -> None
+    """Send Telegram alert for completed tenders in our niche with discount %."""
     if not settings.telegram_bot_token or not settings.telegram_alert_chat_id:
         return
 
     try:
-        # Get recently completed tenders that match our keywords
-        resp = (
-            db.table("tenders")
-            .select("title,organization,winner,winning_price,currency,source_url,matched_keywords")
-            .eq("status", "completed")
-            .not_.is_("winner", "null")
-            .order("updated_at", desc=True)
-            .limit(10)
-            .execute()
-        )
-        if not resp.data:
-            return
-
-        # Filter to only our niche (has matched keywords)
-        niche = [t for t in resp.data if t.get("matched_keywords")]
-        if not niche:
-            return
-
         parts = ["*Результаты тендеров (наша ниша):*", ""]
-        for t in niche[:5]:
-            title = (t.get("title") or "")[:100]
+
+        for row in niche_rows[:7]:
+            title = (row.get("title") or "")[:80]
+            # Escape markdown
             for ch in ("*", "_", "`", "["):
                 title = title.replace(ch, "")
-            winner = t.get("winner", "?")
-            price = t.get("winning_price")
+
+            winner = row.get("winner") or "?"
+            for ch in ("*", "_", "`", "["):
+                winner = winner.replace(ch, "")
+
+            start_price = row.get("price")
+            final_price = row.get("winning_price")
+            discount = _calc_discount(start_price, final_price)
+
             line = "- %s" % title
-            if winner:
-                line += "\n  Победитель: %s" % winner
-            if price:
-                line += " | %s %s" % ("{:,.0f}".format(float(price)), t.get("currency", "UZS"))
-            url = t.get("source_url")
-            if url:
-                line += "\n  %s" % url
+
+            # Customer
+            org = row.get("organization", "")
+            if org:
+                for ch in ("*", "_", "`", "["):
+                    org = org.replace(ch, "")
+                line += "\n  Заказчик: %s" % org[:50]
+
+            # Winner
+            line += "\n  Победитель: %s" % winner[:50]
+
+            # Prices + discount
+            if start_price and final_price:
+                line += "\n  Цена: %s -> %s %s" % (
+                    "{:,.0f}".format(start_price),
+                    "{:,.0f}".format(final_price),
+                    row.get("currency", "UZS"),
+                )
+                if discount is not None:
+                    line += " (-%s%%)" % "{:.1f}".format(discount)
+            elif final_price:
+                line += "\n  Цена: %s %s" % (
+                    "{:,.0f}".format(final_price),
+                    row.get("currency", "UZS"),
+                )
+
             parts.append(line)
+            parts.append("")  # empty line between items
 
         text = "\n".join(parts)
-        bot_url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
 
+        bot_url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
         async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(bot_url, json={
+            resp = await client.post(bot_url, json={
                 "chat_id": settings.telegram_alert_chat_id,
                 "text": text,
                 "parse_mode": "Markdown",
                 "disable_web_page_preview": True,
                 "disable_notification": True,
             })
-            logger.info("[Results] Sent niche results alert (%d items)", len(niche[:5]))
+            if resp.status_code == 200:
+                logger.info("[Results] Sent niche results alert (%d items)", len(niche_rows[:7]))
+            else:
+                logger.warning("[Results] Telegram send failed: %d %s", resp.status_code, resp.text[:100])
     except Exception as exc:
         logger.warning("[Results] Alert send failed: %s", str(exc)[:80])
