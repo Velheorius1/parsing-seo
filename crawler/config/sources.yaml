@@ -739,7 +739,7 @@ sources:
       currency: "UZS"
       deadline: ""
       external_id: id
-      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+      source_url_template: "https://new.cooperation.uz/plan-schedule"
     keywords_fields: [productName.ru, productName.uz, companyName.ru]
     pagination:
       type: offset
@@ -769,7 +769,7 @@ sources:
       organization: companyName.ru
       region: regionName.ru
       external_id: id
-      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+      source_url_template: "https://new.cooperation.uz/plan-schedule"
     keywords_fields: [productName.ru, productName.uz]
     pagination:
       type: offset
@@ -799,7 +799,7 @@ sources:
       organization: companyName.ru
       region: regionName.ru
       external_id: id
-      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+      source_url_template: "https://new.cooperation.uz/plan-schedule"
     keywords_fields: [productName.ru, productName.uz]
     pagination:
       type: offset
@@ -829,7 +829,7 @@ sources:
       organization: companyName.ru
       region: regionName.ru
       external_id: id
-      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+      source_url_template: "https://new.cooperation.uz/plan-schedule"
     keywords_fields: [productName.ru, productName.uz]
     pagination:
       type: offset
@@ -859,7 +859,7 @@ sources:
       organization: companyName.ru
       region: regionName.ru
       external_id: id
-      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+      source_url_template: "https://new.cooperation.uz/plan-schedule"
     keywords_fields: [productName.ru, productName.uz]
     pagination:
       type: offset
@@ -889,7 +889,7 @@ sources:
       organization: companyName.ru
       region: regionName.ru
       external_id: id
-      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+      source_url_template: "https://new.cooperation.uz/plan-schedule"
     keywords_fields: [productName.ru, productName.uz]
     pagination:
       type: offset
@@ -919,7 +919,7 @@ sources:
       organization: companyName.ru
       region: regionName.ru
       external_id: id
-      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+      source_url_template: "https://new.cooperation.uz/plan-schedule"
     keywords_fields: [productName.ru, productName.uz]
     pagination:
       type: offset
@@ -949,7 +949,7 @@ sources:
       organization: companyName.ru
       region: regionName.ru
       external_id: id
-      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+      source_url_template: "https://new.cooperation.uz/plan-schedule"
     keywords_fields: [productName.ru, productName.uz]
     pagination:
       type: offset
@@ -979,7 +979,7 @@ sources:
       organization: companyName.ru
       region: regionName.ru
       external_id: id
-      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+      source_url_template: "https://new.cooperation.uz/plan-schedule"
     keywords_fields: [productName.ru, productName.uz]
     pagination:
       type: offset
@@ -1009,7 +1009,7 @@ sources:
       organization: companyName.ru
       region: regionName.ru
       external_id: id
-      source_url_template: "https://new.cooperation.uz/supplier/plans?planId={id}"
+      source_url_template: "https://new.cooperation.uz/plan-schedule"
     keywords_fields: [productName.ru, productName.uz]
     pagination:
       type: offset
