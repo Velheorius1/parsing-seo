@@ -216,7 +216,7 @@ sources:
     rate_limit: 1
     timeout: 30
     id_prefix: "minstroy"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
       title: name
       organization: customer.name
@@ -665,7 +665,7 @@ sources:
     rate_limit: 2
     timeout: 15
     id_prefix: "ebirja-es"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
       title: title
       organization: made_in
@@ -695,7 +695,7 @@ sources:
     rate_limit: 2
     timeout: 15
     id_prefix: "ebirja-ns"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
       title: title
       organization: made_in
@@ -713,311 +713,351 @@ sources:
       max_pages: 2
 
   # cooperation.uz — uses residential proxy (UZ geo-IP required)
-  # API: GET /ocelot/api-client/Client/GetAllPlanSchedule?Skip=0&Take=500
-  # 375k+ procurement plans with productName, companyName, etc.
-  # Uses ProductName filter to fetch only relevant records (~6k out of 375k)
+  # API: GET cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client
+  # 86k+ procurement plans. Requires browser User-Agent + Origin headers.
+  # Uses productName filter to fetch only relevant records
   - id: cooperation-print
     name: "Cooperation.uz Полиграфия"
     adapter: api
     enabled: true
     use_proxy: true
-    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Origin: "https://new.cooperation.uz"
+      Referer: "https://new.cooperation.uz/"
+    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
     method: GET
     params:
-      Skip: 0
-      Take: 500
-      ProductName: "полиграф"
+      skip: 0
+      take: 500
+      productName: "полиграф"
     rate_limit: 2
     timeout: 30
     id_prefix: "coop"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
-      title: productName.ru
+      title: name.ru
       organization: companyName.ru
-      region: regionName.ru
+      region: supplyRegion.ru
       price: ""
       currency: "UZS"
       deadline: ""
-      external_id: id
-      source_url_template: "https://new.cooperation.uz/plan-schedule"
-    keywords_fields: [productName.ru, productName.uz, companyName.ru]
+      external_id: guid
+      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+    keywords_fields: [name.ru, name.uz, companyName.ru]
     pagination:
       type: offset
-      param: "Skip"
+      param: "skip"
       size_param: ~
       page_size: 500
       max_pages: 20
-      total_field: "result.total"
+      total_field: "pagination.totalItems"
 
   - id: cooperation-etiketka
     name: "Cooperation.uz Этикетки"
     adapter: api
     enabled: true
     use_proxy: true
-    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Origin: "https://new.cooperation.uz"
+      Referer: "https://new.cooperation.uz/"
+    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
     method: GET
     params:
-      Skip: 0
-      Take: 500
-      ProductName: "этикетка"
+      skip: 0
+      take: 500
+      productName: "этикетка"
     rate_limit: 2
     timeout: 30
     id_prefix: "coop"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
-      title: productName.ru
+      title: name.ru
       organization: companyName.ru
-      region: regionName.ru
-      external_id: id
-      source_url_template: "https://new.cooperation.uz/plan-schedule"
-    keywords_fields: [productName.ru, productName.uz]
+      region: supplyRegion.ru
+      external_id: guid
+      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+    keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
-      param: "Skip"
+      param: "skip"
       size_param: ~
       page_size: 500
       max_pages: 20
-      total_field: "result.total"
+      total_field: "pagination.totalItems"
 
   - id: cooperation-pechat
     name: "Cooperation.uz Печать"
     adapter: api
     enabled: true
     use_proxy: true
-    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Origin: "https://new.cooperation.uz"
+      Referer: "https://new.cooperation.uz/"
+    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
     method: GET
     params:
-      Skip: 0
-      Take: 500
-      ProductName: "печать"
+      skip: 0
+      take: 500
+      productName: "печать"
     rate_limit: 2
     timeout: 30
     id_prefix: "coop"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
-      title: productName.ru
+      title: name.ru
       organization: companyName.ru
-      region: regionName.ru
-      external_id: id
-      source_url_template: "https://new.cooperation.uz/plan-schedule"
-    keywords_fields: [productName.ru, productName.uz]
+      region: supplyRegion.ru
+      external_id: guid
+      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+    keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
-      param: "Skip"
+      param: "skip"
       size_param: ~
       page_size: 500
       max_pages: 20
-      total_field: "result.total"
+      total_field: "pagination.totalItems"
 
   - id: cooperation-paket
     name: "Cooperation.uz Пакеты"
     adapter: api
     enabled: true
     use_proxy: true
-    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Origin: "https://new.cooperation.uz"
+      Referer: "https://new.cooperation.uz/"
+    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
     method: GET
     params:
-      Skip: 0
-      Take: 500
-      ProductName: "пакет"
+      skip: 0
+      take: 500
+      productName: "пакет"
     rate_limit: 2
     timeout: 30
     id_prefix: "coop"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
-      title: productName.ru
+      title: name.ru
       organization: companyName.ru
-      region: regionName.ru
-      external_id: id
-      source_url_template: "https://new.cooperation.uz/plan-schedule"
-    keywords_fields: [productName.ru, productName.uz]
+      region: supplyRegion.ru
+      external_id: guid
+      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+    keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
-      param: "Skip"
+      param: "skip"
       size_param: ~
       page_size: 500
       max_pages: 20
-      total_field: "result.total"
+      total_field: "pagination.totalItems"
 
   - id: cooperation-bloknot
     name: "Cooperation.uz Блокноты/Ежедневники"
     adapter: api
     enabled: true
     use_proxy: true
-    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Origin: "https://new.cooperation.uz"
+      Referer: "https://new.cooperation.uz/"
+    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
     method: GET
     params:
-      Skip: 0
-      Take: 500
-      ProductName: "блокнот"
+      skip: 0
+      take: 500
+      productName: "блокнот"
     rate_limit: 2
     timeout: 30
     id_prefix: "coop"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
-      title: productName.ru
+      title: name.ru
       organization: companyName.ru
-      region: regionName.ru
-      external_id: id
-      source_url_template: "https://new.cooperation.uz/plan-schedule"
-    keywords_fields: [productName.ru, productName.uz]
+      region: supplyRegion.ru
+      external_id: guid
+      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+    keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
-      param: "Skip"
+      param: "skip"
       size_param: ~
       page_size: 500
       max_pages: 20
-      total_field: "result.total"
+      total_field: "pagination.totalItems"
 
   - id: cooperation-konvert
     name: "Cooperation.uz Конверты"
     adapter: api
     enabled: true
     use_proxy: true
-    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Origin: "https://new.cooperation.uz"
+      Referer: "https://new.cooperation.uz/"
+    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
     method: GET
     params:
-      Skip: 0
-      Take: 500
-      ProductName: "конверт"
+      skip: 0
+      take: 500
+      productName: "конверт"
     rate_limit: 2
     timeout: 30
     id_prefix: "coop"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
-      title: productName.ru
+      title: name.ru
       organization: companyName.ru
-      region: regionName.ru
-      external_id: id
-      source_url_template: "https://new.cooperation.uz/plan-schedule"
-    keywords_fields: [productName.ru, productName.uz]
+      region: supplyRegion.ru
+      external_id: guid
+      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+    keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
-      param: "Skip"
+      param: "skip"
       size_param: ~
       page_size: 500
       max_pages: 20
-      total_field: "result.total"
+      total_field: "pagination.totalItems"
 
   - id: cooperation-stiker
     name: "Cooperation.uz Стикеры/Наклейки"
     adapter: api
     enabled: true
     use_proxy: true
-    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Origin: "https://new.cooperation.uz"
+      Referer: "https://new.cooperation.uz/"
+    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
     method: GET
     params:
-      Skip: 0
-      Take: 500
-      ProductName: "стикер"
+      skip: 0
+      take: 500
+      productName: "стикер"
     rate_limit: 2
     timeout: 30
     id_prefix: "coop"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
-      title: productName.ru
+      title: name.ru
       organization: companyName.ru
-      region: regionName.ru
-      external_id: id
-      source_url_template: "https://new.cooperation.uz/plan-schedule"
-    keywords_fields: [productName.ru, productName.uz]
+      region: supplyRegion.ru
+      external_id: guid
+      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+    keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
-      param: "Skip"
+      param: "skip"
       size_param: ~
       page_size: 500
       max_pages: 20
-      total_field: "result.total"
+      total_field: "pagination.totalItems"
 
   - id: cooperation-broshyura
     name: "Cooperation.uz Брошюры/Буклеты"
     adapter: api
     enabled: true
     use_proxy: true
-    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Origin: "https://new.cooperation.uz"
+      Referer: "https://new.cooperation.uz/"
+    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
     method: GET
     params:
-      Skip: 0
-      Take: 500
-      ProductName: "брошюра"
+      skip: 0
+      take: 500
+      productName: "брошюра"
     rate_limit: 2
     timeout: 30
     id_prefix: "coop"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
-      title: productName.ru
+      title: name.ru
       organization: companyName.ru
-      region: regionName.ru
-      external_id: id
-      source_url_template: "https://new.cooperation.uz/plan-schedule"
-    keywords_fields: [productName.ru, productName.uz]
+      region: supplyRegion.ru
+      external_id: guid
+      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+    keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
-      param: "Skip"
+      param: "skip"
       size_param: ~
       page_size: 500
       max_pages: 20
-      total_field: "result.total"
+      total_field: "pagination.totalItems"
 
   - id: cooperation-kalendar
     name: "Cooperation.uz Календари"
     adapter: api
     enabled: true
     use_proxy: true
-    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Origin: "https://new.cooperation.uz"
+      Referer: "https://new.cooperation.uz/"
+    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
     method: GET
     params:
-      Skip: 0
-      Take: 500
-      ProductName: "календарь"
+      skip: 0
+      take: 500
+      productName: "календарь"
     rate_limit: 2
     timeout: 30
     id_prefix: "coop"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
-      title: productName.ru
+      title: name.ru
       organization: companyName.ru
-      region: regionName.ru
-      external_id: id
-      source_url_template: "https://new.cooperation.uz/plan-schedule"
-    keywords_fields: [productName.ru, productName.uz]
+      region: supplyRegion.ru
+      external_id: guid
+      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+    keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
-      param: "Skip"
+      param: "skip"
       size_param: ~
       page_size: 500
       max_pages: 20
-      total_field: "result.total"
+      total_field: "pagination.totalItems"
 
   - id: cooperation-bosma
     name: "Cooperation.uz Bosma (узб.)"
     adapter: api
     enabled: true
     use_proxy: true
-    url: "https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule"
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Origin: "https://new.cooperation.uz"
+      Referer: "https://new.cooperation.uz/"
+    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
     method: GET
     params:
-      Skip: 0
-      Take: 500
-      ProductName: "bosma"
+      skip: 0
+      take: 500
+      productName: "bosma"
     rate_limit: 2
     timeout: 30
     id_prefix: "coop"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
-      title: productName.ru
+      title: name.ru
       organization: companyName.ru
-      region: regionName.ru
-      external_id: id
-      source_url_template: "https://new.cooperation.uz/plan-schedule"
-    keywords_fields: [productName.ru, productName.uz]
+      region: supplyRegion.ru
+      external_id: guid
+      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+    keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
-      param: "Skip"
+      param: "skip"
       size_param: ~
       page_size: 500
       max_pages: 20
-      total_field: "result.total"
+      total_field: "pagination.totalItems"
 
   - id: agro-uzex
     name: "agro.uzex.uz"
@@ -1917,7 +1957,7 @@ sources:
       external_id: id
       source_url_template: "https://tender.mc.uz/tender/{id}"
     keywords_fields: [name]
-    response_path: "result.data"
+    response_path: "data"
 
   - id: fdg
     name: "FDG (First Development Group)"
@@ -2688,7 +2728,7 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "ebirja-auc"
-    response_path: "result.data"
+    response_path: "data"
     field_map:
       title: "title"
       organization: "company.title"
