@@ -303,6 +303,10 @@ def _format_alert(
         parts.append("Сумма: %s %s" % ("{:,.0f}".format(tender.price), tender.currency))
     if tender.deadline:
         parts.append("Дедлайн: %s" % tender.deadline)
+    # Extra per-source info (region, delivery days, etc.)
+    if tender.extra_info:
+        for label, value in tender.extra_info.items():
+            parts.append("%s: %s" % (_escape_md(label), _escape_md(value)))
     # Show all sources if tender found on multiple platforms
     if extra_sources and len(extra_sources) > 1:
         parts.append("Площадки (%d): %s" % (len(extra_sources), ", ".join(extra_sources)))

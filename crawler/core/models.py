@@ -29,6 +29,10 @@ class FieldMap(BaseModel):
     categories: Optional[str] = None
     external_id: Optional[str] = "id"
     source_url_template: Optional[str] = None
+    # Extra info rendered in TG alert under main fields.
+    # Key = display label, Value = dot-path OR template with {field.path} placeholders.
+    # Example: {"Район": "supplyDistrict.ru", "Срок поставки": "{deliveryPeriod} дн"}
+    extra_info: Optional[Dict[str, str]] = None
 
 
 class HtmlSelectors(BaseModel):
@@ -91,6 +95,12 @@ class SourceConfig(BaseModel):
     auth_header_prefix: str = "Bearer"
     # Proxy — use residential proxy for geo-restricted sources
     use_proxy: bool = False
+    # Client-side item filter — applied to raw dict items BEFORE _convert_all.
+    # Keys are dot-paths supporting [*] wildcard for list iteration.
+    # Values are either scalars (equality) or {op: value} where op is eq/ne/gt/gte/lt/lte.
+    # Wildcard paths get "any" semantics: matches if ANY element satisfies the predicate.
+    # Example: {"unit": {"gt": 0}, "products[*].quantity": {"gt": 0}}
+    item_filter: Optional[Dict[str, Any]] = None
 
 
 class SourcesConfig(BaseModel):
@@ -124,3 +134,6 @@ class RawTender(BaseModel):
     winning_price: Optional[float] = None
     result_date: Optional[str] = None
     group_id: Optional[str] = None
+    # Extra display fields rendered in TG alert (from field_map.extra_info).
+    # Key = display label (Russian), Value = resolved text.
+    extra_info: Dict[str, str] = Field(default_factory=dict)

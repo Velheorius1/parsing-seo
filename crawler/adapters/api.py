@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -53,6 +54,120 @@ def _get_field(item: Dict[str, Any], path: str, default: Any = None) -> Any:
     if "." in path:
         return _resolve_path(item, path)
     return item.get(path, default)
+
+
+_TEMPLATE_RE = re.compile(r"\{([^{}]+)\}")
+
+
+def _resolve_wildcard_path(item, path):
+    # type: (Any, str) -> List[Any]
+    """Resolve dot-path possibly containing [*] list wildcards. Returns list of values."""
+    # Normalize [*] to a single * segment
+    parts = path.replace("[*]", ".*").split(".")
+    current = [item]  # type: List[Any]
+    for part in parts:
+        if part == "":
+            continue
+        next_level = []  # type: List[Any]
+        for v in current:
+            if part == "*":
+                if isinstance(v, list):
+                    next_level.extend(v)
+            elif isinstance(v, dict):
+                if part in v:
+                    next_level.append(v[part])
+            elif isinstance(v, list):
+                try:
+                    next_level.append(v[int(part)])
+                except (IndexError, ValueError):
+                    pass
+        current = next_level
+    return current
+
+
+def _scalar_compare(a, op, b):
+    # type: (Any, str, Any) -> bool
+    """Compare a op b. Supports eq/ne/gt/gte/lt/lte."""
+    if op == "eq":
+        return a == b
+    if op == "ne":
+        return a != b
+    try:
+        a_num = float(a) if a is not None else None
+        b_num = float(b) if b is not None else None
+    except (TypeError, ValueError):
+        return False
+    if a_num is None or b_num is None:
+        return False
+    if op == "gt":
+        return a_num > b_num
+    if op == "gte":
+        return a_num >= b_num
+    if op == "lt":
+        return a_num < b_num
+    if op == "lte":
+        return a_num <= b_num
+    return False
+
+
+def _match_predicate(item, path, pred):
+    # type: (Any, str, Any) -> bool
+    """
+    Match item[path] against pred. pred is either:
+      - scalar → equality
+      - dict {op: value} → scalar compare
+    Wildcard paths (containing [*]) use "any" semantics.
+    """
+    if isinstance(pred, dict) and len(pred) == 1:
+        op, expected = next(iter(pred.items()))
+    else:
+        op, expected = "eq", pred
+
+    wildcard = "[*]" in path or ".*" in path
+    values = _resolve_wildcard_path(item, path)
+
+    if wildcard:
+        return any(_scalar_compare(v, op, expected) for v in values)
+    if not values:
+        return op == "ne"
+    return _scalar_compare(values[0], op, expected)
+
+
+def _apply_item_filter(items, item_filter):
+    # type: (List[Dict[str, Any]], Optional[Dict[str, Any]]) -> List[Dict[str, Any]]
+    """Keep only items where every entry in item_filter matches."""
+    if not item_filter:
+        return items
+    result = []  # type: List[Dict[str, Any]]
+    for it in items:
+        if all(_match_predicate(it, p, pred) for p, pred in item_filter.items()):
+            result.append(it)
+    return result
+
+
+def _resolve_extra_info_value(item, spec):
+    # type: (Dict[str, Any], str) -> str
+    """Resolve extra_info value. If spec contains {...} → template; else → dot-path."""
+    if not spec:
+        return ""
+    if "{" in spec and "}" in spec:
+        def repl(m):
+            # type: (Any) -> str
+            p = m.group(1).strip()
+            vals = _resolve_wildcard_path(item, p)
+            if not vals:
+                return ""
+            return _safe_str(vals[0])
+
+        rendered = _TEMPLATE_RE.sub(repl, spec)
+        stripped = rendered.strip()
+        if not re.sub(r"[\s\-–—,.:;/]+", "", stripped):
+            return ""
+        return stripped
+    vals = _resolve_wildcard_path(item, spec)
+    if not vals:
+        return ""
+    return _safe_str(vals[0])
 
 
 class ApiAdapter(BaseAdapter):
@@ -115,6 +230,15 @@ class ApiAdapter(BaseAdapter):
                     client, cfg.url, cfg.method, cfg.params, cfg.body
                 )
                 all_items = self._extract_items(raw)
+
+        # Client-side item filter (e.g. drop noise items with zero quantity/price)
+        if cfg.item_filter:
+            before = len(all_items)
+            all_items = _apply_item_filter(all_items, cfg.item_filter)
+            logger.info(
+                "[%s] item_filter %s: %d -> %d items",
+                cfg.name, cfg.item_filter, before, len(all_items),
+            )
 
         tenders = self._convert_all(all_items)
 
@@ -484,6 +608,14 @@ class ApiAdapter(BaseAdapter):
             except (ValueError, TypeError):
                 pass
 
+        # Extra info for TG alert (configurable per-source)
+        extra_info = {}  # type: Dict[str, str]
+        if fm.extra_info:
+            for label, spec in fm.extra_info.items():
+                value = _resolve_extra_info_value(item, spec)
+                if value:
+                    extra_info[label] = value
+
         return RawTender(
             id=tender_id,
             external_id=ext_id_val,
@@ -500,4 +632,5 @@ class ApiAdapter(BaseAdapter):
             source_url=source_url,
             status=status,
             search_text=search_text,
+            extra_info=extra_info,
         )

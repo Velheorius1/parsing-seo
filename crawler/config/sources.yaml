@@ -735,6 +735,10 @@ sources:
     timeout: 30
     id_prefix: "coop"
     response_path: "data"
+    item_filter:
+      # Drop noise: tenders with zero total units AND zero quantity in all products
+      unit: {gt: 0}
+      "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
       organization: companyName.ru
@@ -744,6 +748,14 @@ sources:
       deadline: ""
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+      extra_info:
+        "Район": "supplyDistrict.ru"
+        "Адрес": "supplyAddress"
+        "Количество": "{unit}"
+        "Цена за ед.": "{products.0.price} UZS"
+        "Срок поставки": "{deliveryPeriod} дн"
+        "Период плана": "{year}-{month}"
+        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz, companyName.ru]
     pagination:
       type: offset
@@ -772,12 +784,24 @@ sources:
     timeout: 30
     id_prefix: "coop"
     response_path: "data"
+    item_filter:
+      # Drop noise: tenders with zero total units AND zero quantity in all products
+      unit: {gt: 0}
+      "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+      extra_info:
+        "Район": "supplyDistrict.ru"
+        "Адрес": "supplyAddress"
+        "Количество": "{unit}"
+        "Цена за ед.": "{products.0.price} UZS"
+        "Срок поставки": "{deliveryPeriod} дн"
+        "Период плана": "{year}-{month}"
+        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -806,12 +830,24 @@ sources:
     timeout: 30
     id_prefix: "coop"
     response_path: "data"
+    item_filter:
+      # Drop noise: tenders with zero total units AND zero quantity in all products
+      unit: {gt: 0}
+      "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+      extra_info:
+        "Район": "supplyDistrict.ru"
+        "Адрес": "supplyAddress"
+        "Количество": "{unit}"
+        "Цена за ед.": "{products.0.price} UZS"
+        "Срок поставки": "{deliveryPeriod} дн"
+        "Период плана": "{year}-{month}"
+        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -840,12 +876,24 @@ sources:
     timeout: 30
     id_prefix: "coop"
     response_path: "data"
+    item_filter:
+      # Drop noise: tenders with zero total units AND zero quantity in all products
+      unit: {gt: 0}
+      "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+      extra_info:
+        "Район": "supplyDistrict.ru"
+        "Адрес": "supplyAddress"
+        "Количество": "{unit}"
+        "Цена за ед.": "{products.0.price} UZS"
+        "Срок поставки": "{deliveryPeriod} дн"
+        "Период плана": "{year}-{month}"
+        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -874,12 +922,24 @@ sources:
     timeout: 30
     id_prefix: "coop"
     response_path: "data"
+    item_filter:
+      # Drop noise: tenders with zero total units AND zero quantity in all products
+      unit: {gt: 0}
+      "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+      extra_info:
+        "Район": "supplyDistrict.ru"
+        "Адрес": "supplyAddress"
+        "Количество": "{unit}"
+        "Цена за ед.": "{products.0.price} UZS"
+        "Срок поставки": "{deliveryPeriod} дн"
+        "Период плана": "{year}-{month}"
+        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -908,12 +968,24 @@ sources:
     timeout: 30
     id_prefix: "coop"
     response_path: "data"
+    item_filter:
+      # Drop noise: tenders with zero total units AND zero quantity in all products
+      unit: {gt: 0}
+      "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+      extra_info:
+        "Район": "supplyDistrict.ru"
+        "Адрес": "supplyAddress"
+        "Количество": "{unit}"
+        "Цена за ед.": "{products.0.price} UZS"
+        "Срок поставки": "{deliveryPeriod} дн"
+        "Период плана": "{year}-{month}"
+        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -942,12 +1014,24 @@ sources:
     timeout: 30
     id_prefix: "coop"
     response_path: "data"
+    item_filter:
+      # Drop noise: tenders with zero total units AND zero quantity in all products
+      unit: {gt: 0}
+      "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+      extra_info:
+        "Район": "supplyDistrict.ru"
+        "Адрес": "supplyAddress"
+        "Количество": "{unit}"
+        "Цена за ед.": "{products.0.price} UZS"
+        "Срок поставки": "{deliveryPeriod} дн"
+        "Период плана": "{year}-{month}"
+        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -976,12 +1060,24 @@ sources:
     timeout: 30
     id_prefix: "coop"
     response_path: "data"
+    item_filter:
+      # Drop noise: tenders with zero total units AND zero quantity in all products
+      unit: {gt: 0}
+      "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+      extra_info:
+        "Район": "supplyDistrict.ru"
+        "Адрес": "supplyAddress"
+        "Количество": "{unit}"
+        "Цена за ед.": "{products.0.price} UZS"
+        "Срок поставки": "{deliveryPeriod} дн"
+        "Период плана": "{year}-{month}"
+        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -1010,12 +1106,24 @@ sources:
     timeout: 30
     id_prefix: "coop"
     response_path: "data"
+    item_filter:
+      # Drop noise: tenders with zero total units AND zero quantity in all products
+      unit: {gt: 0}
+      "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+      extra_info:
+        "Район": "supplyDistrict.ru"
+        "Адрес": "supplyAddress"
+        "Количество": "{unit}"
+        "Цена за ед.": "{products.0.price} UZS"
+        "Срок поставки": "{deliveryPeriod} дн"
+        "Период плана": "{year}-{month}"
+        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -1044,12 +1152,24 @@ sources:
     timeout: 30
     id_prefix: "coop"
     response_path: "data"
+    item_filter:
+      # Drop noise: tenders with zero total units AND zero quantity in all products
+      unit: {gt: 0}
+      "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
+      extra_info:
+        "Район": "supplyDistrict.ru"
+        "Адрес": "supplyAddress"
+        "Количество": "{unit}"
+        "Цена за ед.": "{products.0.price} UZS"
+        "Срок поставки": "{deliveryPeriod} дн"
+        "Период плана": "{year}-{month}"
+        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
