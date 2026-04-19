@@ -2,7 +2,7 @@
 
 import abc
 import logging
-from typing import List
+from typing import List, Optional
 from urllib.parse import urlparse
 
 from crawler.core.models import RawTender, SourceConfig
@@ -16,15 +16,26 @@ class BaseAdapter(abc.ABC):
 
     Subclasses implement _fetch_items(). The public fetch() wraps it
     with error handling so adapters never raise — they return [].
+
+    Outcome attributes (RISK-1 / task #6 — zero-result monitor):
+        last_skipped_no_auth: True if adapter returned [] because the auth
+            token was missing/invalid. Distinct from "API returned empty".
+            Adapters set this inside _fetch_items() before returning [].
+        last_error: str(exc)[:200] if _fetch_items() raised. None otherwise.
+    Both are reset at the start of every fetch() call.
     """
 
     def __init__(self, config: SourceConfig) -> None:
         self.config = config
         self.domain = urlparse(config.url).netloc or config.id
         rate_limiter.configure(self.domain, config.rate_limit)
+        self.last_skipped_no_auth = False  # type: bool
+        self.last_error = None  # type: Optional[str]
 
     async def fetch(self) -> List[RawTender]:
         """Fetch tenders from this source. Never raises — returns [] on error."""
+        self.last_skipped_no_auth = False
+        self.last_error = None
         try:
             items = await self._fetch_items()
             logger.info(
@@ -32,6 +43,7 @@ class BaseAdapter(abc.ABC):
             )
             return items
         except Exception as exc:
+            self.last_error = str(exc)[:200]
             logger.warning(
                 "[%s] Error: %s", self.config.name, str(exc)
             )

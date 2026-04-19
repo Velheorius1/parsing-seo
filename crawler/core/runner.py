@@ -121,20 +121,29 @@ async def run(
     all_adapters = parallel_adapters + telegram_adapters
     all_results = list(results) + tg_results
 
-    # Collect results and stats
+    # Collect results, stats, and per-source outcomes (RISK-1 / task #6).
     all_tenders: List[RawTender] = []
     stats: Dict[str, int] = {}
+    # outcomes[sid] = {"count": int, "skipped_no_auth": bool, "error": Optional[str]}
+    outcomes: Dict[str, Dict] = {}
 
     for adapter, result in zip(all_adapters, all_results):
         sid = adapter.config.id
         if isinstance(result, Exception):
-            logger.error("[%s] Exception: %s", sid, str(result))
+            err = str(result)[:200]
+            logger.error("[%s] Exception: %s", sid, err)
             stats[sid] = 0
-            crawl_log.log_source_result(sid, 0, error=str(result)[:200])
+            crawl_log.log_source_result(sid, 0, error=err)
+            outcomes[sid] = {"count": 0, "skipped_no_auth": False, "error": err}
         else:
             stats[sid] = len(result)
             all_tenders.extend(result)
             crawl_log.log_source_result(sid, len(result))
+            outcomes[sid] = {
+                "count": len(result),
+                "skipped_no_auth": getattr(adapter, "last_skipped_no_auth", False),
+                "error": getattr(adapter, "last_error", None),
+            }
 
     # Log summary
     total = sum(stats.values())
@@ -213,6 +222,16 @@ async def run(
             if isinstance(result, Exception)
         ]
         await send_healthcheck(stats, len(new_tenders), alerts_sent, errors)
+
+    # Zero-result tracker (task #6, RISK-1) — alerts sources that returned
+    # nothing for 3+ consecutive cycles, recovery on return.
+    try:
+        from crawler.core.zero_result_tracker import track_and_alert
+
+        await track_and_alert(outcomes, dry_run=dry_run)
+    except Exception as exc:
+        # Never let the tracker crash the run — it's an observability signal.
+        logger.warning("[ZeroResult] tracker error: %s", str(exc)[:120])
 
     # AI quality evaluation (daily)
     if not dry_run:

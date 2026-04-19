@@ -204,6 +204,9 @@ class ApiAdapter(BaseAdapter):
         # Inject auth token if configured
         if cfg.auth_platform:
             if not self._inject_auth():
+                # RISK-1 / task #6 — distinguish auth-skip from empty-API.
+                # Zero-result tracker ignores sources flagged as skipped_no_auth.
+                self.last_skipped_no_auth = True
                 logger.warning(
                     "[%s] No valid token for '%s', skipping",
                     cfg.name, cfg.auth_platform,

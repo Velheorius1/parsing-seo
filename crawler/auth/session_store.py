@@ -95,6 +95,65 @@ class SessionStore:
         """Check if token is expired or missing."""
         return self.get_token(platform) is None
 
+    def set_setting(self, key, value):
+        # type: (str, dict) -> bool
+        """Store arbitrary JSON-serializable value in crawler_settings. Returns True on success.
+
+        Mirrors set_token but for non-token metadata (e.g. daemon heartbeat).
+        The key is written as-is (no ``auth_token:`` prefix).
+        """
+        client = self._get_client()
+        if client is None:
+            return False
+
+        try:
+            client.table("crawler_settings").upsert(
+                {"key": key, "value": json.dumps(value)},
+                on_conflict="key",
+            ).execute()
+            logger.info("[SessionStore] Setting saved: %s", key)
+            return True
+        except Exception as exc:
+            logger.warning(
+                "[SessionStore] Failed to save setting %s: %s",
+                key, str(exc)[:100],
+            )
+            return False
+
+    def get_setting(self, key):
+        # type: (str) -> Optional[dict]
+        """Read arbitrary JSON-serializable value from crawler_settings.
+
+        Mirrors ``_read`` but for non-token metadata. Returns ``None`` if the
+        key is missing, the stored value is not valid JSON, or Supabase is
+        unreachable. The key is read as-is (no ``auth_token:`` prefix).
+        """
+        client = self._get_client()
+        if client is None:
+            return None
+
+        try:
+            resp = client.table("crawler_settings").select("value").eq(
+                "key", key,
+            ).execute()
+            if resp.data and len(resp.data) > 0:
+                raw = resp.data[0].get("value")
+                if raw is None:
+                    return None
+                try:
+                    parsed = json.loads(raw)
+                except (TypeError, ValueError):
+                    return None
+                if isinstance(parsed, dict):
+                    return parsed
+                return None
+        except Exception as exc:
+            logger.debug(
+                "[SessionStore] get_setting error for %s: %s",
+                key, str(exc)[:80],
+            )
+        return None
+
     def mark_expired(self, platform):
         # type: (str) -> None
         """Mark token as expired by setting expires_at to now."""

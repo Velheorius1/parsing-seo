@@ -10,12 +10,19 @@ Components checked:
 4. Mac cron jobs (cooperation, UZEX)
 5. Feedback bot (systemd)
 6. Telegram alerts delivery
+7. E-IMZO auth tokens for all platforms (ebirja, hayotbirja, xt-xarid, xarid-ebirja)
+8. Mac E-IMZO daemon heartbeat (cycle_status, stale, flap detection)
 
 Usage:
     python3 -m crawler.scripts.healthcheck               # check all
     python3 -m crawler.scripts.healthcheck --fix          # check + auto-fix
-    python3 -m crawler.scripts.healthcheck --telegram     # send report to Telegram
-    python3 -m crawler.scripts.healthcheck --json         # JSON output
+    python3 -m crawler.scripts.healthcheck --telegram     # send report to Telegram (unconditional)
+    python3 -m crawler.scripts.healthcheck --alert-on-fail  # send TG only if any FAIL, with 4h dedup
+    python3 -m crawler.scripts.healthcheck --json         # JSON output (no token values leaked)
+
+Hourly cron (VPS):
+    # /etc/cron.d/parsing-seo-health:
+    # 0 * * * * root cd /opt/parsing-seo && /opt/parsing-seo/.venv/bin/python3 -m crawler.scripts.healthcheck --alert-on-fail
 
 Requires: supabase, httpx, python-dotenv
 """
@@ -43,6 +50,29 @@ OK = "ok"
 WARN = "warn"
 FAIL = "fail"
 FIXED = "fixed"
+UNKNOWN = "unknown"  # cascade-suppressed dependent checks (see _format_alert_body)
+
+# ── Alert dedup / cascade suppression config (RISK-6 mitigation) ──
+# ALERT_STATE_KEY lives in crawler.auth.constants (cross-module key — see
+# .conventions/gold-standards/crawler-settings-key.py).
+from crawler.auth.constants import ALERT_STATE_KEY, DAEMON_INSTANCE_STATE_KEY  # noqa: E402
+ALERT_DEDUP_SECONDS = 4 * 3600  # same FAIL signature within 4h → skip send
+# Supabase FAIL collapses the alert body; these components are treated as
+# UNKNOWN (not FAIL) in the rendered body so the alert signature stays stable.
+SUPABASE_DEPENDENT_COMPONENTS = (
+    "freshness", "sources", "sources.low", "telegram",
+    "token.", "geo.", "geo_sources", "mac_daemon",
+)
+
+STATUS_ICONS = {
+    "ok": "✅", "warn": "⚠️", "fail": "❌", "fixed": "🔧", "unknown": "❓",
+}
+
+# ── Daemon flap detection (RISK-2 mitigation consumer side) ──
+# DAEMON_INSTANCE_STATE_KEY imported from crawler.auth.constants above.
+DAEMON_HEARTBEAT_STALE_HOURS = 6
+DAEMON_CYCLE_FAILURE_HOURS = 2
+DAEMON_FLAP_WINDOW_SECONDS = 3600  # >1 instance_id change per hour = flap
 
 
 class HealthCheck:
@@ -54,7 +84,7 @@ class HealthCheck:
         self.settings = None
 
     def _add(self, component, status, message, details=None):
-        # type: (str, str, str, Optional[str]) -> None
+        # type: (str, str, str, Optional[Dict[str, Any]]) -> None
         entry = {
             "component": component,
             "status": status,
@@ -64,7 +94,7 @@ class HealthCheck:
         if details:
             entry["details"] = details
         self.results.append(entry)
-        icon = {"ok": "✅", "warn": "⚠️", "fail": "❌", "fixed": "🔧"}.get(status, "?")
+        icon = STATUS_ICONS.get(status, "?")
         logger.info("%s [%s] %s: %s", icon, status.upper(), component, message)
 
     def _get_client(self):
@@ -369,45 +399,234 @@ class HealthCheck:
 
     def check_tokens(self):
         # type: () -> None
-        """Check auth token expiry."""
+        """Check auth token expiry for all E-IMZO platforms + Supabase.
+
+        Iterates ``PLATFORMS`` from ``crawler.auth_eimzo`` (the canonical
+        platform list) and reports per-platform status. Never logs or stores
+        the token value itself — only metadata ``expires_at``, ``source``,
+        ``obtained_at`` (RISK-3 mitigation).
+        """
         try:
-            client = self._get_client()
-            # Check E-IMZO token in session store
-            result = client.table("crawler_settings").select("value").eq(
-                "key", "auth_token:ebirja"
-            ).limit(1).execute()
-
-            if result.data:
-                token_data = json.loads(result.data[0].get("value", "{}"))
-                expires = token_data.get("expires_at", "")
-                if expires:
-                    try:
-                        exp_dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
-                        remaining = (exp_dt - datetime.now(timezone.utc)).total_seconds() / 3600
-                        if remaining > 1:
-                            self._add("token.ebirja", OK, "E-IMZO valid (%.1fh remaining)" % remaining)
-                        elif remaining > 0:
-                            self._add("token.ebirja", WARN, "E-IMZO expires in %.0f min!" % (remaining * 60))
-                        else:
-                            self._add("token.ebirja", FAIL, "E-IMZO EXPIRED %.1fh ago" % abs(remaining))
-                    except Exception:
-                        self._add("token.ebirja", WARN, "Could not parse expiry: %s" % expires[:30])
-                else:
-                    self._add("token.ebirja", WARN, "No expiry in E-IMZO token data")
-            else:
-                self._add("token.ebirja", WARN, "No E-IMZO token stored (ebirja auth disabled)")
-
-            # Supabase access token expiry (hardcoded)
-            supabase_expiry = datetime(2026, 4, 27, tzinfo=timezone.utc)
-            days_left = (supabase_expiry - datetime.now(timezone.utc)).days
-            if days_left > 7:
-                self._add("token.supabase", OK, "Supabase token valid (%d days left)" % days_left)
-            elif days_left > 0:
-                self._add("token.supabase", WARN, "Supabase token expires in %d days!" % days_left)
-            else:
-                self._add("token.supabase", FAIL, "Supabase token EXPIRED!")
+            from crawler.auth_eimzo import PLATFORMS
+            from crawler.auth.session_store import session_store
         except Exception as exc:
-            self._add("tokens", WARN, "Token check failed: %s" % str(exc)[:60])
+            self._add("tokens", WARN, "Could not import PLATFORMS: %s" % str(exc)[:60])
+            return
+
+        now = datetime.now(timezone.utc)
+        for platform_id in PLATFORMS.keys():
+            comp = "token.%s" % platform_id
+            try:
+                # Use session_store's internal reader to get stored metadata.
+                # We need expires_at regardless of whether the token is "valid" —
+                # so _read (not get_token, which returns None on expiry).
+                data = session_store._read(platform_id)
+                if not data:
+                    self._add(comp, WARN, "No token stored for %s" % platform_id)
+                    continue
+
+                expires_at = data.get("expires_at") or ""
+                source = data.get("source") or "unknown"
+                obtained_at = data.get("obtained_at") or ""
+                details = {
+                    "expires_at": expires_at,
+                    "source": source,
+                    "obtained_at": obtained_at,
+                }  # NOTE: never include "token" key here (RISK-3)
+
+                if not expires_at:
+                    self._add(comp, WARN,
+                              "No expiry stored for %s" % platform_id, details=details)
+                    continue
+
+                try:
+                    exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    self._add(comp, WARN,
+                              "Could not parse expiry for %s: %s" % (platform_id, expires_at[:30]),
+                              details=details)
+                    continue
+
+                remaining_h = (exp_dt - now).total_seconds() / 3600
+                if remaining_h > 1:
+                    self._add(comp, OK,
+                              "%s token valid (%.1fh remaining)" % (platform_id, remaining_h),
+                              details=details)
+                elif remaining_h > 0:
+                    self._add(comp, WARN,
+                              "%s expires in %.0f min" % (platform_id, remaining_h * 60),
+                              details=details)
+                else:
+                    self._add(comp, FAIL,
+                              "%s EXPIRED %.1fh ago" % (platform_id, abs(remaining_h)),
+                              details=details)
+            except Exception as exc:
+                self._add(comp, WARN,
+                          "Token check failed for %s: %s" % (platform_id, str(exc)[:60]))
+
+        # Supabase access token expiry (hardcoded until rotated)
+        supabase_expiry = datetime(2026, 4, 27, tzinfo=timezone.utc)
+        days_left = (supabase_expiry - now).days
+        if days_left > 7:
+            self._add("token.supabase", OK, "Supabase token valid (%d days left)" % days_left)
+        elif days_left > 0:
+            self._add("token.supabase", WARN, "Supabase token expires in %d days!" % days_left)
+        else:
+            self._add("token.supabase", FAIL, "Supabase token EXPIRED!")
+
+    # ── Check 14: Mac E-IMZO Daemon Heartbeat ──
+
+    def check_mac_daemon_heartbeat(self):
+        # type: () -> None
+        """Check that the Mac E-IMZO daemon is alive and refreshing tokens.
+
+        Consumes the structured JSON written by ``mac_eimzo_daemon.write_heartbeat``
+        at end of each cycle:
+          ``{at, cycle_status, platforms_refreshed, failures, daemon_instance_id, pid}``
+
+        Reports:
+        - WARN if missing (never started)
+        - FAIL if stale (>6h since last heartbeat)
+        - FAIL if ``cycle_status == "fail"`` for >2h (RISK-7 mitigation)
+        - WARN if ``cycle_status == "partial"`` for >2h
+        - WARN if ``daemon_instance_id`` has flapped (>1 change/h, RISK-2 mitigation)
+        - WARN if legacy plain-ISO8601 string is found (pre-structured shape)
+        """
+        try:
+            from crawler.auth.constants import HEARTBEAT_KEY
+            from crawler.auth.session_store import session_store
+        except Exception as exc:
+            self._add("mac_daemon", WARN,
+                      "Could not import auth constants: %s" % str(exc)[:60])
+            return
+
+        # get_setting returns None on missing / not-a-dict / Supabase error.
+        # Legacy heartbeats may have been stored as plain ISO8601 strings — detect
+        # those by trying _read on the raw key via a direct query through get_setting
+        # (which returns None for non-dict JSON).
+        payload = session_store.get_setting(HEARTBEAT_KEY)
+        if payload is None:
+            # Try to distinguish "missing" vs "legacy string" — one extra lookup
+            # via the same session_store._get_client path.
+            client = session_store._get_client()
+            legacy = False
+            if client is not None:
+                try:
+                    resp = client.table("crawler_settings").select("value").eq(
+                        "key", HEARTBEAT_KEY,
+                    ).execute()
+                    if resp.data and len(resp.data) > 0:
+                        legacy = True
+                except Exception:
+                    legacy = False
+            if legacy:
+                self._add("mac_daemon", WARN,
+                          "Heartbeat in legacy format (pre-structured) — daemon needs restart")
+            else:
+                self._add("mac_daemon", WARN,
+                          "Mac daemon never started (no heartbeat in crawler_settings)")
+            return
+
+        at_str = payload.get("at") or ""
+        cycle_status = payload.get("cycle_status") or "unknown"
+        platforms_refreshed = payload.get("platforms_refreshed") or []
+        failures = payload.get("failures") or []
+        instance_id = payload.get("daemon_instance_id") or ""
+        pid = payload.get("pid")
+
+        details = {
+            "at": at_str,
+            "cycle_status": cycle_status,
+            "platforms_refreshed": platforms_refreshed,
+            "failures": failures,
+            "daemon_instance_id": instance_id,
+            "pid": pid,
+        }
+
+        now = datetime.now(timezone.utc)
+        try:
+            hb_dt = datetime.fromisoformat(at_str.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            self._add("mac_daemon", WARN,
+                      "Could not parse heartbeat timestamp: %s" % at_str[:40],
+                      details=details)
+            return
+
+        age_h = (now - hb_dt).total_seconds() / 3600
+
+        # Freshness gate dominates — a stale heartbeat means the daemon is dead.
+        if age_h > DAEMON_HEARTBEAT_STALE_HOURS:
+            self._add("mac_daemon", FAIL,
+                      "Mac daemon dead for %.1fh — E-IMZO tokens will expire" % age_h,
+                      details=details)
+            return
+
+        # cycle_status gates (heartbeat is fresh).
+        if cycle_status == "fail" and age_h > DAEMON_CYCLE_FAILURE_HOURS:
+            failure_summary = ", ".join(
+                "%s: %s" % (f.get("platform", "?"), str(f.get("error", ""))[:40])
+                for f in failures[:3]
+            ) or "no detail"
+            self._add("mac_daemon", FAIL,
+                      "Daemon refresh failing for %.1fh: %s" % (age_h, failure_summary),
+                      details=details)
+        elif cycle_status == "partial" and age_h > DAEMON_CYCLE_FAILURE_HOURS:
+            failed_platforms = [f.get("platform", "?") for f in failures]
+            self._add("mac_daemon", WARN,
+                      "Daemon partial refresh (%.1fh): failed %s" % (
+                          age_h, ", ".join(failed_platforms) or "unknown"),
+                      details=details)
+        elif cycle_status == "unknown":
+            self._add("mac_daemon", WARN,
+                      "Heartbeat %0.1fh old, cycle_status unknown" % age_h,
+                      details=details)
+        else:
+            self._add("mac_daemon", OK,
+                      "Daemon alive (%s, last cycle %.0fm ago, refreshed: %s)" % (
+                          cycle_status, age_h * 60,
+                          ", ".join(platforms_refreshed) or "none"),
+                      details=details)
+
+        # Flap detection — compare daemon_instance_id against stored state.
+        if instance_id:
+            self._check_daemon_flap(instance_id, now)
+
+    def _check_daemon_flap(self, current_instance_id, now):
+        # type: (str, datetime) -> None
+        """Detect daemon restart flaps — write state via session_store.set_setting.
+
+        State shape: {"first_seen_instance_id", "first_seen_at", "observed_ids"}.
+        If we see >1 distinct instance_id within ``DAEMON_FLAP_WINDOW_SECONDS``,
+        emit a WARN. Non-fatal — a single restart is normal after deployment.
+        """
+        from crawler.auth.session_store import session_store
+
+        state = session_store.get_setting(DAEMON_INSTANCE_STATE_KEY) or {}
+        observed = state.get("observed") or []  # list of {id, at}
+        window_start = now - timedelta(seconds=DAEMON_FLAP_WINDOW_SECONDS)
+
+        # Prune old observations outside the flap window.
+        pruned = []
+        for obs in observed:
+            try:
+                obs_at = datetime.fromisoformat(str(obs.get("at", "")).replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                continue
+            if obs_at >= window_start:
+                pruned.append({"id": obs.get("id", ""), "at": obs.get("at", "")})
+
+        # Record current observation (dedup by id if identical and recent).
+        if not pruned or pruned[-1].get("id") != current_instance_id:
+            pruned.append({"id": current_instance_id, "at": now.isoformat()})
+
+        distinct = set(o.get("id", "") for o in pruned if o.get("id"))
+        if len(distinct) > 1:
+            self._add("mac_daemon.flap", WARN,
+                      "Daemon flapping: %d distinct instance_ids in last %dm" % (
+                          len(distinct), DAEMON_FLAP_WINDOW_SECONDS // 60),
+                      details={"observed_ids": list(distinct)})
+
+        session_store.set_setting(DAEMON_INSTANCE_STATE_KEY, {"observed": pruned})
 
     # ── Auto-fix ──
 
@@ -503,10 +722,150 @@ class HealthCheck:
         lines.append("")
 
         for r in self.results:
-            icon = {"ok": "✅", "warn": "⚠️", "fail": "❌", "fixed": "🔧"}.get(r["status"], "?")
+            icon = STATUS_ICONS.get(r["status"], "?")
             lines.append("%s %-20s %s" % (icon, r["component"], r["message"]))
 
         return "\n".join(lines)
+
+    # ── Alert body formatting + dedup (RISK-6 mitigation) ──
+
+    @staticmethod
+    def _is_supabase_dependent(component):
+        # type: (str) -> bool
+        """Return True if ``component`` depends on Supabase availability."""
+        for prefix in SUPABASE_DEPENDENT_COMPONENTS:
+            if component == prefix or component.startswith(prefix):
+                return True
+        return False
+
+    def _format_alert_body(self, fails, suppress_cascade=True):
+        # type: (List[Dict[str, Any]], bool) -> str
+        """Build the Telegram alert body.
+
+        If ``suppress_cascade`` is True and any FAIL component is ``supabase``,
+        render ONLY the supabase line + a footer noting that downstream checks
+        are suppressed. Dependent checks are rewritten as ``unknown`` in the
+        rendered body so the alert signature stays stable across runs.
+        """
+        supabase_fail = any(f["component"] == "supabase" for f in fails)
+
+        if suppress_cascade and supabase_fail:
+            root = next(f for f in fails if f["component"] == "supabase")
+            body = [
+                "❌ PARSING-SEO HEALTHCHECK FAIL",
+                "",
+                "❌ %-20s %s" % ("supabase", root["message"]),
+                "",
+                "(downstream checks suppressed because Supabase is the root cause)",
+            ]
+            return "\n".join(body)
+
+        # Normal render: all FAILs.
+        lines = ["❌ PARSING-SEO HEALTHCHECK FAIL", ""]
+        for f in fails:
+            lines.append("❌ %-20s %s" % (f["component"], f["message"]))
+        return "\n".join(lines)
+
+    def _compute_alert_signature(self, suppress_cascade=True):
+        # type: (bool) -> str
+        """Sorted-comma-joined FAIL component names (after cascade suppression)."""
+        fails = [r for r in self.results if r["status"] == FAIL]
+        if suppress_cascade and any(f["component"] == "supabase" for f in fails):
+            return "supabase"
+        return ",".join(sorted(f["component"] for f in fails))
+
+    def handle_alert_on_fail(self):
+        # type: () -> Optional[str]
+        """Send TG alert only if any FAIL, with 4h dedup + cascade suppression.
+
+        Behavior:
+        - Compute alert signature (cascade-suppressed).
+        - If signature is empty (no FAILs) AND prior state is non-empty → send
+          one RECOVERY message and clear state.
+        - If signature matches prior state AND last send was <4h ago → skip.
+        - Otherwise → send alert, update state.
+
+        Returns the action taken: ``"sent"``, ``"recovery"``, ``"suppressed"``,
+        or ``"no_op"``. ``None`` if Telegram is not configured.
+        """
+        try:
+            from crawler.auth.session_store import session_store
+        except Exception as exc:
+            logger.warning("Alert dedup: import failed: %s", str(exc)[:60])
+            return None
+
+        settings = self.settings
+        if not settings or not settings.telegram_bot_token or not settings.telegram_alert_chat_id:
+            logger.info("Telegram not configured — skipping --alert-on-fail")
+            return None
+
+        fails = [r for r in self.results if r["status"] == FAIL]
+        signature = self._compute_alert_signature(suppress_cascade=True)
+        now = datetime.now(timezone.utc)
+
+        prior = session_store.get_setting(ALERT_STATE_KEY) or {}
+        prior_sig = prior.get("signature") or ""
+        prior_at_str = prior.get("alerted_at") or ""
+
+        # Case 1: all clear and we had an active alert → RECOVERY.
+        if not signature:
+            if prior_sig:
+                self._send_alert_body("✅ PARSING-SEO RECOVERY\n\nAll checks passing.")
+                session_store.set_setting(ALERT_STATE_KEY, {})
+                logger.info("Sent RECOVERY message, cleared %s", ALERT_STATE_KEY)
+                return "recovery"
+            return "no_op"
+
+        # Case 2: same signature, within dedup window → suppress.
+        # Guard against clock skew (NTP correction, VM restore, DST anomaly):
+        # if prior_at is in the future, delta is negative — reset state rather
+        # than silence legitimate FAILs until the clock catches up.
+        if signature == prior_sig and prior_at_str:
+            try:
+                prior_at = datetime.fromisoformat(prior_at_str.replace("Z", "+00:00"))
+                delta = (now - prior_at).total_seconds()
+                if 0 <= delta < ALERT_DEDUP_SECONDS:
+                    logger.info(
+                        "Suppressed duplicate alert (sig=%s, last sent %.1fh ago)",
+                        signature, delta / 3600,
+                    )
+                    return "suppressed"
+                if delta < 0:
+                    logger.warning(
+                        "Clock skew detected (prior alerted_at in future by %.1fh) — resetting dedup state",
+                        -delta / 3600,
+                    )
+                    # Fall through to Case 3 (send + rewrite state).
+            except (ValueError, TypeError):
+                pass
+
+        # Case 3: send alert, update state.
+        body = self._format_alert_body(fails, suppress_cascade=True)
+        self._send_alert_body(body)
+        session_store.set_setting(ALERT_STATE_KEY, {
+            "signature": signature,
+            "alerted_at": now.isoformat(),
+        })
+        logger.info("Sent alert (sig=%s)", signature)
+        return "sent"
+
+    def _send_alert_body(self, body):
+        # type: (str) -> None
+        """POST ``body`` to the configured Telegram alert chat."""
+        try:
+            import httpx
+            settings = self.settings
+            httpx.post(
+                "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token,
+                json={
+                    "chat_id": settings.telegram_alert_chat_id,
+                    "text": body,
+                    "parse_mode": "HTML",
+                },
+                timeout=10,
+            )
+        except Exception as exc:
+            logger.warning("Failed to send alert: %s", str(exc)[:80])
 
     def send_telegram(self):
         # type: () -> None
@@ -536,7 +895,10 @@ class HealthCheck:
 def main():
     parser = argparse.ArgumentParser(description="Parsing-seo healthcheck")
     parser.add_argument("--fix", action="store_true", help="Auto-fix common issues")
-    parser.add_argument("--telegram", action="store_true", help="Send report to Telegram")
+    parser.add_argument("--telegram", action="store_true",
+                        help="Send full report to Telegram unconditionally")
+    parser.add_argument("--alert-on-fail", action="store_true",
+                        help="Send TG alert only if any FAIL, with 4h dedup + cascade suppression")
     parser.add_argument("--json", action="store_true", help="JSON output")
     args = parser.parse_args()
 
@@ -556,6 +918,7 @@ def main():
     hc.check_geo_sources()
     hc.check_docker()
     hc.check_tokens()
+    hc.check_mac_daemon_heartbeat()
 
     # Auto-fix if requested
     if args.fix:
@@ -569,6 +932,9 @@ def main():
 
     if args.telegram:
         hc.send_telegram()
+
+    if args.alert_on_fail:
+        hc.handle_alert_on_fail()
 
     # Exit code
     has_fail = any(r["status"] == FAIL for r in hc.results if r["status"] != FIXED)
