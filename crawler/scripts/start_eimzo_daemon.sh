@@ -1,4 +1,14 @@
 #!/bin/bash
+# DEPRECATED 2026-04-19 — VPS auth.py cron replaced this Mac flow.
+# See /opt/eimzo/auth.py (cron: 0 */4 * * * /opt/eimzo/run_auth.sh).
+# Kept only for git history. Do not start; will refuse without the flag.
+if [ "${1:-}" != "--force-deprecated" ]; then
+    echo "DEPRECATED: token refresh now runs on VPS via /opt/eimzo/auth.py cron." >&2
+    echo "Pass --force-deprecated to run anyway (debugging only)." >&2
+    exit 1
+fi
+shift  # consume --force-deprecated
+
 # Supervisor wrapper for mac_eimzo_daemon.py.
 # - Pre-checks pgrep (belt-and-suspenders alongside the daemon's own flock)
 # - Wraps under caffeinate -dis so Mac never sleeps mid-refresh
@@ -10,8 +20,12 @@
 #     bash crawler/scripts/start_eimzo_daemon.sh    # run in tmux
 #     E_IMZO_KEY_TIN=123456789 bash crawler/scripts/start_eimzo_daemon.sh
 #
-# Required env vars: E_IMZO_KEY_TIN. Optional: E_IMZO_KEY_PIN, E_IMZO_PLATFORMS,
+# Required env vars: E_IMZO_KEY_TIN. Optional: E_IMZO_PLATFORMS,
 # EIMZO_DAEMON_REFRESH_SECONDS. See README_eimzo_daemon.md.
+#
+# PIN: E-IMZO v6.3.5 collects the PFX PIN via its own GUI dialog the first time
+# ``pfx.load_key`` is called. The daemon caches the resulting keyId in Supabase,
+# so subsequent restarts are silent unless E-IMZO itself restarts.
 
 set -euo pipefail
 

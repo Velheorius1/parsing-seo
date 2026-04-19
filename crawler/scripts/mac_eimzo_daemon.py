@@ -1,10 +1,30 @@
 #!/usr/bin/env python3
-"""Mac E-IMZO CAPIWS daemon — auto-refreshes JWTs for 4 Uzbek platforms.
+"""DEPRECATED 2026-04-19 — Mac E-IMZO daemon, replaced by VPS /opt/eimzo/auth.py.
 
-Runs persistently on Данияр's Mac. Talks to the E-IMZO local CAPIWS WebSocket
-(ws://127.0.0.1:64443), signs auth challenges with the USB token (PIN entered
-once at startup), and writes fresh JWTs to Supabase ``crawler_settings`` via
-``session_store`` — no VPS webhook needed.
+The single source of truth for E-IMZO JWT refresh is now the VPS cron job
+``0 */4 * * * /opt/eimzo/run_auth.sh``, which runs E-IMZO Linux under Xvfb
++ fluxbox, auto-types the PIN via xdotool, and writes ``auth_token:ebirja``
+to Supabase with ``source=auto-vps-eimzo``. Mac no longer runs anything.
+
+Do NOT start this daemon — it will conflict with the VPS daemon (both write
+to the same Supabase row, last writer wins). Kept only for git history and
+as a fallback if the VPS auth pipeline ever needs to be reproduced locally.
+
+────────────────────── Original docstring below ──────────────────────
+
+Mac E-IMZO CAPIWS daemon — auto-refreshes JWTs for 4 Uzbek platforms.
+
+Runs persistently on Данияр's Mac. Talks to E-IMZO v6.3.5 via its local
+CAPIWS WebSocket (``ws://127.0.0.1:64646/service/cryptapi``), signs auth
+challenges using a PFX certificate kept on disk, and writes fresh JWTs to
+Supabase ``crawler_settings`` via ``session_store`` — no VPS webhook needed.
+
+PIN flow in v6.3.5:
+  The PIN is entered once in the E-IMZO GUI dialog that pops up when
+  ``pfx.load_key`` is first called. After that the keyId stays loaded in
+  E-IMZO's process memory, and the daemon persists it to ``crawler_settings``.
+  On restart the daemon reuses the cached keyId silently; a fresh PIN prompt
+  only appears if E-IMZO itself was restarted (app quit / Mac reboot).
 
 Supported platforms (from ``crawler.auth_eimzo.PLATFORMS``):
   - ebirja         : E-Birja (Tashkent Exchange)
@@ -19,14 +39,14 @@ Stop:
     Ctrl+C inside tmux, or ``kill -TERM <pid>``
 
 Environment:
-  E_IMZO_KEY_TIN            — TIN of the USB key to sign with (required)
-  E_IMZO_KEY_PIN            — optional (insecure); default: prompt interactively
+  E_IMZO_KEY_TIN            — TIN of the PFX certificate to sign with (required)
   E_IMZO_PLATFORMS          — CSV of platforms; default: all known platforms
   EIMZO_DAEMON_REFRESH_SECONDS — refresh interval; default: 14400 (4h)
 
 Security (see DECISIONS.md RISK-3):
-  Never logs resp.json(), resp.text, resp.headers, PKCS7 content, JWT value,
-  or PIN. Logs only metadata — platform id, length, alg, expiry.
+  Never logs resp.json(), resp.text, resp.headers, PKCS7 content, or JWT value.
+  The PIN is never seen by the daemon — E-IMZO collects it directly from the
+  user via its own GUI.
 """
 
 import argparse
@@ -40,7 +60,6 @@ import signal
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
-from getpass import getpass
 from typing import Any, Dict, List, Optional
 
 # Allow ``python3 crawler/scripts/mac_eimzo_daemon.py`` from project root
@@ -63,7 +82,18 @@ logger = logging.getLogger(__name__)
 
 LOCK_PATH = "/tmp/eimzo_daemon.lock"
 PIDFILE_PATH = "/tmp/eimzo_daemon.pid"
-CAPIWS_URL = "ws://127.0.0.1:64443"
+# E-IMZO v6.3.5 CAPIWS endpoint. The non-TLS port serves ws://; the TLS port (64443) serves
+# wss:// but requires Origin=https://<host-in-plist>. We pin http://127.0.0.1 (first entry in
+# the whitelist) since the daemon runs on Mac loopback.
+CAPIWS_URL = "ws://127.0.0.1:64646/service/cryptapi"
+CAPIWS_ORIGIN = "http://127.0.0.1"
+# APIKEY hash for domain "127.0.0.1" from ~/Library/Preferences/uz.yt.eimzo.plist
+# (signed by E-IMZO vendor, rotates with E-IMZO updates). Must be re-registered each WS session.
+CAPIWS_APIKEY_DOMAIN = "127.0.0.1"
+CAPIWS_APIKEY_HASH = (
+    "A7BCFA5D490B351BE0754130DF03A068F855DB4333D43921125B9CF2670EF6A4"
+    "0370C646B90401955E1F7BC9CDBF59CE0B2C5467D820BE189C845D0B79CFC96F"
+)
 DEFAULT_REFRESH_SECONDS = 14400  # 4 hours
 CAPIWS_TIMEOUT = 30  # seconds per WS operation
 HTTP_TIMEOUT = 15  # seconds per backend HTTP call
@@ -96,11 +126,6 @@ PLATFORM_BACKENDS = {
 
 class DaemonLockHeldError(Exception):
     """Another daemon instance already holds /tmp/eimzo_daemon.lock."""
-    pass
-
-
-class InvalidPinError(Exception):
-    """CAPIWS load_key rejected the PIN."""
     pass
 
 
@@ -165,17 +190,65 @@ def release_lock(fd):
 
 # ── CAPIWS protocol helpers ───────────────────────────────────────
 
-async def capiws_call(ws, plugin, name, args):
-    # type: (Any, str, str, list) -> dict
+class CapiwsSession(object):
+    """Logical CAPIWS session. In E-IMZO v6.3.5 every CAPIWS call is a fresh WS
+    connection (the server closes the socket after each response) plus an
+    ``apikey`` re-registration using the Origin header. This class hides that
+    from callers — they see a ``ws``-like object that can be passed around and
+    passed to ``capiws_call``.
+
+    Callers may inspect ``.closed`` (always False until ``close()`` is called).
+    ``close()`` is a no-op: no persistent socket is held.
+    """
+
+    def __init__(self):
+        self.closed = False
+
+    async def close(self):
+        self.closed = True
+
+    async def raw_call(self, payload, timeout):
+        # type: (dict, int) -> dict
+        """Open a WS, register apikey (scoped by Origin), send payload, close.
+
+        Uses two short-lived connections: one to register the domain/apikey
+        pair, one for the actual call. Any earlier registration is invalidated
+        by the server as soon as the ws closes, so we re-register each time.
+        """
+        url = CAPIWS_URL
+        # 1. Register apikey so the server accepts our Origin.
+        async with websockets.connect(
+            url, open_timeout=CAPIWS_TIMEOUT, origin=CAPIWS_ORIGIN
+        ) as ws:
+            await asyncio.wait_for(
+                ws.send(json.dumps({
+                    "name": "apikey",
+                    "arguments": [CAPIWS_APIKEY_DOMAIN, CAPIWS_APIKEY_HASH],
+                })),
+                timeout=CAPIWS_TIMEOUT,
+            )
+            _ = await asyncio.wait_for(ws.recv(), timeout=CAPIWS_TIMEOUT)
+        # 2. Actual plugin call — server still trusts this Origin.
+        async with websockets.connect(
+            url, open_timeout=CAPIWS_TIMEOUT, origin=CAPIWS_ORIGIN
+        ) as ws2:
+            await asyncio.wait_for(ws2.send(json.dumps(payload)), timeout=timeout)
+            raw = await asyncio.wait_for(ws2.recv(), timeout=timeout)
+            return json.loads(raw)
+
+
+async def capiws_call(ws, plugin, name, args, timeout=None):
+    # type: (CapiwsSession, str, str, list, Optional[int]) -> dict
     """Send one CAPIWS request and return decoded response dict.
 
     Never logs ``args`` or full ``data`` — they may contain PIN/PKCS7/signatures.
     Logs only plugin/name and a short error ``reason`` on failure.
+
+    Payload uses the v6.3.5 field name ``arguments`` (legacy E-IMZO used ``args``).
     """
-    msg = json.dumps({"plugin": plugin, "name": name, "args": args})
-    await asyncio.wait_for(ws.send(msg), timeout=CAPIWS_TIMEOUT)
-    raw = await asyncio.wait_for(ws.recv(), timeout=CAPIWS_TIMEOUT)
-    data = json.loads(raw)
+    payload = {"plugin": plugin, "name": name, "arguments": list(args)}
+    t = int(timeout) if timeout else CAPIWS_TIMEOUT
+    data = await ws.raw_call(payload, timeout=t)
     if not data.get("success", False):
         reason = str(data.get("reason", "unknown"))[:80]
         raise RuntimeError(
@@ -239,7 +312,10 @@ async def refresh_platform(http, ws, platform_id, signer_id, dry_run=False):
         chal_bytes = bytes(challenge)
     chal_b64 = base64.b64encode(chal_bytes).decode("ascii")
     try:
-        sig_resp = await capiws_call(ws, "pkcs7", "create_pkcs7", [chal_b64, signer_id])
+        # v6.3.5 create_pkcs7 takes (data_64, keyId, detached). Detached "yes"
+        # produces a PKCS7 envelope containing the signature but not the payload —
+        # standard for auth-challenge flows.
+        sig_resp = await capiws_call(ws, "pkcs7", "create_pkcs7", [chal_b64, signer_id, "yes"])
     except Exception as exc:
         logger.warning(
             "[EimzoDaemon] PKCS7 sign failed for %s: %s",
@@ -404,74 +480,148 @@ async def write_heartbeat(daemon_instance_id, cycle_stats):
 
 # ── Main loop ─────────────────────────────────────────────────────
 
-_PIN_FAIL_MARKERS = ("pin", "password", "incorrect", "wrong", "invalid")
+# Supabase settings key: persists the E-IMZO keyId between daemon restarts so
+# we don't have to re-prompt the PIN via the GUI unless the kernel forgot it
+# (E-IMZO app restart / Mac reboot / unload_key).
+EIMZO_KEY_ID_SETTING = "eimzo_loaded_key_id"
+
+# Offset inside a PFX certificate's ``alias`` field where the owner's TIN lives
+# in v6.3.5 (example: "...1.2.860.3.16.1.1=303902204,serialnumber=...").
+_TIN_OID = "1.2.860.3.16.1.1"
 
 
-def _is_invalid_pin_error(exc):
-    # type: (Exception) -> bool
-    """Heuristic: CAPIWS doesn't have an error code, only a reason string."""
-    msg = str(exc).lower()
-    return any(marker in msg for marker in _PIN_FAIL_MARKERS)
+def _tin_from_alias(alias):
+    # type: (str) -> Optional[str]
+    """Parse the TIN out of a PFX certificate alias (RDN-ish string)."""
+    if not alias:
+        return None
+    # Fields are comma-separated ``key=value`` pairs; TIN OID is unique.
+    marker = _TIN_OID + "="
+    idx = alias.find(marker)
+    if idx < 0:
+        return None
+    tail = alias[idx + len(marker):]
+    end = tail.find(",")
+    return (tail[:end] if end >= 0 else tail).strip()
 
 
-async def _open_capiws_session(tin, pin):
-    # type: (str, str) -> Any
-    """Open a fresh CAPIWS ws and load the key. Closes ws on any failure.
-
-    Raises:
-      InvalidPinError — CAPIWS reported a PIN/password problem (caller may re-prompt).
-      RuntimeError    — No key matches TIN, or other CAPIWS failure.
-    """
-    ws = await websockets.connect(CAPIWS_URL)
+def _save_key_id(key_id):
+    # type: (str) -> None
+    """Persist keyId so the next daemon start can skip the GUI PIN dialog."""
     try:
-        keys_resp = await capiws_call(ws, "pfx", "list_all_keys", [])
-        signer_id = None
-        for k in keys_resp.get("keys", []) or []:
-            if str(k.get("TIN", "")) == str(tin):
-                signer_id = k.get("id")
-                break
-        if not signer_id:
-            raise RuntimeError("[EimzoDaemon] No E-IMZO key found with TIN=%s" % tin)
-
-        try:
-            await capiws_call(ws, "pfx", "load_key", [signer_id, pin])
-        except Exception as exc:
-            if _is_invalid_pin_error(exc):
-                raise InvalidPinError(str(exc)[:80])
-            raise
-    except BaseException:
-        try:
-            await ws.close()
-        except Exception:
-            pass
-        raise
-    logger.info("[EimzoDaemon] Key loaded (TIN=%s)", tin)
-    return ws, signer_id
+        session_store.set_setting(EIMZO_KEY_ID_SETTING, {"key_id": key_id})
+    except Exception as exc:
+        logger.warning("[EimzoDaemon] Could not persist keyId: %s", str(exc)[:80])
 
 
-async def _connect_with_pin_prompts(tin, initial_pin, pin_from_env, max_interactive_retries=3):
-    # type: (str, str, bool, int) -> Any
-    """Open a CAPIWS session. On invalid PIN: re-prompt interactively up to N times.
+def _load_cached_key_id():
+    # type: () -> Optional[str]
+    try:
+        raw = session_store.get_setting(EIMZO_KEY_ID_SETTING)
+    except Exception:
+        return None
+    if isinstance(raw, dict):
+        kid = raw.get("key_id")
+        return kid if isinstance(kid, str) and kid else None
+    return None
 
-    When the PIN came from env (``pin_from_env`` True) we do NOT loop — the supervisor
-    would just keep re-invoking with the same bad value.
+
+async def _probe_key_id(session, key_id):
+    # type: (CapiwsSession, str) -> bool
+    """Cheap sanity check that a cached keyId is still loaded & unlocked in E-IMZO.
+
+    Signs a 1-byte payload. Success → key is alive and unlocked (no PIN needed).
+    Failure reasons we've observed in v6.3.5:
+      - 'Ввод пароля отменен' (-5000) — key slot exists but PIN is locked again,
+        which happens after E-IMZO's idle timeout or if the original load_key
+        was canceled. Caller should fall through to a fresh load_key flow.
+      - 'Key not loaded' / 'Unknown keyId' — E-IMZO/OS restart flushed memory.
     """
-    pin = initial_pin
-    attempt = 0
-    while True:
-        try:
-            return await _open_capiws_session(tin, pin)
-        except InvalidPinError as exc:
-            attempt += 1
-            logger.warning(
-                "[EimzoDaemon] Invalid PIN (attempt %d): %s",
-                attempt, str(exc)[:60],
-            )
-            if pin_from_env or attempt >= max_interactive_retries:
-                raise
-            pin = getpass("[EimzoDaemon] Re-enter E-IMZO PIN: ")
-            if not pin:
-                raise InvalidPinError("empty PIN on retry")
+    try:
+        probe = base64.b64encode(b"\x00").decode("ascii")
+        data = await session.raw_call(
+            {"plugin": "pkcs7", "name": "create_pkcs7",
+             "arguments": [probe, key_id, "yes"]},
+            timeout=CAPIWS_TIMEOUT,
+        )
+        if data.get("success"):
+            return True
+        logger.info(
+            "[EimzoDaemon] Cached keyId probe failed (reason=%s) — will re-load",
+            str(data.get("reason", "unknown"))[:80],
+        )
+        return False
+    except Exception as exc:
+        logger.info(
+            "[EimzoDaemon] Cached keyId probe raised %s — will re-load",
+            str(exc)[:80],
+        )
+        return False
+
+
+async def _open_capiws_session(tin):
+    # type: (str) -> tuple
+    """Ensure a PFX key matching ``tin`` is loaded in E-IMZO; return (session, keyId).
+
+    Fast path: if a cached keyId from a previous daemon run still works, reuse it
+    (no GUI prompt). Slow path: list_disks → list_certificates → load_key, which
+    opens the E-IMZO PIN dialog. The caller (or a human) enters the PIN once,
+    after which the key stays loaded in E-IMZO memory.
+    """
+    session = CapiwsSession()
+
+    cached = _load_cached_key_id()
+    if cached and await _probe_key_id(session, cached):
+        logger.info("[EimzoDaemon] Reusing cached keyId (TIN=%s)", tin)
+        return session, cached
+
+    # Enumerate disks → certificates → match by TIN.
+    disks_resp = await capiws_call(session, "pfx", "list_disks", [])
+    disks = disks_resp.get("disks") or []
+    match = None  # type: Optional[tuple]
+    for disk in disks:
+        certs_resp = await capiws_call(session, "pfx", "list_certificates", [disk])
+        for cert in certs_resp.get("certificates") or []:
+            if _tin_from_alias(cert.get("alias", "")) == str(tin):
+                match = (
+                    cert.get("disk") or disk,
+                    cert.get("path", "") or "",
+                    cert.get("name", ""),
+                    cert.get("alias", ""),
+                )
+                break
+        if match:
+            break
+
+    if not match:
+        raise RuntimeError(
+            "[EimzoDaemon] No PFX certificate with TIN=%s in E-IMZO (checked %d disk(s))"
+            % (tin, len(disks))
+        )
+
+    disk, path, name, alias = match
+    logger.info(
+        "[EimzoDaemon] Found certificate (TIN=%s, disk=%s, name=%s) — "
+        "PIN prompt will appear in the E-IMZO GUI",
+        tin, disk, name,
+    )
+    # ``load_key`` blocks inside E-IMZO until the user enters the PIN in the
+    # GUI (or cancels). We give it a generous timeout so the daemon doesn't
+    # drop the request mid-prompt.
+    load_resp = await capiws_call(
+        session, "pfx", "load_key",
+        [disk, path, name, alias],
+        timeout=180,
+    )
+    key_id = load_resp.get("keyId")
+    if not key_id:
+        raise RuntimeError(
+            "[EimzoDaemon] load_key succeeded but returned no keyId: %s"
+            % json.dumps(load_resp, ensure_ascii=False)[:200]
+        )
+    _save_key_id(key_id)
+    logger.info("[EimzoDaemon] Key loaded (TIN=%s, keyId=%s…)", tin, key_id[:8])
+    return session, key_id
 
 
 async def main_async(args, stop_event):
@@ -486,12 +636,11 @@ async def main_async(args, stop_event):
     if not tin:
         logger.error("[EimzoDaemon] E_IMZO_KEY_TIN env var is required")
         return 2
-    env_pin = os.environ.get("E_IMZO_KEY_PIN")
-    pin_from_env = bool(env_pin)
-    pin = env_pin or getpass("[EimzoDaemon] E-IMZO PIN: ")
-    if not pin:
-        logger.error("[EimzoDaemon] Empty PIN — aborting")
-        return 2
+    # NOTE: E-IMZO v6.3.5 handles the PIN dialog inside its own GUI. We never see
+    # or transport the PIN; we just invoke ``pfx.load_key`` and E-IMZO pops a
+    # system-level PIN prompt. Once loaded, the keyId survives in E-IMZO's
+    # process memory (until the app or Mac restarts), so the daemon can run
+    # unattended across many refresh cycles.
 
     platforms_env = os.environ.get("E_IMZO_PLATFORMS", "")
     platforms = [p.strip() for p in platforms_env.split(",") if p.strip()]
@@ -521,24 +670,22 @@ async def main_async(args, stop_event):
         os.environ.get("EIMZO_DAEMON_REFRESH_SECONDS", str(DEFAULT_REFRESH_SECONDS))
     )
 
-    # Initial connect — validates PIN before entering the loop.
+    # Initial connect — triggers the GUI PIN dialog the first time, silent if
+    # a cached keyId is still valid in E-IMZO memory.
     try:
-        ws, signer_id = await _connect_with_pin_prompts(tin, pin, pin_from_env)
-    except InvalidPinError as exc:
-        logger.error("[EimzoDaemon] Startup aborted — invalid PIN: %s", str(exc)[:80])
-        return 4
+        ws, signer_id = await _open_capiws_session(tin)
     except Exception as exc:
-        logger.error("[EimzoDaemon] Startup failed: %s", str(exc)[:120])
+        logger.error("[EimzoDaemon] Startup failed: %s", str(exc)[:160])
         return 3
 
     last_stats = None  # type: Optional[Dict[str, Any]]
     try:
         async with httpx.AsyncClient() as http:
             while True:
-                # C1: ensure a live CAPIWS connection each cycle.
+                # C1: ensure a live CAPIWS session each cycle.
                 if ws is None or getattr(ws, "closed", False):
                     try:
-                        ws, signer_id = await _open_capiws_session(tin, pin)
+                        ws, signer_id = await _open_capiws_session(tin)
                     except Exception as exc:
                         logger.warning(
                             "[EimzoDaemon] CAPIWS reconnect failed: %s",
@@ -636,12 +783,25 @@ def main():
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
-    ap = argparse.ArgumentParser(description="Mac E-IMZO CAPIWS daemon")
+    ap = argparse.ArgumentParser(description="Mac E-IMZO CAPIWS daemon (DEPRECATED)")
     ap.add_argument("--once", action="store_true",
                     help="Do one refresh cycle and exit (for cron fallback)")
     ap.add_argument("--dry-run", action="store_true",
                     help="Fetch+sign+validate JWT but do NOT save to Supabase")
+    ap.add_argument("--force-deprecated", action="store_true",
+                    help="Acknowledge that this daemon is deprecated and run anyway")
     args = ap.parse_args()
+
+    if not args.force_deprecated:
+        sys.stderr.write(
+            "Mac E-IMZO daemon is DEPRECATED as of 2026-04-19.\n"
+            "Token refresh now runs on VPS via /opt/eimzo/auth.py cron (every 4h).\n"
+            "Running this daemon would write a stale source=mac heartbeat and may\n"
+            "race with the VPS daemon (last writer wins on Supabase).\n"
+            "\n"
+            "If you really need to run it (debugging only), pass --force-deprecated.\n"
+        )
+        return 1
 
     try:
         lock_fd = acquire_lock()

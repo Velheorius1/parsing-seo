@@ -55,24 +55,21 @@ UNKNOWN = "unknown"  # cascade-suppressed dependent checks (see _format_alert_bo
 # ── Alert dedup / cascade suppression config (RISK-6 mitigation) ──
 # ALERT_STATE_KEY lives in crawler.auth.constants (cross-module key — see
 # .conventions/gold-standards/crawler-settings-key.py).
-from crawler.auth.constants import ALERT_STATE_KEY, DAEMON_INSTANCE_STATE_KEY  # noqa: E402
+from crawler.auth.constants import ALERT_STATE_KEY  # noqa: E402
 ALERT_DEDUP_SECONDS = 4 * 3600  # same FAIL signature within 4h → skip send
 # Supabase FAIL collapses the alert body; these components are treated as
 # UNKNOWN (not FAIL) in the rendered body so the alert signature stays stable.
 SUPABASE_DEPENDENT_COMPONENTS = (
     "freshness", "sources", "sources.low", "telegram",
-    "token.", "geo.", "geo_sources", "mac_daemon",
+    "token.", "geo.", "geo_sources", "eimzo_auth",
 )
 
 STATUS_ICONS = {
     "ok": "✅", "warn": "⚠️", "fail": "❌", "fixed": "🔧", "unknown": "❓",
 }
 
-# ── Daemon flap detection (RISK-2 mitigation consumer side) ──
-# DAEMON_INSTANCE_STATE_KEY imported from crawler.auth.constants above.
-DAEMON_HEARTBEAT_STALE_HOURS = 6
-DAEMON_CYCLE_FAILURE_HOURS = 2
-DAEMON_FLAP_WINDOW_SECONDS = 3600  # >1 instance_id change per hour = flap
+# Mac daemon heartbeat constants — removed 2026-04-19 as Mac daemon is deprecated
+# in favor of VPS /opt/eimzo/auth.py cron. See check_eimzo_auth().
 
 
 class HealthCheck:
@@ -474,159 +471,82 @@ class HealthCheck:
         else:
             self._add("token.supabase", FAIL, "Supabase token EXPIRED!")
 
-    # ── Check 14: Mac E-IMZO Daemon Heartbeat ──
+    # ── Check 14: VPS E-IMZO Auth Cron ──
 
-    def check_mac_daemon_heartbeat(self):
+    def check_eimzo_auth(self):
         # type: () -> None
-        """Check that the Mac E-IMZO daemon is alive and refreshing tokens.
+        """Check that VPS /opt/eimzo/auth.py cron is refreshing ebirja JWTs.
 
-        Consumes the structured JSON written by ``mac_eimzo_daemon.write_heartbeat``
-        at end of each cycle:
-          ``{at, cycle_status, platforms_refreshed, failures, daemon_instance_id, pid}``
+        Reads ``auth_token:ebirja`` from crawler_settings — written by
+        ``/opt/eimzo/auth.py`` (cron every 4h) with ``source=auto-vps-eimzo``.
+        Mac daemon is deprecated as of 2026-04-19.
 
         Reports:
-        - WARN if missing (never started)
-        - FAIL if stale (>6h since last heartbeat)
-        - FAIL if ``cycle_status == "fail"`` for >2h (RISK-7 mitigation)
-        - WARN if ``cycle_status == "partial"`` for >2h
-        - WARN if ``daemon_instance_id`` has flapped (>1 change/h, RISK-2 mitigation)
-        - WARN if legacy plain-ISO8601 string is found (pre-structured shape)
+        - FAIL if token missing
+        - FAIL if obtained_at >8h old (cron not running)
+        - WARN if obtained_at >5h old (close to expiry)
+        - WARN if source != auto-vps-eimzo (legacy mac source still writing)
+        - OK otherwise
         """
         try:
-            from crawler.auth.constants import HEARTBEAT_KEY
             from crawler.auth.session_store import session_store
         except Exception as exc:
-            self._add("mac_daemon", WARN,
-                      "Could not import auth constants: %s" % str(exc)[:60])
+            self._add("eimzo_auth", WARN,
+                      "Could not import session_store: %s" % str(exc)[:60])
             return
 
-        # get_setting returns None on missing / not-a-dict / Supabase error.
-        # Legacy heartbeats may have been stored as plain ISO8601 strings — detect
-        # those by trying _read on the raw key via a direct query through get_setting
-        # (which returns None for non-dict JSON).
-        payload = session_store.get_setting(HEARTBEAT_KEY)
-        if payload is None:
-            # Try to distinguish "missing" vs "legacy string" — one extra lookup
-            # via the same session_store._get_client path.
-            client = session_store._get_client()
-            legacy = False
-            if client is not None:
-                try:
-                    resp = client.table("crawler_settings").select("value").eq(
-                        "key", HEARTBEAT_KEY,
-                    ).execute()
-                    if resp.data and len(resp.data) > 0:
-                        legacy = True
-                except Exception:
-                    legacy = False
-            if legacy:
-                self._add("mac_daemon", WARN,
-                          "Heartbeat in legacy format (pre-structured) — daemon needs restart")
-            else:
-                self._add("mac_daemon", WARN,
-                          "Mac daemon never started (no heartbeat in crawler_settings)")
+        client = session_store._get_client()
+        if client is None:
+            self._add("eimzo_auth", WARN, "Supabase unreachable")
             return
 
-        at_str = payload.get("at") or ""
-        cycle_status = payload.get("cycle_status") or "unknown"
-        platforms_refreshed = payload.get("platforms_refreshed") or []
-        failures = payload.get("failures") or []
-        instance_id = payload.get("daemon_instance_id") or ""
-        pid = payload.get("pid")
-
-        details = {
-            "at": at_str,
-            "cycle_status": cycle_status,
-            "platforms_refreshed": platforms_refreshed,
-            "failures": failures,
-            "daemon_instance_id": instance_id,
-            "pid": pid,
-        }
-
-        now = datetime.now(timezone.utc)
         try:
-            hb_dt = datetime.fromisoformat(at_str.replace("Z", "+00:00"))
+            resp = client.table("crawler_settings").select("value").eq(
+                "key", "auth_token:ebirja",
+            ).execute()
+        except Exception as exc:
+            self._add("eimzo_auth", WARN, "Read failed: %s" % str(exc)[:60])
+            return
+
+        if not resp.data:
+            self._add("eimzo_auth", FAIL,
+                      "No ebirja token — VPS auth.py cron not running")
+            return
+
+        try:
+            payload = json.loads(resp.data[0]["value"])
+        except (ValueError, TypeError, KeyError):
+            self._add("eimzo_auth", WARN, "Token value malformed JSON")
+            return
+
+        source = payload.get("source") or "unknown"
+        obtained_at = payload.get("obtained_at") or ""
+        try:
+            obt_dt = datetime.fromisoformat(obtained_at.replace("Z", "+00:00"))
         except (ValueError, TypeError):
-            self._add("mac_daemon", WARN,
-                      "Could not parse heartbeat timestamp: %s" % at_str[:40],
-                      details=details)
+            self._add("eimzo_auth", WARN,
+                      "Token obtained_at unparseable: %s" % obtained_at[:40])
             return
 
-        age_h = (now - hb_dt).total_seconds() / 3600
+        age_h = (datetime.now(timezone.utc) - obt_dt).total_seconds() / 3600
+        details = {"source": source, "obtained_at": obtained_at, "age_h": round(age_h, 2)}
 
-        # Freshness gate dominates — a stale heartbeat means the daemon is dead.
-        if age_h > DAEMON_HEARTBEAT_STALE_HOURS:
-            self._add("mac_daemon", FAIL,
-                      "Mac daemon dead for %.1fh — E-IMZO tokens will expire" % age_h,
+        if age_h > 8:
+            self._add("eimzo_auth", FAIL,
+                      "Ebirja token %.1fh old — VPS cron stuck" % age_h,
                       details=details)
-            return
-
-        # cycle_status gates (heartbeat is fresh).
-        if cycle_status == "fail" and age_h > DAEMON_CYCLE_FAILURE_HOURS:
-            failure_summary = ", ".join(
-                "%s: %s" % (f.get("platform", "?"), str(f.get("error", ""))[:40])
-                for f in failures[:3]
-            ) or "no detail"
-            self._add("mac_daemon", FAIL,
-                      "Daemon refresh failing for %.1fh: %s" % (age_h, failure_summary),
+        elif age_h > 5:
+            self._add("eimzo_auth", WARN,
+                      "Ebirja token %.1fh old — past 5h refresh interval" % age_h,
                       details=details)
-        elif cycle_status == "partial" and age_h > DAEMON_CYCLE_FAILURE_HOURS:
-            failed_platforms = [f.get("platform", "?") for f in failures]
-            self._add("mac_daemon", WARN,
-                      "Daemon partial refresh (%.1fh): failed %s" % (
-                          age_h, ", ".join(failed_platforms) or "unknown"),
-                      details=details)
-        elif cycle_status == "unknown":
-            self._add("mac_daemon", WARN,
-                      "Heartbeat %0.1fh old, cycle_status unknown" % age_h,
+        elif source != "auto-vps-eimzo":
+            self._add("eimzo_auth", WARN,
+                      "Ebirja token source=%s (expected auto-vps-eimzo)" % source,
                       details=details)
         else:
-            self._add("mac_daemon", OK,
-                      "Daemon alive (%s, last cycle %.0fm ago, refreshed: %s)" % (
-                          cycle_status, age_h * 60,
-                          ", ".join(platforms_refreshed) or "none"),
+            self._add("eimzo_auth", OK,
+                      "Ebirja JWT refreshed %.1fh ago via VPS cron" % age_h,
                       details=details)
-
-        # Flap detection — compare daemon_instance_id against stored state.
-        if instance_id:
-            self._check_daemon_flap(instance_id, now)
-
-    def _check_daemon_flap(self, current_instance_id, now):
-        # type: (str, datetime) -> None
-        """Detect daemon restart flaps — write state via session_store.set_setting.
-
-        State shape: {"first_seen_instance_id", "first_seen_at", "observed_ids"}.
-        If we see >1 distinct instance_id within ``DAEMON_FLAP_WINDOW_SECONDS``,
-        emit a WARN. Non-fatal — a single restart is normal after deployment.
-        """
-        from crawler.auth.session_store import session_store
-
-        state = session_store.get_setting(DAEMON_INSTANCE_STATE_KEY) or {}
-        observed = state.get("observed") or []  # list of {id, at}
-        window_start = now - timedelta(seconds=DAEMON_FLAP_WINDOW_SECONDS)
-
-        # Prune old observations outside the flap window.
-        pruned = []
-        for obs in observed:
-            try:
-                obs_at = datetime.fromisoformat(str(obs.get("at", "")).replace("Z", "+00:00"))
-            except (ValueError, TypeError):
-                continue
-            if obs_at >= window_start:
-                pruned.append({"id": obs.get("id", ""), "at": obs.get("at", "")})
-
-        # Record current observation (dedup by id if identical and recent).
-        if not pruned or pruned[-1].get("id") != current_instance_id:
-            pruned.append({"id": current_instance_id, "at": now.isoformat()})
-
-        distinct = set(o.get("id", "") for o in pruned if o.get("id"))
-        if len(distinct) > 1:
-            self._add("mac_daemon.flap", WARN,
-                      "Daemon flapping: %d distinct instance_ids in last %dm" % (
-                          len(distinct), DAEMON_FLAP_WINDOW_SECONDS // 60),
-                      details={"observed_ids": list(distinct)})
-
-        session_store.set_setting(DAEMON_INSTANCE_STATE_KEY, {"observed": pruned})
 
     # ── Auto-fix ──
 
@@ -918,7 +838,7 @@ def main():
     hc.check_geo_sources()
     hc.check_docker()
     hc.check_tokens()
-    hc.check_mac_daemon_heartbeat()
+    hc.check_eimzo_auth()
 
     # Auto-fix if requested
     if args.fix:
