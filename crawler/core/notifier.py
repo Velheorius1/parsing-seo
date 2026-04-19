@@ -317,6 +317,18 @@ def _format_alert(
         parts.append("%s/%s" % (_DETAIL_PAGE_BASE, db_id))
     elif tender.source_url:
         parts.append(tender.source_url)
+
+    # Cooperation.uz fallback: SPA detail page often shows "Sahifa topilmadi"
+    # in Telegram in-app browser (JavaScript not always executed). Add a
+    # search-by-title link on the supplier panel as a safety net.
+    if tender.source.startswith("Cooperation.uz") and tender.title:
+        try:
+            from urllib.parse import quote
+            q = quote(tender.title.split()[0])
+            parts.append("Поиск: https://new.cooperation.uz/supplier/all?productName=%s" % q)
+        except Exception:
+            pass
+
     parts.append("#%s" % matched_kw.replace(" ", "_"))
     return "\n".join(parts)
 
