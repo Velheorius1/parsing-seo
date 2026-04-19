@@ -665,14 +665,23 @@ sources:
     rate_limit: 2
     timeout: 15
     id_prefix: "ebirja-es"
-    response_path: "data"
+    response_path: "result.data"
     field_map:
       title: title
-      organization: made_in
+      # FIX: `made_in` — это СТРАНА производства (Узбекистан, БЕЛАЗ, Тамбовмаш),
+      # а не компания-продавец. Публичный endpoint не отдаёт seller company.
+      # Сохраняем в extra_info для справки.
+      organization: ""
       price: unit_price
       currency: "UZS"
       deadline: inactive_date
       external_id: id
+      extra_info:
+        "Страна/бренд": "made_in"
+        "Количество": "quantity"
+        "Мин. заказ": "min_order"
+        "Срок поставки": "{delivery_period} дн"
+        "Категория": "classifier.classifier_category.title_ru"
       source_url_template: "https://xarid.ebirja.uz/ru/shop/{id}"
     keywords_fields: [title]
     pagination:
@@ -2570,7 +2579,12 @@ sources:
     field_map:
       title: title
       organization: "Beeline Uzbekistan"
-      external_id: title
+      # API отдаёт только {title, content, opened} — нет id/slug. Использовали
+      # full title как external_id, что ломалось при любой правке (опечатка,
+      # смена года) → дубли в БД. Стабильный hash от нормализованного title
+      # (lowercase, без пунктуации, даты и года вырезаны) даёт тот же id
+      # при мелких правках.
+      external_id: "hash:title"
       source_url_template: "https://beeline.uz/ru/about/tenderi"
     keywords_fields: [title]
 
@@ -2638,6 +2652,7 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "hayot-red"
+    dedup_group: "birja-reduction"
     field_map:
       title: "_goods_title"
       organization: "company.title"
@@ -2664,6 +2679,7 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "hayot-tend"
+    dedup_group: "birja-tender"
     field_map:
       title: "name"
       organization: "company_name"
@@ -2679,6 +2695,10 @@ sources:
       param: offset
       page_size: 100
       max_pages: 5
+    # ref_tender_public отдаёт смесь: из ~249 записей только 7 активных,
+    # остальное — close/cancel из 2020-2024. Фильтруем активные статусы.
+    item_filter:
+      status: { in: [open, check_docs, docs_objections, commercial_checking, objections, tech_check_docs, docs_objections_summary] }
 
   - id: hayotbirja-selection
     name: "Hayotbirja отбор"
@@ -2690,6 +2710,7 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "hayot-sel"
+    dedup_group: "birja-selection"
     field_map:
       title: "name"
       organization: "company_name"
@@ -2705,6 +2726,9 @@ sources:
       param: offset
       page_size: 100
       max_pages: 5
+    # Из 500: 54% активные (268), 46% архив (close/not_realized/cancel).
+    item_filter:
+      status: { in: [open, check_docs, docs_objections, commercial_checking, objections, tech_check_docs, docs_objections_summary] }
 
   - id: hayotbirja-shop
     name: "Hayotbirja э-магазин"
@@ -2716,6 +2740,7 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "hayot-shop"
+    dedup_group: "birja-shop"
     field_map:
       title: "name"
       organization: ""
@@ -2743,6 +2768,7 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "xtx-red"
+    dedup_group: "birja-reduction"
     field_map:
       title: "_goods_title"
       organization: "company.title"
@@ -2769,6 +2795,7 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "xtx-tend"
+    dedup_group: "birja-tender"
     field_map:
       title: "name"
       organization: "company_name"
@@ -2784,6 +2811,10 @@ sources:
       param: offset
       page_size: 100
       max_pages: 5
+    # Тот же бэкенд что hayotbirja: ref_tender_public возвращает ~249 записей,
+    # 97% архив (close/cancel 2020-2024). Фильтр активных статусов.
+    item_filter:
+      status: { in: [open, check_docs, docs_objections, commercial_checking, objections, tech_check_docs, docs_objections_summary] }
 
   # ===== EBIRJA.UZ — публичные REST endpoints =====
 
@@ -2799,12 +2830,21 @@ sources:
     response_path: "data"
     field_map:
       title: "productDetailNameRu"
-      organization: "ptNameRu"
-      price: "price"
+      # FIX: `ptNameRu` — это тип упаковки ("навал", "в п/п мешках", "картонная коробка"),
+      # а не компания-продавец. Публичный seller-product endpoint не возвращает company.
+      # Берём адрес продавца в extra_info (productLocationRu) — позволяет идентифицировать
+      # продавца по адресу / региону.
+      organization: ""
+      price: "mainPrice"
       currency: "UZS"
       deadline: ""
       external_id: "id"
-    keywords_fields: ["productDetailNameRu", "ptNameRu"]
+      extra_info:
+        "Адрес продавца": "productLocationRu"
+        "Упаковка": "ptNameRu"
+        "Количество": "amount"
+        "Ед. изм.": "unitTypeNameRu"
+    keywords_fields: ["productDetailNameRu", "productLocationRu"]
     pagination:
       type: page
       param: "page"
@@ -2872,7 +2912,11 @@ sources:
   # Биржевая сторона ebirja.uz (не госзакупки xarid.ebirja.uz)
   # 2026-04-13: переключен на API (SPA wait_selector "table" таймаутит — API отдаёт {"success":true} без данных)
   # API endpoint обнаружен через Playwright network intercept: fond-api/api/external/auction-product/all
-  # Пока API пуст — оставляем enabled, будем мониторить
+  # 2026-04-17: API responds {success:true} without data — URL verified correct (frontend JS calls same path,
+  #   siblings auction-product/get-offers + seller-product/all return {success,meta,data}). No valid anonymous
+  #   alternative (list/active/counter-auction all 404; /auction-product/all without 'external' = 401 auth).
+  #   Likely transient (no active reverse auctions today). Monitored via zero-result tracker (#6 ok_empty state).
+  #   See docs/findings/ebirja-reverse-auction-diagnosis.md
   - id: ebirja-reverse-auction
     name: "E-Birja встречные аукционы"
     adapter: api
@@ -2941,3 +2985,69 @@ sources:
       currency: "UZS"
       source_url_template: "https://ebirja.uz/ru/trade/announcements"
     keywords_fields: ["title"]
+
+  # ── Ebirja authenticated sources (E-IMZO JWT via auth_platform: ebirja) ──
+  # 2026-04-17: Added under task #4 (feature-eimzo-reliability). Requires E-IMZO
+  # daemon (task #2) to maintain fresh token in session_store under key
+  # 'auth_token:ebirja'. If token absent, api.py logs warning and returns [] —
+  # zero-result tracker (#6) classifies as skipped_no_auth, not error.
+  # id_prefix is ebirja-auth-* (per RISK-4 mitigation: distinct from legacy
+  # ebirja-ctr / ebirja-auc to prevent alert-group collision in dedup.py).
+  # Field_map follows the public fond-api shape (productDetailNameRu, ptNameRu,
+  # mainPrice, id) — same Java backend serves public and authed endpoints.
+
+  - id: ebirja-auth-release-sale
+    name: "E-Birja торговые продукты (авторизованный)"
+    adapter: api
+    enabled: true
+    url: "https://api.ebirja.uz/fond-api/api/release-sale/get-trade-products"
+    method: GET
+    auth_platform: ebirja
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "ebirja-auth-rs"
+    response_path: "data"
+    field_map:
+      title: "productDetailNameRu"
+      organization: "productLocationRu"
+      price: "mainPrice"
+      currency: "UZS"
+      deadline: ""
+      external_id: "id"
+      source_url_template: "https://ebirja.uz/ru/trade/release-sale"
+    keywords_fields: ["productDetailNameRu", "productLocationRu"]
+    pagination:
+      type: page
+      param: "page"
+      size_param: "size"
+      page_size: 100
+      max_pages: 20
+      page_start: 0
+
+  - id: ebirja-auth-seller-products
+    name: "E-Birja аукционные товары (авторизованный)"
+    adapter: api
+    enabled: true
+    url: "https://api.ebirja.uz/fond-api/api/auction/seller-product-list"
+    method: GET
+    auth_platform: ebirja
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "ebirja-auth-auc"
+    response_path: "data"
+    field_map:
+      title: "productDetailNameRu"
+      organization: "productLocationRu"
+      price: "mainPrice"
+      currency: "UZS"
+      deadline: ""
+      external_id: "id"
+      source_url_template: "https://ebirja.uz/ru/trade/auction"
+    keywords_fields: ["productDetailNameRu", "productLocationRu"]
+    pagination:
+      type: page
+      param: "page"
+      size_param: "size"
+      page_size: 100
+      max_pages: 20
+      page_start: 0

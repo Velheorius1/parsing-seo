@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from crawler.adapters.api import _apply_item_filter
 from crawler.adapters.base import BaseAdapter
 from crawler.core.models import RawTender, SourceConfig
 
@@ -131,6 +132,15 @@ class JsonRpcAdapter(BaseAdapter):
                     break
 
                 offset += page_size
+
+        # Client-side filter (status whitelist, etc.) before conversion
+        if cfg.item_filter:
+            before = len(all_items)
+            all_items = _apply_item_filter(all_items, cfg.item_filter)
+            logger.info(
+                "[%s] item_filter %s: %d -> %d items",
+                cfg.name, cfg.item_filter, before, len(all_items),
+            )
 
         tenders = self._convert_all(all_items)
         return tenders

@@ -1,6 +1,7 @@
 """API adapter — fetches tenders from JSON REST APIs."""
 
 import asyncio
+import hashlib
 import logging
 import re
 from datetime import datetime, timezone
@@ -13,6 +14,32 @@ from crawler.config.settings import settings
 from crawler.core.models import RawTender, SourceConfig
 
 logger = logging.getLogger(__name__)
+
+
+# Normalisation helpers for stable hash-based external_id (see field_map.external_id = "hash:...").
+# Goal: minor textual edits (typos, trailing whitespace, year updates) produce the SAME id.
+_DATE_RE = re.compile(
+    r"\b\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}\b"     # 22.04.2026, 17-04-25
+    r"|\b\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}\b"      # 2026-04-22
+    r"|\b\d{4}\s*(?:г|год|года|года\.|г\.)\b"     # 2026г, 2026 года
+    r"|\b20\d{2}\b"                                 # bare 4-digit years
+)
+_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+_WS_RE = re.compile(r"\s+")
+
+
+def _stable_hash_id(value):
+    # type: (str) -> str
+    """16-char SHA1 of normalized text. Empty string if value is empty."""
+    if not value:
+        return ""
+    t = value.lower()
+    t = _DATE_RE.sub(" ", t)
+    t = _PUNCT_RE.sub(" ", t)
+    t = _WS_RE.sub(" ", t).strip()
+    if not t:
+        return ""
+    return hashlib.sha1(t.encode("utf-8")).hexdigest()[:16]
 
 
 def _resolve_path(data: Any, path: str) -> Any:
@@ -87,11 +114,21 @@ def _resolve_wildcard_path(item, path):
 
 def _scalar_compare(a, op, b):
     # type: (Any, str, Any) -> bool
-    """Compare a op b. Supports eq/ne/gt/gte/lt/lte."""
+    """Compare a op b. Supports eq/ne/in/nin/gt/gte/lt/lte."""
     if op == "eq":
         return a == b
     if op == "ne":
         return a != b
+    if op == "in":
+        try:
+            return a in b  # type: ignore[operator]
+        except TypeError:
+            return False
+    if op == "nin":
+        try:
+            return a not in b  # type: ignore[operator]
+        except TypeError:
+            return True
     try:
         a_num = float(a) if a is not None else None
         b_num = float(b) if b is not None else None
@@ -129,7 +166,8 @@ def _match_predicate(item, path, pred):
     if wildcard:
         return any(_scalar_compare(v, op, expected) for v in values)
     if not values:
-        return op == "ne"
+        # Missing field: "ne" and "nin" are trivially true; other ops false.
+        return op in ("ne", "nin")
     return _scalar_compare(values[0], op, expected)
 
 
@@ -569,9 +607,20 @@ class ApiAdapter(BaseAdapter):
                 categories = [str(cat_val)]
 
         # External ID
+        # Supports two forms:
+        #   1. "field" or "a.b.c"            → raw field value
+        #   2. "hash:field" or "hash:a.b.c"  → stable 16-char SHA1 of normalized
+        #      field value (lowercase, punctuation stripped, whitespace collapsed,
+        #      date patterns removed). Use when source lacks a stable id/slug and
+        #      the chosen text field may drift slightly between crawls.
         ext_id_val = ""
         if fm.external_id:
-            ext_id_val = _safe_str(_get_field(item, fm.external_id, ""))
+            spec = fm.external_id
+            if spec.startswith("hash:"):
+                raw = _safe_str(_get_field(item, spec[5:], ""))
+                ext_id_val = _stable_hash_id(raw)
+            else:
+                ext_id_val = _safe_str(_get_field(item, spec, ""))
         if not ext_id_val:
             ext_id_val = _safe_str(_get_field(item, "id", ""))
 

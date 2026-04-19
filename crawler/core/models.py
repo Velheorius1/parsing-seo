@@ -97,10 +97,16 @@ class SourceConfig(BaseModel):
     use_proxy: bool = False
     # Client-side item filter — applied to raw dict items BEFORE _convert_all.
     # Keys are dot-paths supporting [*] wildcard for list iteration.
-    # Values are either scalars (equality) or {op: value} where op is eq/ne/gt/gte/lt/lte.
+    # Values are either scalars (equality) or {op: value} where op is eq/ne/in/nin/gt/gte/lt/lte.
     # Wildcard paths get "any" semantics: matches if ANY element satisfies the predicate.
     # Example: {"unit": {"gt": 0}, "products[*].quantity": {"gt": 0}}
     item_filter: Optional[Dict[str, Any]] = None
+    # Cross-source deduplication group. Sources that share the same backend
+    # (hayotbirja.uz and xt-xarid.uz are proxies to the same API — 100% ID
+    # overlap) should carry the same group name so runner can collapse exact
+    # external_id matches into a single row. First source in collection order
+    # wins (put the preferred source first in sources.yaml).
+    dedup_group: Optional[str] = None
 
 
 class SourcesConfig(BaseModel):

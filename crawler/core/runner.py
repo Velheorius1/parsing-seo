@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import os
-from typing import Dict, List, Type
+from typing import Dict, List, Tuple, Type
 
 import yaml
 
@@ -151,6 +151,37 @@ async def run(
         "%s: %d" % (k, v) for k, v in stats.items()
     )
     logger.info("Crawl complete: %s -> Total: %d", source_log, total)
+
+    # Cross-source exact dedup: sources sharing the same backend (e.g. hayotbirja.uz
+    # and xt-xarid.uz return identical data via different domains) collapse to
+    # one row per external_id. First-encountered source wins.
+    group_by_source = {
+        a.config.id: a.config.dedup_group for a in all_adapters if a.config.dedup_group
+    }
+    if group_by_source:
+        seen_group_ids = {}  # type: Dict[Tuple[str, str], str]  # (group, external_id) -> kept source id
+        deduped = []
+        dropped_cross = 0
+        for t in all_tenders:
+            # Find this tender's source config (the adapter whose name matches t.source)
+            adapter_id = next((a.config.id for a in all_adapters if a.config.name == t.source), None)
+            group = group_by_source.get(adapter_id) if adapter_id else None
+            if not group:
+                deduped.append(t)
+                continue
+            key = (group, t.external_id)
+            if key in seen_group_ids:
+                dropped_cross += 1
+                continue
+            seen_group_ids[key] = t.source
+            deduped.append(t)
+        if dropped_cross:
+            logger.info(
+                "[Dedup] Cross-source exact dedup: %d -> %d (dropped %d duplicates across groups: %s)",
+                len(all_tenders), len(deduped), dropped_cross,
+                sorted(set(group_by_source.values())),
+            )
+            all_tenders = deduped
 
     # AI enrichment — fill missing fields (price, deadline, organization)
     from crawler.core.enricher import enrich_tenders

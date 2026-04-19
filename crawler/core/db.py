@@ -45,6 +45,10 @@ def _tender_to_row(t: RawTender) -> dict:
         "collected_at": t.collected_at.isoformat(),
     }
     row["message_type"] = t.message_type
+    # Persist enriched display fields (Район, Адрес, Количество, Цена/ед., и т.д.)
+    # Column added in migration 015; harmless if column absent (Supabase ignores unknown keys).
+    if t.extra_info:
+        row["extra_info"] = t.extra_info
     # Optional result fields — only include if set
     if t.winner:
         row["winner"] = t.winner
@@ -143,6 +147,26 @@ async def upsert_tenders(
                 len(batch),
             )
         except Exception as exc:
-            logger.error("[DB] Upsert batch %d failed: %s", i, str(exc))
+            msg = str(exc)
+            # Fallback: retry without extra_info if the column is not yet deployed
+            # (migration 015 pending). Prevents write downtime during rollout.
+            if "extra_info" in msg and ("PGRST204" in msg or "column" in msg.lower()):
+                logger.warning(
+                    "[DB] extra_info column missing — retrying batch %d without it", i
+                )
+                stripped = [{k: v for k, v in r.items() if k != "extra_info"} for r in rows]
+                try:
+                    client.table(TABLE).upsert(
+                        stripped, on_conflict=UPSERT_CONFLICT
+                    ).execute()
+                    total += len(batch)
+                    logger.info(
+                        "[DB] Upserted batch %d-%d without extra_info (%d rows)",
+                        i, i + len(batch), len(batch),
+                    )
+                    continue
+                except Exception as exc2:
+                    logger.error("[DB] Fallback upsert batch %d failed: %s", i, str(exc2))
+            logger.error("[DB] Upsert batch %d failed: %s", i, msg)
 
     return total, new_tenders
