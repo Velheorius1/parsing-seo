@@ -368,12 +368,19 @@ async def send_alerts(
     # Stale-tender filter: drop anything with deadline >365 days in the past.
     # Catches Hayotbirja тендеры (2020-12-28) and Xarid Конкурсы (2022-07-13)
     # — adapter regression where parser keeps returning archived rows.
-    _STALE_CUTOFF = datetime.now(timezone.utc) - timedelta(days=365)
+    # _parse_deadline returns naive datetime, so compare with naive utcnow.
+    _STALE_CUTOFF = datetime.utcnow() - timedelta(days=365)
     fresh = []
     stale_count = 0
     for t in active:
         dt = _parse_deadline(t.deadline)
-        if dt is None or dt >= _STALE_CUTOFF:
+        if dt is None:
+            fresh.append(t)
+            continue
+        # Strip tzinfo if present so the comparison is always naive vs naive.
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
+        if dt >= _STALE_CUTOFF:
             fresh.append(t)
         else:
             stale_count += 1
