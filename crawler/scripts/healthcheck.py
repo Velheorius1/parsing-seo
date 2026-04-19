@@ -198,7 +198,7 @@ class HealthCheck:
         """Check if feedback_bot systemd service is running (VPS only)."""
         try:
             result = subprocess.run(
-                ["systemctl", "is-active", "feedback-bot"],
+                ["systemctl", "is-active", "parsing-feedback-bot"],
                 capture_output=True, text=True, timeout=5,
             )
             status = result.stdout.strip()
@@ -304,8 +304,8 @@ class HealthCheck:
         # type: () -> None
         """Check if Playwright Chromium binary is installed."""
         patterns = [
-            os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
-            "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+            os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome"),
+            "/root/.cache/ms-playwright/chromium-*/chrome-linux*/chrome",
         ]
         found = False
         for pattern in patterns:
@@ -643,7 +643,7 @@ class HealthCheck:
             if comp == "feedback_bot":
                 try:
                     subprocess.run(
-                        ["systemctl", "restart", "feedback-bot"],
+                        ["systemctl", "restart", "parsing-feedback-bot"],
                         capture_output=True, timeout=10,
                     )
                     self._add("feedback_bot", FIXED, "Restarted feedback-bot service")

@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 import httpx
 
 from crawler.config.settings import settings
+from crawler.core.feedback import get_few_shot_examples
 from crawler.core.models import RawTender
 
 logger = logging.getLogger(__name__)
@@ -18,8 +19,10 @@ logger = logging.getLogger(__name__)
 # ── AI relevance filter ──────────────────────────────────────────
 
 _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и УПАКОВОЧНОЕ производство в Узбекистане.
+Нам нужны ТОЛЬКО ЗАПРОСЫ КЛИЕНТОВ на наши услуги (intent = demand).
+Реклама ПОСТАВЩИКОВ ("мы делаем...", "звоните нам", "минимальный заказ от...") = NO.
 
-МЫ ДЕЛАЕМ (YES):
+МЫ ДЕЛАЕМ (нишевые YES):
 - Коробки (гофро, картон, подарочные, совга кутилар)
 - Этикетки, стикеры, наклейки
 - Полиграфия (каталоги, брошюры, блокноты, визитки, буклеты)
@@ -50,28 +53,71 @@ _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и У�
 - Подписка и доставка периодических печатных изданий (газеты, журналы)
 - Марля полиграфическая, расходные материалы для типографии
 
-Пример:
+Пример (YES — клиент ищет поставщика):
 Название: Закупка этикеток для пищевой продукции (500 000 шт)
 Заказчик: ООО Nestle Uzbekistan
 Ответ: YES
 
+Пример (NO — поставщик предлагает свои услуги):
+Название: Изготовим коробки любой сложности! Звоните +998...
+Заказчик: ООО ПолиграфПринт
+Ответ: NO
+{examples}{tg_hint}
 Объявление:
 Название: {title}
 Заказчик: {organization}
 
+ДВА ВОПРОСА (ответь себе перед ответом):
+1) Это ЗАПРОС покупателя? (Если поставщик предлагает СВОИ услуги — NO.)
+2) Если запрос — попадает ли в нашу нишу выше?
+Отвечай YES только если ОБА = да.
+
 Ответь YES или NO (одно слово).
 /no_think"""
+
+
+_TG_AD_HINT = """
+
+ВАЖНО для TG-каналов: маркеры РЕКЛАМЫ поставщика (любой = NO):
+- "мы делаем", "мы производим", "наша типография", "наш цех"
+- "звоните", "пишите в личку", "заказы по тел", контакт-телефон в тексте
+- "минимальный заказ от", "цены от", прайс-лист
+- "офис: г.", адрес офиса в тексте, "доставка по Ташкенту"
+- Восклицания и emoji в продающем стиле ("🔥 АКЦИЯ!", "✅ Качество!")
+"""
+
+
+def _build_examples_block() -> str:
+    """Pull recent feedback examples and format as a prompt block."""
+    try:
+        block = get_few_shot_examples(n=5)
+    except Exception as exc:
+        logger.debug("[AI Filter] Could not fetch few-shot: %s", str(exc)[:80])
+        return ""
+    if not block:
+        return ""
+    return "\n\nПРИМЕРЫ ИЗ ОБРАТНОЙ СВЯЗИ (учись на корректировках пользователя):\n" + block
 
 
 async def _ai_check_relevance(
     tender: RawTender,
     client: httpx.AsyncClient,
 ) -> bool:
-    """Check tender relevance via Qwen (OpenRouter). Returns True if relevant."""
+    """Check tender relevance via Qwen (OpenRouter). Returns True if relevant.
+
+    Safe-fail policy: on AI/network error we let through tenders from trusted
+    sources (official APIs like cooperation/ebirja) and REJECT for tg-* sources
+    where ad ratio is high. Better to lose one tg post than spam users with ads.
+    """
+    is_tg = (tender.source or "").startswith("tg-")
+    safe_default = False if is_tg else True
+
     if not settings.openrouter_api_key:
-        return True  # no key = skip filter, send all
+        return safe_default  # no key = no filter; behave like AI errored
 
     prompt = _RELEVANCE_PROMPT.format(
+        examples=_build_examples_block(),
+        tg_hint=_TG_AD_HINT if is_tg else "",
         title=tender.title[:300],
         organization=tender.organization or "",
     )
@@ -92,7 +138,7 @@ async def _ai_check_relevance(
         )
         if resp.status_code != 200:
             logger.warning("[AI Filter] OpenRouter %d: %s", resp.status_code, resp.text[:100])
-            return True  # on error, let it through
+            return safe_default
 
         data = resp.json()
         raw_answer = data["choices"][0]["message"]["content"] or ""
@@ -104,7 +150,7 @@ async def _ai_check_relevance(
             answer = _re.sub(r"<think>.*?</think>", "", answer, flags=_re.DOTALL).strip()
         answer = answer.upper()
         if not answer:
-            return True  # empty answer = let it through
+            return safe_default
         is_relevant = answer.startswith("YES")
         if not is_relevant:
             logger.info("[AI Filter] REJECTED: %s (answer=%s)", tender.title[:60], answer)
@@ -112,7 +158,7 @@ async def _ai_check_relevance(
 
     except Exception as exc:
         logger.warning("[AI Filter] Error: %s", str(exc)[:80])
-        return True  # on error, let it through
+        return safe_default
 
 # ── Deadline filter ──────────────────────────────────────────────
 
@@ -385,6 +431,10 @@ async def send_alerts(
         "подписке и доставке периодических печатных изданий",
         "марля полиграфическая",
         "nfc визитк",
+        "вакансия", "ищем сотрудника", "требуется", "trebuetsya",
+        "оракал", "плёнк", "пленк", "оклейка",
+        "акция!", "скидка", "распродажа",
+        "сдаётся в аренду", "сдаю в аренду",
     ]
     before_reject = len(matching)
     matching = [
