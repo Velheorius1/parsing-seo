@@ -11,7 +11,6 @@ from typing import Dict, List, Optional, Tuple
 import httpx
 
 from crawler.config.settings import settings
-from crawler.core.feedback import get_few_shot_examples
 from crawler.core.models import RawTender
 
 logger = logging.getLogger(__name__)
@@ -19,10 +18,8 @@ logger = logging.getLogger(__name__)
 # ── AI relevance filter ──────────────────────────────────────────
 
 _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и УПАКОВОЧНОЕ производство в Узбекистане.
-Нам нужны ТОЛЬКО ЗАПРОСЫ КЛИЕНТОВ на наши услуги (intent = demand).
-Реклама ПОСТАВЩИКОВ ("мы делаем...", "звоните нам", "минимальный заказ от...") = NO.
 
-МЫ ДЕЛАЕМ (нишевые YES):
+МЫ ДЕЛАЕМ (YES):
 - Коробки (гофро, картон, подарочные, совга кутилар)
 - Этикетки, стикеры, наклейки
 - Полиграфия (каталоги, брошюры, блокноты, визитки, буклеты)
@@ -53,71 +50,28 @@ _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и У�
 - Подписка и доставка периодических печатных изданий (газеты, журналы)
 - Марля полиграфическая, расходные материалы для типографии
 
-Пример (YES — клиент ищет поставщика):
+Пример:
 Название: Закупка этикеток для пищевой продукции (500 000 шт)
 Заказчик: ООО Nestle Uzbekistan
 Ответ: YES
 
-Пример (NO — поставщик предлагает свои услуги):
-Название: Изготовим коробки любой сложности! Звоните +998...
-Заказчик: ООО ПолиграфПринт
-Ответ: NO
-{examples}{tg_hint}
 Объявление:
 Название: {title}
 Заказчик: {organization}
 
-ДВА ВОПРОСА (ответь себе перед ответом):
-1) Это ЗАПРОС покупателя? (Если поставщик предлагает СВОИ услуги — NO.)
-2) Если запрос — попадает ли в нашу нишу выше?
-Отвечай YES только если ОБА = да.
-
 Ответь YES или NO (одно слово).
 /no_think"""
-
-
-_TG_AD_HINT = """
-
-ВАЖНО для TG-каналов: маркеры РЕКЛАМЫ поставщика (любой = NO):
-- "мы делаем", "мы производим", "наша типография", "наш цех"
-- "звоните", "пишите в личку", "заказы по тел", контакт-телефон в тексте
-- "минимальный заказ от", "цены от", прайс-лист
-- "офис: г.", адрес офиса в тексте, "доставка по Ташкенту"
-- Восклицания и emoji в продающем стиле ("🔥 АКЦИЯ!", "✅ Качество!")
-"""
-
-
-def _build_examples_block() -> str:
-    """Pull recent feedback examples and format as a prompt block."""
-    try:
-        block = get_few_shot_examples(n=5)
-    except Exception as exc:
-        logger.debug("[AI Filter] Could not fetch few-shot: %s", str(exc)[:80])
-        return ""
-    if not block:
-        return ""
-    return "\n\nПРИМЕРЫ ИЗ ОБРАТНОЙ СВЯЗИ (учись на корректировках пользователя):\n" + block
 
 
 async def _ai_check_relevance(
     tender: RawTender,
     client: httpx.AsyncClient,
 ) -> bool:
-    """Check tender relevance via Qwen (OpenRouter). Returns True if relevant.
-
-    Safe-fail policy: on AI/network error we let through tenders from trusted
-    sources (official APIs like cooperation/ebirja) and REJECT for tg-* sources
-    where ad ratio is high. Better to lose one tg post than spam users with ads.
-    """
-    is_tg = (tender.source or "").startswith("tg-")
-    safe_default = False if is_tg else True
-
+    """Check tender relevance via Qwen (OpenRouter). Returns True if relevant."""
     if not settings.openrouter_api_key:
-        return safe_default  # no key = no filter; behave like AI errored
+        return True  # no key = skip filter, send all
 
     prompt = _RELEVANCE_PROMPT.format(
-        examples=_build_examples_block(),
-        tg_hint=_TG_AD_HINT if is_tg else "",
         title=tender.title[:300],
         organization=tender.organization or "",
     )
@@ -138,7 +92,7 @@ async def _ai_check_relevance(
         )
         if resp.status_code != 200:
             logger.warning("[AI Filter] OpenRouter %d: %s", resp.status_code, resp.text[:100])
-            return safe_default
+            return True  # on error, let it through
 
         data = resp.json()
         raw_answer = data["choices"][0]["message"]["content"] or ""
@@ -150,7 +104,7 @@ async def _ai_check_relevance(
             answer = _re.sub(r"<think>.*?</think>", "", answer, flags=_re.DOTALL).strip()
         answer = answer.upper()
         if not answer:
-            return safe_default
+            return True  # empty answer = let it through
         is_relevant = answer.startswith("YES")
         if not is_relevant:
             logger.info("[AI Filter] REJECTED: %s (answer=%s)", tender.title[:60], answer)
@@ -158,7 +112,7 @@ async def _ai_check_relevance(
 
     except Exception as exc:
         logger.warning("[AI Filter] Error: %s", str(exc)[:80])
-        return safe_default
+        return True  # on error, let it through
 
 # ── Deadline filter ──────────────────────────────────────────────
 
@@ -407,9 +361,25 @@ async def send_alerts(
 
     # Filter out tenders with expired deadlines
     active = [t for t in priced if not _is_deadline_expired(t)]
-    expired_count = len(new_tenders) - len(active)
+    expired_count = len(priced) - len(active)
     if expired_count:
         logger.info("[Alerts] Skipped %d tenders with expired deadlines", expired_count)
+
+    # Stale-tender filter: drop anything with deadline >365 days in the past.
+    # Catches Hayotbirja тендеры (2020-12-28) and Xarid Конкурсы (2022-07-13)
+    # — adapter regression where parser keeps returning archived rows.
+    _STALE_CUTOFF = datetime.now(timezone.utc) - timedelta(days=365)
+    fresh = []
+    stale_count = 0
+    for t in active:
+        dt = _parse_deadline(t.deadline)
+        if dt is None or dt >= _STALE_CUTOFF:
+            fresh.append(t)
+        else:
+            stale_count += 1
+    if stale_count:
+        logger.info("[Alerts] Skipped %d stale tenders (deadline >1 year past)", stale_count)
+    active = fresh
 
     # Filter matching tenders by keywords
     matching = []  # type: List[Tuple[RawTender, str]]
@@ -424,17 +394,15 @@ async def send_alerts(
 
     logger.info("[Alerts] %d tenders match keywords (out of %d new)", len(matching), len(new_tenders))
 
-    # Fast reject filter — remove obvious non-relevant items before AI
+    # Fast reject filter — remove obvious non-relevant items before AI.
+    # Note: "книги печатные" was here but removed 2026-04-19 because it is the
+    # OKED category name in UZEX prequest/etender — collapses entire UZEX feed
+    # to 0 alerts. Let AI decide on a per-item basis.
     _REJECT_TITLES = [
-        "книги печатные",
         "подписке и доставке периодического печатного издания",
         "подписке и доставке периодических печатных изданий",
         "марля полиграфическая",
         "nfc визитк",
-        "вакансия", "ищем сотрудника", "требуется", "trebuetsya",
-        "оракал", "плёнк", "пленк", "оклейка",
-        "акция!", "скидка", "распродажа",
-        "сдаётся в аренду", "сдаю в аренду",
     ]
     before_reject = len(matching)
     matching = [
@@ -445,14 +413,44 @@ async def send_alerts(
     if rejected_fast:
         logger.info("[Fast Reject] Removed %d non-relevant tenders by title", rejected_fast)
 
-    if not matching:
+    # UZEX prequest fast-pass: titles are OKED category names ("Услуги печатные...",
+    # "Книги печатные") so AI conservatively rejects them. For UZEX-family sources,
+    # if the title obviously matches our niche by category we skip the AI cost
+    # and let it through — Daniyar wants prequals to come "так успеем подготовиться".
+    _UZEX_PASSTHROUGH_SOURCES = {
+        "UZEX Предквалификации",
+        "UZEX Результаты",
+        "ETender UZEX",
+        "ETender Обсуждения",
+    }
+    _UZEX_NICHE_HINTS = (
+        "печатн", "полиграф", "упаков", "пакет", "коробк",
+        "этикет", "брошюр", "буклет", "стикер", "календар",
+        "блокнот", "конверт", "сувенир", "ежедневник", "обложк", "bosma",
+    )
+    uzex_bypass: List[Tuple[RawTender, str]] = []
+    rest: List[Tuple[RawTender, str]] = []
+    for t, kw in matching:
+        title_l = (t.title or "").lower()
+        if (
+            t.source in _UZEX_PASSTHROUGH_SOURCES
+            and any(hint in title_l for hint in _UZEX_NICHE_HINTS)
+        ):
+            uzex_bypass.append((t, kw))
+        else:
+            rest.append((t, kw))
+    if uzex_bypass:
+        logger.info("[UZEX Pass] %d UZEX-family tenders bypass AI by category match", len(uzex_bypass))
+    matching = rest
+
+    if not matching and not uzex_bypass:
         logger.info("[Alerts] All tenders rejected by fast filter")
         return 0
 
     if dry_run:
-        for i, (t, kw) in enumerate(matching):
+        for i, (t, kw) in enumerate(matching + uzex_bypass):
             logger.info("[Alerts] DRY RUN would send: #%03d [%s] %s", i + 1, kw, t.title[:80])
-        return len(matching)
+        return len(matching) + len(uzex_bypass)
 
     # AI relevance filter — reject false positives via Qwen (parallel)
     if settings.openrouter_api_key:
@@ -475,9 +473,13 @@ async def send_alerts(
         if rejected:
             logger.info("[AI Filter] Passed %d / %d (rejected %d)", len(filtered), len(matching), rejected)
         matching = filtered
-        if not matching:
+        if not matching and not uzex_bypass:
             logger.info("[Alerts] All tenders rejected by AI filter")
             return 0
+
+    # Merge UZEX-bypass items back in (they skipped AI by design)
+    if uzex_bypass:
+        matching = matching + uzex_bypass
 
     # Reserve sequential alert numbers
     from crawler.core.feedback import get_next_seq, save_alert_seq

@@ -164,13 +164,126 @@ def find_groups(tenders: List[RawTender]) -> Dict[str, str]:
     return groups
 
 
+def _within_source_key(t: RawTender) -> Tuple[str, str, str]:
+    """Generate fingerprint for same-source dedup.
+
+    Cooperation.uz publishes one procurement plan as N rows with unique GUIDs
+    but identical (title, organization). Without same-source dedup the alert
+    channel gets 64 copies of "Учебники печатные" from one organization.
+
+    Returns ``(source, normalized_org, sorted_significant_words)`` — empty org
+    or empty title falls back to original external_id semantics (not deduped).
+    """
+    org = _normalize_org(t.organization or "")
+    words = _extract_significant_words(t.title or "")
+    if not org or not words:
+        # Fall back to external_id — disables fuzzy dedup for this row
+        return (t.source, "", t.id)
+    return (t.source, org, " ".join(sorted(words)))
+
+
+def dedup_within_source(
+    tenders: List[RawTender],
+    keep_existing_keys: Optional[Set[Tuple[str, str, str]]] = None,
+) -> Tuple[List[RawTender], int]:
+    """First pass: collapse same-source duplicates by (source, org, title-words).
+
+    Drops a new tender if:
+    - Another new tender with the same fingerprint already came first in the batch
+    - The fingerprint is in ``keep_existing_keys`` (already alerted recently)
+
+    Returns ``(filtered_list, dropped_count)``.
+    """
+    if not tenders:
+        return [], 0
+
+    seen = set(keep_existing_keys or set())
+    out = []
+    dropped = 0
+    for t in tenders:
+        key = _within_source_key(t)
+        # Empty org/words → fallback unique key — never collapses
+        if key[1] == "" and key[2] == t.id:
+            out.append(t)
+            continue
+        if key in seen:
+            dropped += 1
+            continue
+        seen.add(key)
+        out.append(t)
+
+    if dropped:
+        logger.info(
+            "[Dedup] Same-source dedup dropped %d/%d tenders by (source, org, title-words)",
+            dropped, len(tenders),
+        )
+    return out, dropped
+
+
+def load_recent_alerted_fingerprints(days: int = 7) -> Set[Tuple[str, str, str]]:
+    """Load (source, normalized_org, sorted_words) fingerprints of tenders that
+    were already sent as alerts in the last ``days`` days.
+
+    Used by the cron-level dedup pass so a position alerted yesterday does not
+    re-fire today even if the source publishes it with a fresh GUID.
+    Returns an empty set on any Supabase failure (degrades gracefully).
+    """
+    try:
+        from datetime import datetime, timedelta, timezone
+        from crawler.config.settings import settings
+        from supabase import create_client
+
+        if not settings.supabase_url or not settings.supabase_service_role_key:
+            return set()
+        client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        keys: Set[Tuple[str, str, str]] = set()
+        page_size = 1000
+        offset = 0
+        while True:
+            page = (
+                client.table("tenders")
+                .select("source,title,organization,external_id")
+                .not_.is_("alert_seq", "null")
+                .gte("collected_at", since)
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            rows = page.data or []
+            for row in rows:
+                src = row.get("source") or ""
+                title = row.get("title") or ""
+                org = row.get("organization") or ""
+                org_n = _normalize_org(org)
+                words = _extract_significant_words(title)
+                if not org_n or not words:
+                    continue
+                keys.add((src, org_n, " ".join(sorted(words))))
+            if len(rows) < page_size:
+                break
+            offset += page_size
+        logger.info("[Dedup] Loaded %d alerted fingerprints from last %dd", len(keys), days)
+        return keys
+    except Exception as exc:
+        logger.warning("[Dedup] Failed to load recent fingerprints: %s", str(exc)[:120])
+        return set()
+
+
 def group_for_alerts(
     new_tenders: List[RawTender],
     all_tenders: List[RawTender],
+    recent_alerted_keys: Optional[Set[Tuple[str, str, str]]] = None,
 ) -> Tuple[List[RawTender], Dict[str, List[str]]]:
     """Deduplicate new tenders for alerting.
 
-    Compares new tenders against ALL tenders (including existing).
+    Two passes:
+    1. Same-source fuzzy dedup (Cooperation.uz publishes the same procurement
+       plan position as N rows with different GUIDs — collapse to one alert).
+       Also checks against ``all_tenders`` so a position already alerted
+       yesterday doesn't fire again today.
+    2. Cross-source clustering (one alert when a tender appears on multiple
+       platforms with the same org+title).
+
     Returns:
         - deduplicated list (one representative per group)
         - dict {representative_id: [list of source names in group]}
@@ -178,7 +291,20 @@ def group_for_alerts(
     if not new_tenders:
         return [], {}
 
-    # Find groups among new tenders + recent existing
+    # Pass 1: collapse same-source spam against fingerprints of:
+    #   (a) tenders that came earlier in this same crawl cycle,
+    #   (b) tenders alerted in last 7d (so yesterday's "Календарь" suppresses today's copy).
+    new_ids = {t.id for t in new_tenders}
+    existing_keys = {
+        _within_source_key(t) for t in all_tenders if t.id not in new_ids
+    }
+    if recent_alerted_keys:
+        existing_keys |= recent_alerted_keys
+    new_tenders, _dropped = dedup_within_source(new_tenders, existing_keys)
+    if not new_tenders:
+        return [], {}
+
+    # Pass 2: cross-source clustering (existing behavior)
     groups = find_groups(all_tenders)
 
     # For new tenders, pick one representative per group

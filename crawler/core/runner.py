@@ -166,9 +166,10 @@ async def run(
     crawl_log.log_upsert(upserted, len(new_tenders))
 
     # Deduplicate cross-source before alerting
-    from crawler.core.dedup import group_for_alerts
+    from crawler.core.dedup import group_for_alerts, load_recent_alerted_fingerprints
 
-    deduped_new, group_sources = group_for_alerts(new_tenders, all_tenders)
+    recent_keys = load_recent_alerted_fingerprints(days=7) if not dry_run else set()
+    deduped_new, group_sources = group_for_alerts(new_tenders, all_tenders, recent_alerted_keys=recent_keys)
     if len(new_tenders) != len(deduped_new):
         logger.info(
             "Dedup: %d new -> %d unique for alerts",
