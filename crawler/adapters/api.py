@@ -208,6 +208,26 @@ def _resolve_extra_info_value(item, spec):
     return _safe_str(vals[0])
 
 
+def _compute_sum_price(item, spec):
+    # type: (Dict[str, Any], str) -> Optional[float]
+    """Aggregate price from an array of line items. Spec: 'sum:<arr>:<qty>:<price>'."""
+    parts = spec.split(":", 3)
+    if len(parts) != 4 or parts[0] != "sum":
+        return None
+    _, arr_path, qty_field, price_field = parts
+    arr = _get_field(item, arr_path, [])
+    if not isinstance(arr, list):
+        return None
+    total = 0.0
+    for row in arr:
+        if not isinstance(row, dict):
+            continue
+        q = _safe_float(row.get(qty_field)) or 0
+        p = _safe_float(row.get(price_field)) or 0
+        total += q * p
+    return total if total > 0 else None
+
+
 class ApiAdapter(BaseAdapter):
     """Adapter for JSON API sources (GET/POST with httpx)."""
 
@@ -578,7 +598,12 @@ class ApiAdapter(BaseAdapter):
             return None
 
         organization = _safe_str(_get_field(item, fm.organization, "")) if fm.organization else ""
-        price = _safe_float(_get_field(item, fm.price)) if fm.price else None
+        if fm.price and fm.price.startswith("sum:"):
+            price = _compute_sum_price(item, fm.price)
+        elif fm.price:
+            price = _safe_float(_get_field(item, fm.price))
+        else:
+            price = None
         currency = _safe_str(_get_field(item, fm.currency, "")) if fm.currency else ""
         if not currency:
             currency = "UZS"

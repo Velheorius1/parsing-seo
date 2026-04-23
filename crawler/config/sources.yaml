@@ -752,19 +752,11 @@ sources:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
-      price: ""
+      price: "sum:products:quantity:price"
       currency: "UZS"
       deadline: ""
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-      extra_info:
-        "Район": "supplyDistrict.ru"
-        "Адрес": "supplyAddress"
-        "Количество": "{unit}"
-        "Цена за ед.": "{products.0.price} UZS"
-        "Срок поставки": "{deliveryPeriod} дн"
-        "Период плана": "{year}-{month}"
-        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz, companyName.ru]
     pagination:
       type: offset
@@ -801,16 +793,10 @@ sources:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
+      price: "sum:products:quantity:price"
+      currency: "UZS"
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-      extra_info:
-        "Район": "supplyDistrict.ru"
-        "Адрес": "supplyAddress"
-        "Количество": "{unit}"
-        "Цена за ед.": "{products.0.price} UZS"
-        "Срок поставки": "{deliveryPeriod} дн"
-        "Период плана": "{year}-{month}"
-        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -847,16 +833,10 @@ sources:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
+      price: "sum:products:quantity:price"
+      currency: "UZS"
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-      extra_info:
-        "Район": "supplyDistrict.ru"
-        "Адрес": "supplyAddress"
-        "Количество": "{unit}"
-        "Цена за ед.": "{products.0.price} UZS"
-        "Срок поставки": "{deliveryPeriod} дн"
-        "Период плана": "{year}-{month}"
-        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -893,16 +873,10 @@ sources:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
+      price: "sum:products:quantity:price"
+      currency: "UZS"
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-      extra_info:
-        "Район": "supplyDistrict.ru"
-        "Адрес": "supplyAddress"
-        "Количество": "{unit}"
-        "Цена за ед.": "{products.0.price} UZS"
-        "Срок поставки": "{deliveryPeriod} дн"
-        "Период плана": "{year}-{month}"
-        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -939,16 +913,10 @@ sources:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
+      price: "sum:products:quantity:price"
+      currency: "UZS"
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-      extra_info:
-        "Район": "supplyDistrict.ru"
-        "Адрес": "supplyAddress"
-        "Количество": "{unit}"
-        "Цена за ед.": "{products.0.price} UZS"
-        "Срок поставки": "{deliveryPeriod} дн"
-        "Период плана": "{year}-{month}"
-        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -985,16 +953,10 @@ sources:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
+      price: "sum:products:quantity:price"
+      currency: "UZS"
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-      extra_info:
-        "Район": "supplyDistrict.ru"
-        "Адрес": "supplyAddress"
-        "Количество": "{unit}"
-        "Цена за ед.": "{products.0.price} UZS"
-        "Срок поставки": "{deliveryPeriod} дн"
-        "Период плана": "{year}-{month}"
-        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -1031,16 +993,10 @@ sources:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
+      price: "sum:products:quantity:price"
+      currency: "UZS"
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-      extra_info:
-        "Район": "supplyDistrict.ru"
-        "Адрес": "supplyAddress"
-        "Количество": "{unit}"
-        "Цена за ед.": "{products.0.price} UZS"
-        "Срок поставки": "{deliveryPeriod} дн"
-        "Период плана": "{year}-{month}"
-        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -1077,16 +1033,10 @@ sources:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
+      price: "sum:products:quantity:price"
+      currency: "UZS"
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-      extra_info:
-        "Район": "supplyDistrict.ru"
-        "Адрес": "supplyAddress"
-        "Количество": "{unit}"
-        "Цена за ед.": "{products.0.price} UZS"
-        "Срок поставки": "{deliveryPeriod} дн"
-        "Период плана": "{year}-{month}"
-        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -1123,16 +1073,10 @@ sources:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
+      price: "sum:products:quantity:price"
+      currency: "UZS"
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-      extra_info:
-        "Район": "supplyDistrict.ru"
-        "Адрес": "supplyAddress"
-        "Количество": "{unit}"
-        "Цена за ед.": "{products.0.price} UZS"
-        "Срок поставки": "{deliveryPeriod} дн"
-        "Период плана": "{year}-{month}"
-        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
@@ -1169,16 +1113,10 @@ sources:
       title: name.ru
       organization: companyName.ru
       region: supplyRegion.ru
+      price: "sum:products:quantity:price"
+      currency: "UZS"
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-      extra_info:
-        "Район": "supplyDistrict.ru"
-        "Адрес": "supplyAddress"
-        "Количество": "{unit}"
-        "Цена за ед.": "{products.0.price} UZS"
-        "Срок поставки": "{deliveryPeriod} дн"
-        "Период плана": "{year}-{month}"
-        "ЕНКТ": "products.0.enktCode"
     keywords_fields: [name.ru, name.uz]
     pagination:
       type: offset
