@@ -436,17 +436,27 @@ def flush_snapshot_to_supabase(snapshot):
             })
             rows.append({
                 "source": sid, "metric_type": "org_pct",
-                "metric_value": float(comp.org_pct() if hasattr(comp, "org_pct") else 0),
+                "metric_value": float(comp.pct("org")),
                 "sample_size": sample, "computed_at": ts,
             })
             rows.append({
                 "source": sid, "metric_type": "price_pct",
-                "metric_value": float(comp.price_pct() if hasattr(comp, "price_pct") else 0),
+                "metric_value": float(comp.pct("price")),
                 "sample_size": sample, "computed_at": ts,
             })
             rows.append({
                 "source": sid, "metric_type": "deadline_pct",
-                "metric_value": float(comp.deadline_pct() if hasattr(comp, "deadline_pct") else 0),
+                "metric_value": float(comp.pct("deadline")),
+                "sample_size": sample, "computed_at": ts,
+            })
+            rows.append({
+                "source": sid, "metric_type": "region_pct",
+                "metric_value": float(comp.pct("region")),
+                "sample_size": sample, "computed_at": ts,
+            })
+            rows.append({
+                "source": sid, "metric_type": "source_url_pct",
+                "metric_value": float(comp.pct("source_url")),
                 "sample_size": sample, "computed_at": ts,
             })
 
