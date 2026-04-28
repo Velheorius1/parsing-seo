@@ -50,7 +50,7 @@ SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID', '')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
-AI_MODEL = os.getenv('AI_RELEVANCE_MODEL', 'qwen/qwen3-30b-a3b')
+AI_MODEL = os.getenv('AI_RELEVANCE_MODEL', 'qwen/qwen3.6-max-preview')
 COMPETITOR_KEYWORDS = os.getenv('COMPETITOR_KEYWORDS', '')  # comma-separated company names
 LEAD_GEN_ENABLED = os.getenv('LEAD_GEN_ENABLED', 'true').lower() in ('true', '1', 'yes')
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetch cooperation.uz lots/offers and UZEX auctions via residential proxy
+# Fetch cooperation.uz (lots/offers/plans/auction/eshop) and UZEX auctions via residential proxy
 set -euo pipefail
 DIR="/opt/parsing-seo"
 LOG="/var/log/parsing-seo-proxy.log"
@@ -10,11 +10,15 @@ export HTTPS_PROXY=$RESIDENTIAL_PROXY_URL
 
 echo "=== $(date +%Y-%m-%d\ %H:%M:%S) START proxy fetch ===" >> "$LOG"
 
-# Cooperation.uz lots (reverse tenders) + offers
-.venv/bin/python3 scripts/fetch_cooperation.py --source lots >> "$LOG" 2>&1
-.venv/bin/python3 scripts/fetch_cooperation.py --source offers >> "$LOG" 2>&1
+# Cooperation.uz — lots+offers (high-volume) + plans/auction/eshop (resurrected 2026-04-28)
+# Each source isolated in its own subshell so one failure doesn't kill the rest
+( .venv/bin/python3 scripts/fetch_cooperation.py --source lots    || echo 'lots FAILED' )    >> "$LOG" 2>&1
+( .venv/bin/python3 scripts/fetch_cooperation.py --source offers  || echo 'offers FAILED' )  >> "$LOG" 2>&1
+( .venv/bin/python3 scripts/fetch_cooperation.py --source plans   || echo 'plans FAILED' )   >> "$LOG" 2>&1
+( .venv/bin/python3 scripts/fetch_cooperation.py --source auction || echo 'auction FAILED' ) >> "$LOG" 2>&1
+( .venv/bin/python3 scripts/fetch_cooperation.py --source eshop   || echo 'eshop FAILED' )   >> "$LOG" 2>&1
 
 # UZEX auctions + prequalifications
-.venv/bin/python3 scripts/fetch_uzex_auctions.py >> "$LOG" 2>&1
+( .venv/bin/python3 scripts/fetch_uzex_auctions.py || echo 'uzex FAILED' ) >> "$LOG" 2>&1
 
 echo "=== $(date +%Y-%m-%d\ %H:%M:%S) END proxy fetch ===" >> "$LOG"

@@ -53,7 +53,7 @@ class Settings(BaseSettings):
 
     # AI relevance filter (OpenRouter / Qwen)
     openrouter_api_key: Optional[str] = None
-    ai_relevance_model: str = "qwen/qwen3-30b-a3b"
+    ai_relevance_model: str = "qwen/qwen3.6-max-preview"
 
     # AI evaluator (daily quality report)
     ai_eval_enabled: bool = True

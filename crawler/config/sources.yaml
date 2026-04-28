@@ -746,7 +746,6 @@ sources:
     response_path: "data"
     item_filter:
       # Drop noise: tenders with zero total units AND zero quantity in all products
-      unit: {gt: 0}
       "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
@@ -787,7 +786,6 @@ sources:
     response_path: "data"
     item_filter:
       # Drop noise: tenders with zero total units AND zero quantity in all products
-      unit: {gt: 0}
       "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
@@ -827,7 +825,6 @@ sources:
     response_path: "data"
     item_filter:
       # Drop noise: tenders with zero total units AND zero quantity in all products
-      unit: {gt: 0}
       "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
@@ -867,7 +864,6 @@ sources:
     response_path: "data"
     item_filter:
       # Drop noise: tenders with zero total units AND zero quantity in all products
-      unit: {gt: 0}
       "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
@@ -907,7 +903,6 @@ sources:
     response_path: "data"
     item_filter:
       # Drop noise: tenders with zero total units AND zero quantity in all products
-      unit: {gt: 0}
       "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
@@ -947,7 +942,6 @@ sources:
     response_path: "data"
     item_filter:
       # Drop noise: tenders with zero total units AND zero quantity in all products
-      unit: {gt: 0}
       "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
@@ -987,7 +981,6 @@ sources:
     response_path: "data"
     item_filter:
       # Drop noise: tenders with zero total units AND zero quantity in all products
-      unit: {gt: 0}
       "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
@@ -1027,7 +1020,6 @@ sources:
     response_path: "data"
     item_filter:
       # Drop noise: tenders with zero total units AND zero quantity in all products
-      unit: {gt: 0}
       "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
@@ -1067,7 +1059,6 @@ sources:
     response_path: "data"
     item_filter:
       # Drop noise: tenders with zero total units AND zero quantity in all products
-      unit: {gt: 0}
       "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
@@ -1107,7 +1098,6 @@ sources:
     response_path: "data"
     item_filter:
       # Drop noise: tenders with zero total units AND zero quantity in all products
-      unit: {gt: 0}
       "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
@@ -1243,7 +1233,7 @@ sources:
   - id: tg-tenderweek
     name: "TG: tenderweekcom"
     adapter: telegram
-    enabled: true
+    enabled: false  # disabled 2026-04-28: low-signal (<10 tenders ever)
     url: ""
     id_prefix: "tg-twk"
     telegram_channel: "@tenderweekcom"
@@ -1345,7 +1335,7 @@ sources:
   - id: tg-kommunal
     name: "TG: Мин ЖКХ"
     adapter: telegram
-    enabled: true
+    enabled: false  # disabled 2026-04-28: low-signal (<10 tenders ever)
     url: ""
     id_prefix: "tg-komm"
     telegram_channel: "@kommunaluzb"
@@ -2706,7 +2696,7 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "xtx-red"
-    dedup_group: "birja-reduction"
+    dedup_group: "xtx-reduction"  # split from hayotbirja-reduction (2026-04-28: was killing XT-Xarid via cross-source dedup)
     field_map:
       title: "_goods_title"
       organization: "company.title"
@@ -2733,7 +2723,7 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "xtx-tend"
-    dedup_group: "birja-tender"
+    dedup_group: "xtx-tender"  # split from hayotbirja-tender (2026-04-28)
     field_map:
       title: "name"
       organization: "company_name"

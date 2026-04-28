@@ -163,18 +163,25 @@ class HealthCheck:
             client = self._get_client()
             # Get sources with recent data (last 7 days)
             week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-            result = client.table("tenders").select(
-                "source"
-            ).gte("collected_at", week_ago).limit(50000).execute()
+            # Paginate to bypass Supabase default limit=1000
+            source_counts = {}  # type: dict
+            offset = 0
+            while True:
+                result = client.table("tenders").select("source").gte("collected_at", week_ago).range(offset, offset + 999).execute()
+                if not result.data:
+                    break
+                for row in result.data:
+                    src = row.get("source", "unknown")
+                    source_counts[src] = source_counts.get(src, 0) + 1
+                if len(result.data) < 1000:
+                    break
+                offset += 1000
+                if offset > 200000:
+                    break
 
-            if not result.data:
+            if not source_counts:
                 self._add("sources", FAIL, "No tenders collected in last 7 days")
                 return
-
-            source_counts = {}  # type: dict
-            for row in result.data:
-                src = row.get("source", "unknown")
-                source_counts[src] = source_counts.get(src, 0) + 1
 
             active = len(source_counts)
             total_records = sum(source_counts.values())
@@ -492,6 +499,59 @@ class HealthCheck:
                 self._add("token.supabase", WARN, "Unknown Supabase key format")
         except Exception as exc:
             self._add("token.supabase", WARN, "Supabase key check failed: %s" % str(exc)[:60])
+
+    # ── Check 13b: Per-source freshness SLO ──
+
+    def check_dead_sources(self):
+        # type: () -> None
+        """Detect sources that produced 0 records in last 7 days despite being enabled.
+
+        Fired as WARN per source (not FAIL — we already alert globally via freshness).
+        Whitelist for legitimately low-volume sources lives in DEAD_SOURCES_WHITELIST.
+        """
+        # Sources expected to be silent for stretches (legacy/low-volume) — don't alert.
+        DEAD_SOURCES_WHITELIST = set()  # explicit empty: every source must have data
+        try:
+            client = self._get_client()
+            week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+
+            # Load enabled sources from yaml
+            import yaml as _yaml
+            yaml_path = os.path.join(os.path.dirname(__file__), '../config/sources.yaml')
+            with open(os.path.abspath(yaml_path), 'r', encoding='utf-8') as f:
+                cfg = _yaml.safe_load(f)
+            enabled_names = [s.get('name') for s in cfg.get('sources', []) if s.get('enabled') and s.get('name')]
+
+            # Get source→count map for last 7d via pagination (Supabase default limit=1000)
+            counts = {}
+            offset = 0
+            while True:
+                r = client.table('tenders').select('source').gte('collected_at', week_ago).range(offset, offset + 999).execute()
+                if not r.data:
+                    break
+                for row in r.data:
+                    src = row.get('source')
+                    if src:
+                        counts[src] = counts.get(src, 0) + 1
+                if len(r.data) < 1000:
+                    break
+                offset += 1000
+                if offset > 200000:  # safety cap
+                    break
+
+            dead = [name for name in enabled_names
+                    if name not in DEAD_SOURCES_WHITELIST and counts.get(name, 0) == 0]
+            if dead:
+                # Show up to 8 dead sources in message; rest in details
+                head = ', '.join(dead[:8])
+                more = ('' if len(dead) <= 8 else ' (+%d more)' % (len(dead) - 8))
+                self._add('sources.dead_7d', WARN,
+                          '%d enabled sources with 0 records in 7d: %s%s' % (len(dead), head, more),
+                          details={'dead_sources': dead})
+            else:
+                self._add('sources.dead_7d', OK, 'All enabled sources have data in last 7d')
+        except Exception as exc:
+            self._add('sources.dead_7d', WARN, 'Dead-source check failed: %s' % str(exc)[:80])
 
     # ── Check 14: VPS E-IMZO Auth Cron ──
 
@@ -850,6 +910,7 @@ def main():
     hc.check_supabase()
     hc.check_freshness()
     hc.check_sources()
+    hc.check_dead_sources()
     hc.check_feedback_bot()
     hc.check_cron()
     hc.check_telegram()
