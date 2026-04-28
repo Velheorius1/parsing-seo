@@ -288,6 +288,7 @@ async def run(
     # Quality tracking — snapshot + regression detection
     from crawler.core.quality_tracker import (
         QualitySnapshot, compare_snapshots, load_baseline, save_snapshot,
+        flush_snapshot_to_supabase,
     )
 
     dedup_info = {
@@ -314,6 +315,8 @@ async def run(
         logger.info("First quality snapshot recorded (baseline)")
 
     save_snapshot(snapshot)
+    if not dry_run:
+        flush_snapshot_to_supabase(snapshot)
     logger.info("Quality score: %.1f (org=%.1f%% price=%.1f%% deadline=%.1f%%)",
         snapshot.overall_score(),
         snapshot.overall.pct("org"),

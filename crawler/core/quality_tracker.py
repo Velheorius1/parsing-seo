@@ -403,6 +403,86 @@ def save_snapshot(snapshot):
         logger.warning("Failed to write quality baseline: %s", str(exc)[:100])
 
 
+def flush_snapshot_to_supabase(snapshot):
+    # type: (QualitySnapshot) -> int
+    """Insert per-source quality metrics into source_quality_metrics table.
+
+    Returns count of rows inserted. Returns 0 and logs warning if the table
+    doesn't exist (graceful fallback for environments where migration 016
+    hasn't been applied yet).
+    """
+    try:
+        from crawler.config.settings import settings
+        if not settings.supabase_url or not settings.supabase_service_role_key:
+            logger.warning("[quality] No supabase credentials, skipping flush")
+            return 0
+        from supabase import create_client
+        client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+        rows = []
+        ts = snapshot.timestamp
+        for sid, sq in snapshot.per_source.items():
+            sample = sq.total
+            if sample <= 0:
+                continue
+            comp = sq.completeness
+            rows.append({
+                "source": sid, "metric_type": "items_kept_after_filter",
+                "metric_value": float(sample), "sample_size": sample, "computed_at": ts,
+            })
+            rows.append({
+                "source": sid, "metric_type": "quality_score",
+                "metric_value": float(sq.score()), "sample_size": sample, "computed_at": ts,
+            })
+            rows.append({
+                "source": sid, "metric_type": "org_pct",
+                "metric_value": float(comp.org_pct() if hasattr(comp, "org_pct") else 0),
+                "sample_size": sample, "computed_at": ts,
+            })
+            rows.append({
+                "source": sid, "metric_type": "price_pct",
+                "metric_value": float(comp.price_pct() if hasattr(comp, "price_pct") else 0),
+                "sample_size": sample, "computed_at": ts,
+            })
+            rows.append({
+                "source": sid, "metric_type": "deadline_pct",
+                "metric_value": float(comp.deadline_pct() if hasattr(comp, "deadline_pct") else 0),
+                "sample_size": sample, "computed_at": ts,
+            })
+
+        # Also write items_fetched per source (including 0 for dead sources)
+        for sid, count in (snapshot.source_stats or {}).items():
+            rows.append({
+                "source": sid, "metric_type": "items_fetched",
+                "metric_value": float(count), "sample_size": count, "computed_at": ts,
+            })
+
+        if not rows:
+            return 0
+
+        # Batch insert (chunks of 500 to stay well under PostgREST limits)
+        inserted = 0
+        for i in range(0, len(rows), 500):
+            chunk = rows[i:i + 500]
+            try:
+                client.table("source_quality_metrics").insert(chunk).execute()
+                inserted += len(chunk)
+            except Exception as e:
+                msg = str(e).lower()
+                if "does not exist" in msg or "relation" in msg or "schema" in msg:
+                    logger.warning(
+                        "[quality] source_quality_metrics table missing — "
+                        "apply migration 016 via Supabase Studio. Skipping flush."
+                    )
+                    return 0
+                raise
+        logger.info("[quality] Flushed %d metrics to Supabase", inserted)
+        return inserted
+    except Exception as exc:
+        logger.warning("[quality] flush_to_supabase failed: %s", str(exc)[:200])
+        return 0
+
+
 def load_baseline():
     # type: () -> Optional[QualitySnapshot]
     """Load the latest baseline snapshot."""
