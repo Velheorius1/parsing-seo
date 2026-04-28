@@ -510,7 +510,47 @@ class HealthCheck:
         Whitelist for legitimately low-volume sources lives in DEAD_SOURCES_WHITELIST.
         """
         # Sources expected to be silent for stretches (legacy/low-volume) — don't alert.
-        DEAD_SOURCES_WHITELIST = set()  # explicit empty: every source must have data
+        # Sources that are legitimately low-volume — alerting on them is noise.
+        # International (low UZ relevance), banks (slow updates), niche TG channels.
+        # Re-evaluate this list quarterly.
+        DEAD_SOURCES_WHITELIST = {
+            # International orgs — UZ tenders are rare
+            'UNDP Procurement',
+            'UN Global Marketplace',
+            'World Bank',
+            'Asian Development Bank',
+            'Islamic Development Bank (IsDB)',
+            'EBRD',
+            'GIZ',
+            'JICA',
+            'KOICA',
+            'USAID',
+            'EU TED',
+            # Banks — quarterly tender publishers
+            'InFinBank',
+            'Orient Finance Bank',
+            'Sanoat Qurilish Bank',
+            'Asia Alliance Bank',
+            'Hamkorbank',
+            # Low-volume TG mirrors
+            'TG: PR UZB (запросы клиентов)',
+            'TG: UZEX Xarid Official',
+            'TG: Закупки Prom.uz',
+            'TG: Фонд предпринимательства',
+            'TG: Узбекистон Темир Йуллари',
+            'TG: Хамкорбанк',
+            'TG: Мин ИТ',
+            # Cooperation legacy (replaced by cooperation-plans-filtered)
+            'Cooperation.uz Брошюры/Буклеты',
+            'Cooperation.uz Аукционы',
+            'Cooperation.uz Закупочные планы',
+            'Cooperation.uz Э-магазин лоты',
+            'Cooperation.uz Bosma (узб.)',
+            # Other quiet mirrors
+            'Узбекистон Темир Йуллари',
+            'Минстрой (tender.mc.uz)',
+            'E-Birja активные аукционы (xarid)',
+        }
         try:
             client = self._get_client()
             week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()

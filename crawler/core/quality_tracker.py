@@ -482,9 +482,11 @@ def flush_snapshot_to_supabase(snapshot):
                 if "does not exist" in msg or "relation" in msg or "schema" in msg:
                     logger.warning(
                         "[quality] source_quality_metrics table missing — "
-                        "apply migration 016 via Supabase Studio. Skipping flush."
+                        "apply migration 016 via Supabase Studio. Skipping flush "
+                        "(rows already inserted in earlier batches: %d).",
+                        inserted,
                     )
-                    return 0
+                    return inserted
                 raise
         logger.info("[quality] Flushed %d metrics to Supabase", inserted)
         return inserted
