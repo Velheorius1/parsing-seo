@@ -725,8 +725,12 @@ sources:
   # API: GET cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client
   # 86k+ procurement plans. Requires browser User-Agent + Origin headers.
   # Uses productName filter to fetch only relevant records
-  - id: cooperation-print
-    name: "Cooperation.uz Полиграфия"
+  # cooperation.uz schedule-plans — uses residential proxy (UZ geo-IP required)
+  # API: GET cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client
+  # 86k+ procurement plans. Uses productName loop (refactored 2026-04-28 from 10 blocks).
+  # In-adapter dedup by external_id; first occurrence wins.
+  - id: cooperation-plans-filtered
+    name: "Cooperation.uz Закупочные планы (filtered)"
     adapter: api
     enabled: true
     use_proxy: true
@@ -739,13 +743,39 @@ sources:
     params:
       skip: 0
       take: 500
-      productName: "полиграф"
     rate_limit: 2
     timeout: 30
     id_prefix: "coop"
     response_path: "data"
+    productName_param: "productName"
+    productName_values:
+      - "полиграф"
+      - "этикетка"
+      - "печать"
+      - "пакет"
+      - "блокнот"
+      - "конверт"
+      - "стикер"
+      - "брошюр"
+      - "календар"
+      - "буклет"
+      - "листовк"
+      - "флаер"
+      - "гофра"
+      - "коробка"
+      - "картон"
+      - "наклейк"
+      - "ярлик"
+      - "ежедневник"
+      - "визитк"
+      - "сувенир"
+      - "подарочн"
+      - "папк"
+      - "bosma"
+      - "qadoq"
+      - "quti"
+      - "katalog"
     item_filter:
-      # Drop noise: tenders with zero total units AND zero quantity in all products
       "products[*].quantity": {gt: 0}
     field_map:
       title: name.ru
@@ -753,7 +783,6 @@ sources:
       region: supplyRegion.ru
       price: "sum:products:quantity:price"
       currency: "UZS"
-      deadline: ""
       external_id: guid
       source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
     keywords_fields: [name.ru, name.uz, companyName.ru]
@@ -762,358 +791,7 @@ sources:
       param: "skip"
       size_param: ~
       page_size: 500
-      max_pages: 20
-      total_field: "pagination.totalItems"
-
-  - id: cooperation-etiketka
-    name: "Cooperation.uz Этикетки"
-    adapter: api
-    enabled: true
-    use_proxy: true
-    headers:
-      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      Origin: "https://new.cooperation.uz"
-      Referer: "https://new.cooperation.uz/"
-    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
-    method: GET
-    params:
-      skip: 0
-      take: 500
-      productName: "этикетка"
-    rate_limit: 2
-    timeout: 30
-    id_prefix: "coop"
-    response_path: "data"
-    item_filter:
-      # Drop noise: tenders with zero total units AND zero quantity in all products
-      "products[*].quantity": {gt: 0}
-    field_map:
-      title: name.ru
-      organization: companyName.ru
-      region: supplyRegion.ru
-      price: "sum:products:quantity:price"
-      currency: "UZS"
-      external_id: guid
-      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-    keywords_fields: [name.ru, name.uz]
-    pagination:
-      type: offset
-      param: "skip"
-      size_param: ~
-      page_size: 500
-      max_pages: 20
-      total_field: "pagination.totalItems"
-
-  - id: cooperation-pechat
-    name: "Cooperation.uz Печать"
-    adapter: api
-    enabled: true
-    use_proxy: true
-    headers:
-      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      Origin: "https://new.cooperation.uz"
-      Referer: "https://new.cooperation.uz/"
-    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
-    method: GET
-    params:
-      skip: 0
-      take: 500
-      productName: "печать"
-    rate_limit: 2
-    timeout: 30
-    id_prefix: "coop"
-    response_path: "data"
-    item_filter:
-      # Drop noise: tenders with zero total units AND zero quantity in all products
-      "products[*].quantity": {gt: 0}
-    field_map:
-      title: name.ru
-      organization: companyName.ru
-      region: supplyRegion.ru
-      price: "sum:products:quantity:price"
-      currency: "UZS"
-      external_id: guid
-      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-    keywords_fields: [name.ru, name.uz]
-    pagination:
-      type: offset
-      param: "skip"
-      size_param: ~
-      page_size: 500
-      max_pages: 20
-      total_field: "pagination.totalItems"
-
-  - id: cooperation-paket
-    name: "Cooperation.uz Пакеты"
-    adapter: api
-    enabled: true
-    use_proxy: true
-    headers:
-      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      Origin: "https://new.cooperation.uz"
-      Referer: "https://new.cooperation.uz/"
-    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
-    method: GET
-    params:
-      skip: 0
-      take: 500
-      productName: "пакет"
-    rate_limit: 2
-    timeout: 30
-    id_prefix: "coop"
-    response_path: "data"
-    item_filter:
-      # Drop noise: tenders with zero total units AND zero quantity in all products
-      "products[*].quantity": {gt: 0}
-    field_map:
-      title: name.ru
-      organization: companyName.ru
-      region: supplyRegion.ru
-      price: "sum:products:quantity:price"
-      currency: "UZS"
-      external_id: guid
-      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-    keywords_fields: [name.ru, name.uz]
-    pagination:
-      type: offset
-      param: "skip"
-      size_param: ~
-      page_size: 500
-      max_pages: 20
-      total_field: "pagination.totalItems"
-
-  - id: cooperation-bloknot
-    name: "Cooperation.uz Блокноты/Ежедневники"
-    adapter: api
-    enabled: true
-    use_proxy: true
-    headers:
-      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      Origin: "https://new.cooperation.uz"
-      Referer: "https://new.cooperation.uz/"
-    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
-    method: GET
-    params:
-      skip: 0
-      take: 500
-      productName: "блокнот"
-    rate_limit: 2
-    timeout: 30
-    id_prefix: "coop"
-    response_path: "data"
-    item_filter:
-      # Drop noise: tenders with zero total units AND zero quantity in all products
-      "products[*].quantity": {gt: 0}
-    field_map:
-      title: name.ru
-      organization: companyName.ru
-      region: supplyRegion.ru
-      price: "sum:products:quantity:price"
-      currency: "UZS"
-      external_id: guid
-      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-    keywords_fields: [name.ru, name.uz]
-    pagination:
-      type: offset
-      param: "skip"
-      size_param: ~
-      page_size: 500
-      max_pages: 20
-      total_field: "pagination.totalItems"
-
-  - id: cooperation-konvert
-    name: "Cooperation.uz Конверты"
-    adapter: api
-    enabled: true
-    use_proxy: true
-    headers:
-      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      Origin: "https://new.cooperation.uz"
-      Referer: "https://new.cooperation.uz/"
-    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
-    method: GET
-    params:
-      skip: 0
-      take: 500
-      productName: "конверт"
-    rate_limit: 2
-    timeout: 30
-    id_prefix: "coop"
-    response_path: "data"
-    item_filter:
-      # Drop noise: tenders with zero total units AND zero quantity in all products
-      "products[*].quantity": {gt: 0}
-    field_map:
-      title: name.ru
-      organization: companyName.ru
-      region: supplyRegion.ru
-      price: "sum:products:quantity:price"
-      currency: "UZS"
-      external_id: guid
-      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-    keywords_fields: [name.ru, name.uz]
-    pagination:
-      type: offset
-      param: "skip"
-      size_param: ~
-      page_size: 500
-      max_pages: 20
-      total_field: "pagination.totalItems"
-
-  - id: cooperation-stiker
-    name: "Cooperation.uz Стикеры/Наклейки"
-    adapter: api
-    enabled: true
-    use_proxy: true
-    headers:
-      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      Origin: "https://new.cooperation.uz"
-      Referer: "https://new.cooperation.uz/"
-    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
-    method: GET
-    params:
-      skip: 0
-      take: 500
-      productName: "стикер"
-    rate_limit: 2
-    timeout: 30
-    id_prefix: "coop"
-    response_path: "data"
-    item_filter:
-      # Drop noise: tenders with zero total units AND zero quantity in all products
-      "products[*].quantity": {gt: 0}
-    field_map:
-      title: name.ru
-      organization: companyName.ru
-      region: supplyRegion.ru
-      price: "sum:products:quantity:price"
-      currency: "UZS"
-      external_id: guid
-      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-    keywords_fields: [name.ru, name.uz]
-    pagination:
-      type: offset
-      param: "skip"
-      size_param: ~
-      page_size: 500
-      max_pages: 20
-      total_field: "pagination.totalItems"
-
-  - id: cooperation-broshyura
-    name: "Cooperation.uz Брошюры/Буклеты"
-    adapter: api
-    enabled: true
-    use_proxy: true
-    headers:
-      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      Origin: "https://new.cooperation.uz"
-      Referer: "https://new.cooperation.uz/"
-    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
-    method: GET
-    params:
-      skip: 0
-      take: 500
-      productName: "брошюра"
-    rate_limit: 2
-    timeout: 30
-    id_prefix: "coop"
-    response_path: "data"
-    item_filter:
-      # Drop noise: tenders with zero total units AND zero quantity in all products
-      "products[*].quantity": {gt: 0}
-    field_map:
-      title: name.ru
-      organization: companyName.ru
-      region: supplyRegion.ru
-      price: "sum:products:quantity:price"
-      currency: "UZS"
-      external_id: guid
-      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-    keywords_fields: [name.ru, name.uz]
-    pagination:
-      type: offset
-      param: "skip"
-      size_param: ~
-      page_size: 500
-      max_pages: 20
-      total_field: "pagination.totalItems"
-
-  - id: cooperation-kalendar
-    name: "Cooperation.uz Календари"
-    adapter: api
-    enabled: true
-    use_proxy: true
-    headers:
-      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      Origin: "https://new.cooperation.uz"
-      Referer: "https://new.cooperation.uz/"
-    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
-    method: GET
-    params:
-      skip: 0
-      take: 500
-      productName: "календарь"
-    rate_limit: 2
-    timeout: 30
-    id_prefix: "coop"
-    response_path: "data"
-    item_filter:
-      # Drop noise: tenders with zero total units AND zero quantity in all products
-      "products[*].quantity": {gt: 0}
-    field_map:
-      title: name.ru
-      organization: companyName.ru
-      region: supplyRegion.ru
-      price: "sum:products:quantity:price"
-      currency: "UZS"
-      external_id: guid
-      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-    keywords_fields: [name.ru, name.uz]
-    pagination:
-      type: offset
-      param: "skip"
-      size_param: ~
-      page_size: 500
-      max_pages: 20
-      total_field: "pagination.totalItems"
-
-  - id: cooperation-bosma
-    name: "Cooperation.uz Bosma (узб.)"
-    adapter: api
-    enabled: true
-    use_proxy: true
-    headers:
-      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      Origin: "https://new.cooperation.uz"
-      Referer: "https://new.cooperation.uz/"
-    url: "https://cabinet.cooperation.uz/api/schedule-plan/schedule-plans/for-client"
-    method: GET
-    params:
-      skip: 0
-      take: 500
-      productName: "bosma"
-    rate_limit: 2
-    timeout: 30
-    id_prefix: "coop"
-    response_path: "data"
-    item_filter:
-      # Drop noise: tenders with zero total units AND zero quantity in all products
-      "products[*].quantity": {gt: 0}
-    field_map:
-      title: name.ru
-      organization: companyName.ru
-      region: supplyRegion.ru
-      price: "sum:products:quantity:price"
-      currency: "UZS"
-      external_id: guid
-      source_url_template: "https://new.cooperation.uz/plan-schedule/{id}"
-    keywords_fields: [name.ru, name.uz]
-    pagination:
-      type: offset
-      param: "skip"
-      size_param: ~
-      page_size: 500
-      max_pages: 20
+      max_pages: 5
       total_field: "pagination.totalItems"
 
   - id: agro-uzex

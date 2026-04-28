@@ -284,7 +284,33 @@ class ApiAdapter(BaseAdapter):
             headers=cfg.headers,
             proxy=proxy_url,
         ) as client:
-            if cfg.pagination is not None:
+            # productName loop: iterate over values, dedup by external_id (first wins).
+            # Replaces 10+ near-identical YAML blocks with one config + a list field.
+            if cfg.productName_param and cfg.productName_values:
+                seen = {}  # external_id -> raw item
+                ext_field = cfg.field_map.external_id or "id"
+                base_params = dict(cfg.params or {})
+                for term in cfg.productName_values:
+                    cfg.params = {**base_params, cfg.productName_param: term}
+                    if cfg.pagination is not None:
+                        page_items = await self._fetch_paginated(client)
+                    else:
+                        raw = await self._make_request(
+                            client, cfg.url, cfg.method, cfg.params, cfg.body
+                        )
+                        page_items = self._extract_items(raw)
+                    before = len(seen)
+                    for it in page_items:
+                        key = _get_field(it, ext_field, "")
+                        if key and key not in seen:
+                            seen[key] = it
+                    logger.info(
+                        "[%s] productName=%r: +%d new (%d total)",
+                        cfg.name, term, len(seen) - before, len(seen),
+                    )
+                cfg.params = base_params
+                all_items = list(seen.values())
+            elif cfg.pagination is not None:
                 all_items = await self._fetch_paginated(client)
             else:
                 raw = await self._make_request(

@@ -107,6 +107,11 @@ class SourceConfig(BaseModel):
     # external_id matches into a single row. First source in collection order
     # wins (put the preferred source first in sources.yaml).
     dedup_group: Optional[str] = None
+    # productName loop — when set, adapter iterates over values, injects each as the
+    # given query param, and dedups results by external_id. Replaces the pattern of
+    # 10+ near-identical YAML blocks differing only by params.productName.
+    productName_param: Optional[str] = None
+    productName_values: List[str] = Field(default_factory=list)
 
 
 class SourcesConfig(BaseModel):
