@@ -461,15 +461,37 @@ class HealthCheck:
                 self._add(comp, WARN,
                           "Token check failed for %s: %s" % (platform_id, str(exc)[:60]))
 
-        # Supabase access token expiry (hardcoded until rotated)
-        supabase_expiry = datetime(2026, 4, 27, tzinfo=timezone.utc)
-        days_left = (supabase_expiry - now).days
-        if days_left > 7:
-            self._add("token.supabase", OK, "Supabase token valid (%d days left)" % days_left)
-        elif days_left > 0:
-            self._add("token.supabase", WARN, "Supabase token expires in %d days!" % days_left)
-        else:
-            self._add("token.supabase", FAIL, "Supabase token EXPIRED!")
+        # Supabase API key check.
+        # New 'sb_secret_*' keys (2026+) never expire — only manual Reset in Dashboard.
+        # Old-style JWT (eyJ...) carries 'exp' claim → decode and check.
+        # Live connection is already verified by check_supabase().
+        try:
+            import json, base64
+            key = self.settings.supabase_service_role_key if self.settings else ""
+            if not key:
+                self._add("token.supabase", WARN, "SUPABASE_SERVICE_ROLE_KEY not set")
+            elif key.startswith("sb_secret_") or key.startswith("sb_publishable_"):
+                self._add("token.supabase", OK, "Supabase API key (sb_secret format, no expiry)")
+            elif key.startswith("eyJ") and key.count(".") == 2:
+                payload = key.split(".")[1]
+                payload += "=" * (-len(payload) % 4)
+                claims = json.loads(base64.urlsafe_b64decode(payload))
+                exp_ts = claims.get("exp")
+                if not exp_ts:
+                    self._add("token.supabase", OK, "Supabase JWT has no exp claim")
+                else:
+                    exp_dt = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
+                    days_left = (exp_dt - now).days
+                    if days_left > 7:
+                        self._add("token.supabase", OK, "Supabase JWT valid (%d days left)" % days_left)
+                    elif days_left > 0:
+                        self._add("token.supabase", WARN, "Supabase JWT expires in %d days" % days_left)
+                    else:
+                        self._add("token.supabase", FAIL, "Supabase JWT EXPIRED!")
+            else:
+                self._add("token.supabase", WARN, "Unknown Supabase key format")
+        except Exception as exc:
+            self._add("token.supabase", WARN, "Supabase key check failed: %s" % str(exc)[:60])
 
     # ── Check 14: VPS E-IMZO Auth Cron ──
 
