@@ -7,7 +7,7 @@ Sends Telegram alerts for results in our niche.
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import httpx
 
@@ -20,6 +20,14 @@ _UZEX_RESULTS_URL = "https://apietender.uzex.uz/api/CivilContracts/GetResulted"
 
 # Source name for upserted results
 _RESULTS_SOURCE = "UZEX Результаты"
+
+# crawler_settings key for niche results dedup state.
+# Value shape: {"alerted_ids": ["result-123", ...]}  (list, kept sorted by recency).
+_NICHE_ALERTED_STATE_KEY = "niche_results_alerted_state"
+
+# Cap on alerted_ids list — FIFO eviction. UZEX returns last 500 deals;
+# our niche is ~7-15 of those, so 1000 covers months of history.
+_NICHE_ALERTED_CAP = 1000
 
 
 async def _fetch_uzex_results(
@@ -255,11 +263,65 @@ async def update_results(dry_run=False):
 
         logger.info("[Results] Upserted %d result records", upserted)
 
-        # Send alert for niche results
+        # Send alert for niche results — but only for IDs we have not alerted before.
+        # Without dedup the same 7-15 niche deals get re-sent on every cron run
+        # because UZEX API returns the last 500 completed deals each time.
         if niche_rows:
-            await _alert_niche_results(niche_rows)
+            sent_order = _load_alerted_ids()  # ordered list (oldest first)
+            sent_set = set(sent_order)
+            unsent = [r for r in niche_rows if r["external_id"] not in sent_set]
+            if not unsent:
+                logger.info(
+                    "[Results] All %d niche items already alerted — skipping",
+                    len(niche_rows),
+                )
+            else:
+                await _alert_niche_results(unsent)
+                _record_alerted_ids(sent_order, [r["external_id"] for r in unsent])
 
         return upserted
+
+
+def _load_alerted_ids() -> List[str]:
+    """Read previously-alerted niche result IDs (oldest first) from crawler_settings."""
+    try:
+        from crawler.auth.session_store import session_store
+        state = session_store.get_setting(_NICHE_ALERTED_STATE_KEY)
+        if not isinstance(state, dict):
+            return []
+        ids = state.get("alerted_ids") or []
+        if not isinstance(ids, list):
+            return []
+        return [str(x) for x in ids if x]
+    except Exception as exc:
+        logger.warning("[Results] Failed to load alerted_ids: %s", str(exc)[:80])
+        return []
+
+
+def _record_alerted_ids(previously_sent: List[str], newly_sent: List[str]) -> bool:
+    """Append newly-sent IDs to the alerted list, FIFO-cap to _NICHE_ALERTED_CAP.
+
+    previously_sent: ordered list (oldest first) — typically what _load_alerted_ids returned.
+    newly_sent: ids alerted in the current run, appended to the tail.
+    """
+    try:
+        from crawler.auth.session_store import session_store
+        merged: List[str] = []
+        seen: Set[str] = set()
+        for ext_id in list(previously_sent) + list(newly_sent):
+            if ext_id and ext_id not in seen:
+                merged.append(ext_id)
+                seen.add(ext_id)
+        # Trim oldest entries if over cap (keep tail = most recently alerted)
+        if len(merged) > _NICHE_ALERTED_CAP:
+            merged = merged[-_NICHE_ALERTED_CAP:]
+        return session_store.set_setting(
+            _NICHE_ALERTED_STATE_KEY,
+            {"alerted_ids": merged, "updated_at": datetime.now(timezone.utc).isoformat()},
+        )
+    except Exception as exc:
+        logger.warning("[Results] Failed to save alerted_ids: %s", str(exc)[:80])
+        return False
 
 
 async def _alert_niche_results(niche_rows):
@@ -327,7 +389,10 @@ async def _alert_niche_results(niche_rows):
                 "disable_notification": True,
             })
             if resp.status_code == 200:
-                logger.info("[Results] Sent niche results alert (%d items)", len(niche_rows[:7]))
+                logger.info(
+                    "[Results] Sent niche results alert (%d new of %d candidates)",
+                    len(niche_rows[:7]), len(niche_rows),
+                )
             else:
                 logger.warning("[Results] Telegram send failed: %d %s", resp.status_code, resp.text[:100])
     except Exception as exc:
