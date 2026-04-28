@@ -58,7 +58,48 @@ def _tender_to_row(t: RawTender) -> dict:
         row["result_date"] = t.result_date
     if t.group_id:
         row["group_id"] = t.group_id
+    # AI relevance fields (migration 017). Only set if AI scored the tender.
+    if t.relevance_score is not None:
+        row["relevance_score"] = t.relevance_score
+        if t.relevance_category:
+            row["relevance_category"] = t.relevance_category
+        if t.relevance_reason:
+            row["relevance_reason"] = t.relevance_reason
     return row
+
+
+def update_relevance_fields(
+    external_id: str,
+    source: str,
+    score: int,
+    category: str,
+    reason: str,
+) -> bool:
+    """Best-effort UPDATE of AI relevance fields on an existing tenders row.
+
+    Called by notifier after AI scoring (which happens AFTER initial upsert).
+    Returns True on success, False on missing creds / migration not applied /
+    network error. Never raises — alerting must continue regardless.
+    """
+    if not settings.supabase_url or not settings.supabase_service_role_key:
+        return False
+    try:
+        client = _get_client()
+        payload = {
+            "relevance_score": score,
+            "relevance_category": category or None,
+            "relevance_reason": (reason or "")[:200] or None,
+        }
+        client.table(TABLE).update(payload).eq("external_id", external_id).eq("source", source).execute()
+        return True
+    except Exception as exc:
+        msg = str(exc)
+        # Graceful fallback: migration 017 not yet applied → skip silently.
+        if "relevance_score" in msg or "PGRST204" in msg:
+            logger.debug("[DB] relevance_score column missing — skipping update")
+            return False
+        logger.warning("[DB] update_relevance_fields failed for %s/%s: %s", source, external_id, msg[:120])
+        return False
 
 
 def _get_existing_keys(
@@ -148,21 +189,26 @@ async def upsert_tenders(
             )
         except Exception as exc:
             msg = str(exc)
-            # Fallback: retry without extra_info if the column is not yet deployed
-            # (migration 015 pending). Prevents write downtime during rollout.
-            if "extra_info" in msg and ("PGRST204" in msg or "column" in msg.lower()):
+            msg_lower = msg.lower()
+            # Fallback: retry without optional columns that may not be deployed
+            # yet (extra_info from 015, relevance_* from 017). Strip keys that
+            # the error mentions and retry once.
+            optional_keys = ("extra_info", "relevance_score", "relevance_category", "relevance_reason")
+            missing_keys = [k for k in optional_keys if k in msg]
+            if missing_keys and ("PGRST204" in msg or "column" in msg_lower):
                 logger.warning(
-                    "[DB] extra_info column missing — retrying batch %d without it", i
+                    "[DB] columns missing %s — retrying batch %d without them",
+                    missing_keys, i,
                 )
-                stripped = [{k: v for k, v in r.items() if k != "extra_info"} for r in rows]
+                stripped = [{k: v for k, v in r.items() if k not in missing_keys} for r in rows]
                 try:
                     client.table(TABLE).upsert(
                         stripped, on_conflict=UPSERT_CONFLICT
                     ).execute()
                     total += len(batch)
                     logger.info(
-                        "[DB] Upserted batch %d-%d without extra_info (%d rows)",
-                        i, i + len(batch), len(batch),
+                        "[DB] Upserted batch %d-%d without %s (%d rows)",
+                        i, i + len(batch), missing_keys, len(batch),
                     )
                     continue
                 except Exception as exc2:

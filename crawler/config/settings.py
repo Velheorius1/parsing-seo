@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     # AI relevance filter (OpenRouter / Qwen)
     openrouter_api_key: Optional[str] = None
     ai_relevance_model: str = "qwen/qwen3.6-max-preview"
+    # Structured AI output (migration 017): minimum score 0-100 to pass filter.
+    # 70 = "вероятно наш". Lower = noisier alerts, higher = miss edge cases.
+    ai_score_threshold: int = 70
 
     # AI evaluator (daily quality report)
     ai_eval_enabled: bool = True
