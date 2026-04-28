@@ -148,3 +148,8 @@ class RawTender(BaseModel):
     # Extra display fields rendered in TG alert (from field_map.extra_info).
     # Key = display label (Russian), Value = resolved text.
     extra_info: Dict[str, str] = Field(default_factory=dict)
+    # AI relevance (migration 017). Populated by notifier._ai_check_relevance
+    # for tenders that reach the keyword/bypass gate. NULL = not yet scored.
+    relevance_score: Optional[int] = None  # 0-100
+    relevance_category: Optional[str] = None  # client | ad | irrelevant
+    relevance_reason: Optional[str] = None

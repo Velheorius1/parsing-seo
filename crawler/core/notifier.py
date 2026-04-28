@@ -3,8 +3,10 @@
 Pipeline: deadline filter → keyword match → AI relevance check (Qwen via OpenRouter) → send.
 """
 
+import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -17,9 +19,32 @@ logger = logging.getLogger(__name__)
 
 # ── AI relevance filter ──────────────────────────────────────────
 
+# Valid category labels — must match parsing_feedback CLI labels.
+_VALID_CATEGORIES = ("client", "ad", "irrelevant")
+
+
+@dataclass
+class RelevanceResult:
+    """Outcome of AI relevance check.
+
+    is_relevant: True if score >= ai_score_threshold (or fallback-allow on error).
+    score/category/reason: NULL when AI failed/unavailable — caller should not
+    persist NULL values as "0" or "irrelevant".
+    """
+
+    is_relevant: bool
+    score: Optional[int] = None
+    category: Optional[str] = None
+    reason: Optional[str] = None
+
+    def __bool__(self) -> bool:
+        # Backward-compat for callers that historically did `if await _ai_check_relevance(...)`
+        return self.is_relevant
+
+
 _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и УПАКОВОЧНОЕ производство в Узбекистане.
 
-МЫ ДЕЛАЕМ (YES):
+МЫ ДЕЛАЕМ:
 - Коробки (гофро, картон, подарочные, совга кутилар)
 - Этикетки, стикеры, наклейки
 - Полиграфия (каталоги, брошюры, блокноты, визитки, буклеты)
@@ -31,7 +56,7 @@ _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и У�
 - Ламинирование, переплёт
 - Пластиковые карты (скидочные, дисконтные)
 
-НЕ НАШЕ (NO):
+НЕ НАШЕ:
 - Наружная реклама: баннеры на фасадах, вывески, световые короба, монтаж
 - Широкоформатная печать ТОЛЬКО для наружной рекламы (билборды, растяжки)
 - Оракал, плоттерная резка для рекламных конструкций
@@ -50,26 +75,91 @@ _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и У�
 - Подписка и доставка периодических печатных изданий (газеты, журналы)
 - Марля полиграфическая, расходные материалы для типографии
 
-Пример:
-Название: Закупка этикеток для пищевой продукции (500 000 шт)
-Заказчик: ООО Nestle Uzbekistan
-Ответ: YES
-
 Объявление:
 Название: {title}
 Заказчик: {organization}
 
-Ответь YES или NO (одно слово).
+Ответь СТРОГО в JSON (только JSON, без пояснений и markdown):
+{{"score": <0-100>, "category": "<client|ad|irrelevant>", "reason": "<1 короткое предложение почему>"}}
+
+score: 90-100 = точно наш заказ; 70-89 = вероятно наш; 40-69 = смежная область;
+       0-39 = точно не наш.
+category: "client" = реальный заказчик хочет купить; "ad" = реклама чужих услуг;
+          "irrelevant" = не наша область вообще.
 /no_think"""
+
+
+def _allow(reason: str = "") -> RelevanceResult:
+    """Fallback: let tender through but do not persist a fake score."""
+    return RelevanceResult(is_relevant=True, score=None, category=None, reason=None)
+
+
+def _strip_think_tags(text: str) -> str:
+    """Remove Qwen3 <think>...</think> blocks if present."""
+    if "<think>" not in text:
+        return text.strip()
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+
+def _extract_json_object(text: str) -> Optional[dict]:
+    """Find first {...} JSON object in text and parse it. Tolerates code fences."""
+    if not text:
+        return None
+    # Strip ```json ... ``` fences
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fenced:
+        candidate = fenced.group(1)
+    else:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not match:
+            return None
+        candidate = match.group(0)
+    try:
+        return json.loads(candidate)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def _parse_relevance_payload(payload: dict) -> Optional[RelevanceResult]:
+    """Validate AI JSON payload → RelevanceResult. None on bad shape."""
+    raw_score = payload.get("score")
+    try:
+        score = int(raw_score)
+    except (TypeError, ValueError):
+        return None
+    if score < 0 or score > 100:
+        # Clamp out-of-range AI output rather than fail hard
+        score = max(0, min(100, score))
+
+    raw_cat = payload.get("category", "")
+    category = str(raw_cat).strip().lower() if raw_cat is not None else ""
+    if category not in _VALID_CATEGORIES:
+        # AI sometimes returns "tender" / "spam" — coerce by score:
+        # high score → client, low → irrelevant.
+        category = "client" if score >= settings.ai_score_threshold else "irrelevant"
+
+    reason = str(payload.get("reason") or "")[:200].strip()
+
+    is_relevant = score >= settings.ai_score_threshold
+    return RelevanceResult(
+        is_relevant=is_relevant,
+        score=score,
+        category=category,
+        reason=reason,
+    )
 
 
 async def _ai_check_relevance(
     tender: RawTender,
     client: httpx.AsyncClient,
-) -> bool:
-    """Check tender relevance via Qwen (OpenRouter). Returns True if relevant."""
+) -> RelevanceResult:
+    """Check tender relevance via Qwen (OpenRouter). Returns RelevanceResult.
+
+    Backward-compat: RelevanceResult is truthy iff is_relevant — so existing
+    `if await _ai_check_relevance(...)` callers keep working.
+    """
     if not settings.openrouter_api_key:
-        return True  # no key = skip filter, send all
+        return _allow("no_key")
 
     prompt = _RELEVANCE_PROMPT.format(
         title=tender.title[:300],
@@ -85,34 +175,42 @@ async def _ai_check_relevance(
             json={
                 "model": settings.ai_relevance_model,
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 20,
+                "max_tokens": 200,
                 "temperature": 0,
             },
             timeout=15,
         )
         if resp.status_code != 200:
             logger.warning("[AI Filter] OpenRouter %d: %s", resp.status_code, resp.text[:100])
-            return True  # on error, let it through
+            return _allow("http_%d" % resp.status_code)
 
         data = resp.json()
         raw_answer = data["choices"][0]["message"]["content"] or ""
-        # Strip Qwen3 thinking tags if present
-        answer = raw_answer.strip()
-        if "<think>" in answer:
-            # Remove <think>...</think> block
-            import re as _re
-            answer = _re.sub(r"<think>.*?</think>", "", answer, flags=_re.DOTALL).strip()
-        answer = answer.upper()
+        answer = _strip_think_tags(raw_answer)
         if not answer:
-            return True  # empty answer = let it through
-        is_relevant = answer.startswith("YES")
-        if not is_relevant:
-            logger.info("[AI Filter] REJECTED: %s (answer=%s)", tender.title[:60], answer)
-        return is_relevant
+            return _allow("empty")
+
+        payload = _extract_json_object(answer)
+        if not payload:
+            logger.warning("[AI Filter] No JSON in answer: %s", answer[:120])
+            return _allow("no_json")
+
+        result = _parse_relevance_payload(payload)
+        if result is None:
+            logger.warning("[AI Filter] Bad JSON shape: %s", answer[:120])
+            return _allow("bad_shape")
+
+        if not result.is_relevant:
+            logger.info(
+                "[AI Filter] REJECTED score=%d cat=%s: %s (%s)",
+                result.score, result.category,
+                tender.title[:60], (result.reason or "")[:80],
+            )
+        return result
 
     except Exception as exc:
         logger.warning("[AI Filter] Error: %s", str(exc)[:80])
-        return True  # on error, let it through
+        return _allow("exception")
 
 # ── Deadline filter ──────────────────────────────────────────────
 
@@ -471,23 +569,43 @@ async def send_alerts(
             logger.info("[Alerts] DRY RUN would send: #%03d [%s] %s", i + 1, kw, t.title[:80])
         return len(matching) + len(uzex_bypass)
 
-    # AI relevance filter — reject false positives via Qwen (parallel)
+    # AI relevance filter — reject false positives via Qwen (parallel).
+    # Side effects: writes score/category/reason back onto each tender (for
+    # downstream DB persistence) and best-effort UPDATE existing rows in DB.
     if settings.openrouter_api_key:
         import asyncio as _asyncio
+        from crawler.core.db import update_relevance_fields
 
         async with httpx.AsyncClient(timeout=15) as ai_client:
             sem = _asyncio.Semaphore(5)
 
             async def _check(tender_kw):
-                # type: (Tuple[RawTender, str]) -> Optional[Tuple[RawTender, str]]
+                # type: (Tuple[RawTender, str]) -> Tuple[RawTender, str, RelevanceResult]
+                tender, kw = tender_kw
                 async with sem:
-                    if await _ai_check_relevance(tender_kw[0], ai_client):
-                        return tender_kw
-                    return None
+                    result = await _ai_check_relevance(tender, ai_client)
+                # Mutate tender so any later code (DB update, formatter) sees the score.
+                if result.score is not None:
+                    tender.relevance_score = result.score
+                    tender.relevance_category = result.category
+                    tender.relevance_reason = result.reason
+                return tender, kw, result
 
-            results = await _asyncio.gather(*[_check(tk) for tk in matching])
-            filtered = [r for r in results if r is not None]  # type: List[Tuple[RawTender, str]]
+            scored = await _asyncio.gather(*[_check(tk) for tk in matching])
 
+        # Persist score back to DB (fire-and-forget — failures are logged but
+        # don't block alerting). Skip when score is None (AI fallback).
+        for tender, _kw, result in scored:
+            if result.score is not None:
+                update_relevance_fields(
+                    tender.external_id,
+                    tender.source,
+                    result.score,
+                    result.category or "",
+                    result.reason or "",
+                )
+
+        filtered = [(t, kw) for t, kw, r in scored if r.is_relevant]  # type: List[Tuple[RawTender, str]]
         rejected = len(matching) - len(filtered)
         if rejected:
             logger.info("[AI Filter] Passed %d / %d (rejected %d)", len(filtered), len(matching), rejected)
