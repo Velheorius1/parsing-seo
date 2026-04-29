@@ -410,11 +410,23 @@ def _format_alert(
         parts.append("Площадки (%d): %s" % (len(extra_sources), ", ".join(extra_sources)))
     else:
         parts.append("Источник: %s" % tender.source)
-    # Detail page link (always accessible, no auth needed)
-    if db_id:
-        parts.append("%s/%s" % (_DETAIL_PAGE_BASE, db_id))
-    elif tender.source_url:
-        parts.append(tender.source_url)
+    # Link strategy: direct source_url is preferred (one-click to platform).
+    # For broken SPA sources the deep-link slips to homepage, so we fall back
+    # to our own Vercel detail page (which also gets a screenshot attached).
+    # For working sources (ETender UZEX lots, Auctions, etc.) keep the direct
+    # link first; add Vercel as a backup so the alert is still browsable if
+    # the source goes down.
+    from crawler.core.snap import is_broken_spa as _is_broken_spa
+    if _is_broken_spa(tender.source):
+        if db_id:
+            parts.append("%s/%s" % (_DETAIL_PAGE_BASE, db_id))
+        elif tender.source_url:
+            parts.append(tender.source_url)
+    else:
+        if tender.source_url:
+            parts.append(tender.source_url)
+        if db_id:
+            parts.append("Архив: %s/%s" % (_DETAIL_PAGE_BASE, db_id))
 
     # Cooperation.uz fallback: SPA detail page often shows "Sahifa topilmadi"
     # in Telegram in-app browser (JavaScript not always executed). Add a
