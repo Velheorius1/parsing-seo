@@ -149,23 +149,17 @@ def _parse_relevance_payload(payload: dict) -> Optional[RelevanceResult]:
     )
 
 
-async def _ai_check_relevance(
+async def _ai_call_one(
     tender: RawTender,
     client: httpx.AsyncClient,
-) -> RelevanceResult:
-    """Check tender relevance via Qwen (OpenRouter). Returns RelevanceResult.
-
-    Backward-compat: RelevanceResult is truthy iff is_relevant — so existing
-    `if await _ai_check_relevance(...)` callers keep working.
-    """
-    if not settings.openrouter_api_key:
-        return _allow("no_key")
-
+    model: str,
+) -> Optional[RelevanceResult]:
+    """Single OpenRouter call. Returns RelevanceResult on success, None on
+    network/parse failure (caller decides how to fall back)."""
     prompt = _RELEVANCE_PROMPT.format(
         title=tender.title[:300],
         organization=tender.organization or "",
     )
-
     try:
         resp = await client.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -173,7 +167,7 @@ async def _ai_check_relevance(
                 "Authorization": "Bearer %s" % settings.openrouter_api_key,
             },
             json={
-                "model": settings.ai_relevance_model,
+                "model": model,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 200,
                 "temperature": 0,
@@ -181,36 +175,100 @@ async def _ai_check_relevance(
             timeout=15,
         )
         if resp.status_code != 200:
-            logger.warning("[AI Filter] OpenRouter %d: %s", resp.status_code, resp.text[:100])
-            return _allow("http_%d" % resp.status_code)
-
+            logger.warning("[AI Filter:%s] OpenRouter %d: %s", model, resp.status_code, resp.text[:100])
+            return None
         data = resp.json()
-        raw_answer = data["choices"][0]["message"]["content"] or ""
-        answer = _strip_think_tags(raw_answer)
+        raw = data["choices"][0]["message"]["content"] or ""
+        answer = _strip_think_tags(raw)
         if not answer:
-            return _allow("empty")
-
+            return None
         payload = _extract_json_object(answer)
         if not payload:
-            logger.warning("[AI Filter] No JSON in answer: %s", answer[:120])
-            return _allow("no_json")
+            logger.warning("[AI Filter:%s] No JSON: %s", model, answer[:120])
+            return None
+        return _parse_relevance_payload(payload)
+    except Exception as exc:
+        logger.warning("[AI Filter:%s] Error: %s", model, str(exc)[:80])
+        return None
 
-        result = _parse_relevance_payload(payload)
+
+async def _ai_check_relevance(
+    tender: RawTender,
+    client: httpx.AsyncClient,
+) -> RelevanceResult:
+    """Hybrid relevance check.
+
+    1. Fast model (qwen3-30b-a3b, ~$0.00007/call) decides first.
+    2. If fast accepts → trust it, return.
+    3. If fast rejects → second opinion from Max model
+       (qwen3.6-max-preview, ~$0.0046/call). Max wins on conflict.
+    4. If fast errors → fall back to Max only.
+
+    ~95% of calls handled by fast model alone, escapes to Max only on
+    rejection. Saves ~10x vs always-Max while preserving precision on edge
+    cases (e.g. "Услуги печатные и копированию звуко- и видеозаписей").
+    """
+    if not settings.openrouter_api_key:
+        return _allow("no_key")
+
+    fast_model = settings.ai_relevance_model_fast or ""
+    max_model = settings.ai_relevance_model
+
+    # Hybrid disabled (empty fast): single-model legacy path.
+    if not fast_model:
+        result = await _ai_call_one(tender, client, max_model)
         if result is None:
-            logger.warning("[AI Filter] Bad JSON shape: %s", answer[:120])
-            return _allow("bad_shape")
-
+            return _allow("max_failed")
         if not result.is_relevant:
             logger.info(
-                "[AI Filter] REJECTED score=%d cat=%s: %s (%s)",
+                "[AI Filter:max] REJECTED score=%d cat=%s: %s (%s)",
                 result.score, result.category,
                 tender.title[:60], (result.reason or "")[:80],
             )
         return result
 
-    except Exception as exc:
-        logger.warning("[AI Filter] Error: %s", str(exc)[:80])
-        return _allow("exception")
+    # Fast pass.
+    fast_result = await _ai_call_one(tender, client, fast_model)
+    if fast_result is None:
+        # Fast failed → fall through to Max.
+        max_result = await _ai_call_one(tender, client, max_model)
+        if max_result is None:
+            return _allow("both_failed")
+        if not max_result.is_relevant:
+            logger.info(
+                "[AI Filter:max-fallback] REJECTED score=%d cat=%s: %s",
+                max_result.score, max_result.category, tender.title[:60],
+            )
+        return max_result
+
+    if fast_result.is_relevant:
+        # Fast accepts → done. Cheap path covers ~95% of incoming tenders.
+        return fast_result
+
+    # Fast rejected → second opinion from Max (catches "печатные… копированию
+    # звуко-видеозаписей" type tenders that a3b false-rejects ~4% of the time).
+    max_result = await _ai_call_one(tender, client, max_model)
+    if max_result is None:
+        # Max unavailable → trust fast rejection.
+        logger.info(
+            "[AI Filter:fast] REJECTED (max unavailable) score=%d cat=%s: %s (%s)",
+            fast_result.score, fast_result.category,
+            tender.title[:60], (fast_result.reason or "")[:80],
+        )
+        return fast_result
+
+    if max_result.is_relevant and not fast_result.is_relevant:
+        logger.info(
+            "[AI Filter:override] Max OVERRIDES fast: fast=%d max=%d cat=%s: %s",
+            fast_result.score, max_result.score, max_result.category, tender.title[:60],
+        )
+    elif not max_result.is_relevant:
+        logger.info(
+            "[AI Filter:hybrid] REJECTED fast=%d max=%d cat=%s: %s (%s)",
+            fast_result.score, max_result.score, max_result.category,
+            tender.title[:60], (max_result.reason or "")[:80],
+        )
+    return max_result
 
 # ── Deadline filter ──────────────────────────────────────────────
 

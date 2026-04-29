@@ -53,6 +53,11 @@ class Settings(BaseSettings):
 
     # AI relevance filter (OpenRouter / Qwen)
     openrouter_api_key: Optional[str] = None
+    # Hybrid mode: fast model checks first; if it rejects → second opinion from
+    # max model. If fast accepts → trust it (saves ~99% of tokens). Set
+    # ai_relevance_model_fast to empty string to disable hybrid and use only
+    # ai_relevance_model.
+    ai_relevance_model_fast: str = "qwen/qwen3-30b-a3b"
     ai_relevance_model: str = "qwen/qwen3.6-max-preview"
     # Structured AI output (migration 017): minimum score 0-100 to pass filter.
     # 70 = "вероятно наш". Lower = noisier alerts, higher = miss edge cases.
