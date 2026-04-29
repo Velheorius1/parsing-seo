@@ -689,6 +689,8 @@ class ApiAdapter(BaseAdapter):
                 source_url = fm.source_url_template.replace(
                     "{id}", _safe_str(item.get("id", ext_id_val))
                 ).replace(
+                    "{external_id}", ext_id_val
+                ).replace(
                     "{link}", ext_id_val
                 )
             except Exception:

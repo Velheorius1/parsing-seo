@@ -66,6 +66,8 @@ export interface Tender {
   resultDate?: string | null;   // Дата подведения итогов
   groupId?: string | null;      // Группа связанных тендеров
   daysLeft?: number | null;     // Дней до дедлайна
+  previewScreenshotUrl?: string | null; // JPEG /tenders/{uuid} для broken SPA
+  extraInfo?: Record<string, string> | null; // enriched fields (Район, Адрес...)
 }
 
 // Избранный тендер

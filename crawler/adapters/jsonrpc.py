@@ -237,6 +237,8 @@ class JsonRpcAdapter(BaseAdapter):
         if fm.source_url_template:
             source_url = fm.source_url_template.replace(
                 "{id}", _safe_str(item.get("id", ext_id_val))
+            ).replace(
+                "{external_id}", ext_id_val
             )
 
         # Search text — collect all goods names and categories

@@ -5,7 +5,14 @@ import { useParams, useRouter } from 'next/navigation';
 import type { Tender } from '@/types/parsing';
 
 // SPA-площадки без deep links — кнопка "Открыть на площадке" бесполезна
-const BROKEN_SPA_HOSTS = ['hayotbirja.uz', 'xt-xarid.uz'];
+const BROKEN_SPA_HOSTS = [
+  'hayotbirja.uz',
+  'xt-xarid.uz',
+  'cooperation.uz',
+  'xarid.uzex.uz/prequalification',
+  'xarid.uzex.uz/competitions',
+  'xarid.uzex.uz/direct-purchases',
+];
 
 function isOurUrl(url: string): boolean {
   return url.includes('parsing-seo.vercel.app');
@@ -249,6 +256,24 @@ export default function TenderDetailPage() {
             >
               Открыть на площадке &rarr;
             </a>
+          )}
+
+          {/* Snapshot нашей карточки (для broken SPA) */}
+          {tender.previewScreenshotUrl && (
+            <div className="mt-6 pt-4 border-t border-gray-800">
+              <div className="text-gray-500 text-sm mb-2">
+                Снимок карточки <span className="text-gray-400">(площадка не открывается напрямую)</span>
+              </div>
+              <a href={tender.previewScreenshotUrl} target="_blank" rel="noopener noreferrer">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={tender.previewScreenshotUrl}
+                  alt="Скриншот карточки тендера"
+                  className="rounded-lg border border-gray-800 max-w-full"
+                  loading="lazy"
+                />
+              </a>
+            </div>
           )}
 
           {/* Мета */}

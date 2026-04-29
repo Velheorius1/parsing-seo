@@ -628,7 +628,15 @@ async def send_alerts(
 
     _group_sources = group_sources or {}
 
-    async with httpx.AsyncClient(timeout=10) as client:
+    # Broken SPA sources: take a screenshot of OUR own /tenders/{uuid} page
+    # and attach it to the alert as a photo. The platform's deep-link is
+    # useless (slips back to homepage) so a visual preview of our UI card
+    # is the most informative thing we can show in Telegram.
+    from crawler.core.snap import is_broken_spa, snap_and_upload
+
+    photo_send_url = "https://api.telegram.org/bot%s/sendPhoto" % settings.telegram_bot_token
+
+    async with httpx.AsyncClient(timeout=30) as client:
         for i, (tender, kw) in enumerate(matching):
             seq = start_seq + i
             extra = _group_sources.get(tender.id)
@@ -643,15 +651,46 @@ async def send_alerts(
                     {"text": "\u274c \u041c\u0438\u043c\u043e", "callback_data": "fb:%d:skip" % seq},
                 ]]
             }
+
+            # Attempt to capture our /tenders/{uuid} page if the source is a broken SPA
+            photo_url = None
+            if db_id and is_broken_spa(tender.source):
+                try:
+                    photo_url = await snap_and_upload(db_id, tender.source, tender.external_id)
+                    if photo_url:
+                        # Persist URL so the frontend / repair flow can reuse it
+                        try:
+                            from crawler.core.feedback import _get_client as _gc
+                            ei = dict(tender.extra_info or {})
+                            ei["screenshot_url"] = photo_url
+                            ei["screenshot_at"] = datetime.now(timezone.utc).isoformat()
+                            _gc().table("tenders").update({"extra_info": ei}).eq("id", db_id).execute()
+                        except Exception as exc:
+                            logger.warning("[Alerts] save screenshot extra_info failed: %s", str(exc)[:200])
+                except Exception as exc:
+                    logger.warning("[Alerts] snap failed for #%d: %s", seq, str(exc)[:200])
+
             try:
-                resp = await client.post(bot_url, json={
-                    "chat_id": settings.telegram_alert_chat_id,
-                    "text": text,
-                    "parse_mode": "Markdown",
-                    "disable_web_page_preview": True,
-                    "protect_content": True,
-                    "reply_markup": reply_markup,
-                })
+                if photo_url:
+                    # sendPhoto \u2014 caption max 1024 chars
+                    caption = text if len(text) <= 1024 else (text[:1020] + "...")
+                    resp = await client.post(photo_send_url, json={
+                        "chat_id": settings.telegram_alert_chat_id,
+                        "photo": photo_url,
+                        "caption": caption,
+                        "parse_mode": "Markdown",
+                        "protect_content": True,
+                        "reply_markup": reply_markup,
+                    })
+                else:
+                    resp = await client.post(bot_url, json={
+                        "chat_id": settings.telegram_alert_chat_id,
+                        "text": text,
+                        "parse_mode": "Markdown",
+                        "disable_web_page_preview": True,
+                        "protect_content": True,
+                        "reply_markup": reply_markup,
+                    })
                 if resp.status_code == 200:
                     sent += 1
                     # Save alert_seq and telegram_message_id

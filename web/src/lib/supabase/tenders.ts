@@ -21,6 +21,7 @@ interface TenderRow {
   matched_keywords: string[];
   collected_at: string;
   created_at: string;
+  extra_info: Record<string, string> | null;
 }
 
 // Параметры запроса тендеров из БД
@@ -102,6 +103,8 @@ function rowToTender(row: TenderRow): Tender {
     status: row.status as Tender['status'],
     matchedKeywords: row.matched_keywords,
     collectedAt: new Date(row.collected_at || row.created_at),
+    previewScreenshotUrl: row.extra_info?.screenshot_url ?? null,
+    extraInfo: row.extra_info ?? null,
   };
 }
 

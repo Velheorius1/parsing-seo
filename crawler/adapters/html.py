@@ -209,6 +209,8 @@ class HtmlAdapter(BaseAdapter):
                     "{link}", link
                 ).replace(
                     "{id}", link
+                ).replace(
+                    "{external_id}", link
                 )
             elif link.startswith("http"):
                 source_url = link
