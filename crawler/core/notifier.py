@@ -418,11 +418,14 @@ def _format_alert(
     # the source goes down.
     from crawler.core.snap import is_broken_spa as _is_broken_spa
     if _is_broken_spa(tender.source):
+        # Broken SPA: Vercel + screenshot первой строкой (для нелогиненых),
+        # прямая ссылка следом (для тех кто залогинен через E-IMZO/UZEX).
         if db_id:
             parts.append("%s/%s" % (_DETAIL_PAGE_BASE, db_id))
-        elif tender.source_url:
-            parts.append(tender.source_url)
+        if tender.source_url:
+            parts.append("На площадке: %s" % tender.source_url)
     else:
+        # Working source: прямая ссылка первой, Vercel запасной.
         if tender.source_url:
             parts.append(tender.source_url)
         if db_id:
