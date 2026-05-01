@@ -31,13 +31,21 @@ def fetch_detail(external_id: str, client: httpx.Client) -> Optional[Dict[str, A
     raw = str(external_id).split("-")[-1] if "-" in str(external_id) else str(external_id)
     if not raw.isdigit():
         return None
-    r = client.get(f"{API_HOST}/api/Public/GetLot", params={"id": raw}, timeout=15)
-    if r.status_code != 200:
-        return None
-    body = r.json()
-    if body.get("Status") != 200:
-        return None
-    return body.get("Data") or None
+    last_err = None
+    for attempt in range(3):
+        try:
+            r = client.get(f"{API_HOST}/api/Public/GetLot", params={"id": raw}, timeout=30)
+            if r.status_code != 200:
+                return None
+            body = r.json()
+            if body.get("Status") != 200:
+                return None
+            return body.get("Data") or None
+        except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.RemoteProtocolError, httpx.ProxyError) as e:
+            last_err = e
+            time.sleep(2 + attempt * 3)
+    print(f"FETCH ERR ext={raw}: {type(last_err).__name__}: {last_err}", flush=True)
+    return None
 
 
 def merge_into_extra(extra: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
