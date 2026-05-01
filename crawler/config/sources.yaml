@@ -866,6 +866,10 @@ sources:
       date_end: endDate
       external_id: id
       source_url_template: "https://xarid.uzex.uz/prequalification/detail/{id}"
+      extra_info:
+        customer_inn: customerInn
+        display_id: displayId
+        address: address
     keywords_fields: [categoryName, customerName]
     pagination:
       type: offset
