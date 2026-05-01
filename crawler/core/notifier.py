@@ -501,6 +501,26 @@ def _format_alert(
         except Exception:
             pass
 
+    # «Куда подать КП» — главное для пользователя
+    try:
+        from crawler.core.snap import is_broken_spa as _is_broken_spa2
+        spa_auth = _is_broken_spa2(tender.source) or tender.source.startswith("UZEX Предквалификации") or tender.source.startswith("Cooperation.uz Лоты")
+    except Exception:
+        spa_auth = False
+    submission_lines = []
+    if spa_auth and tender.source_url:
+        submission_lines.append("📝 Подача КП: %s (требует E-IMZO)" % tender.source_url)
+    extra = tender.extra_info if isinstance(tender.extra_info, dict) else {}
+    contacts = extra.get("customer_contacts") if extra else None
+    if isinstance(contacts, dict):
+        if contacts.get("email"):
+            submission_lines.append("✉️ Email заказчика: %s" % contacts["email"])
+        if contacts.get("phone"):
+            submission_lines.append("📞 Тел: %s" % contacts["phone"])
+    if submission_lines:
+        parts.append("")
+        parts.extend(submission_lines)
+
     parts.append("#%s" % matched_kw.replace(" ", "_"))
     return "\n".join(parts)
 
