@@ -2267,7 +2267,7 @@ sources:
       deadline: "close_at"
       external_id: "id"
       region: "company.region.title_ru"
-      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
+      source_url_template: "https://hayotbirja.uz/procedure/{external_id}/core"
     keywords_fields: ["meta.good_maps"]
     pagination:
       type: offset
@@ -2294,7 +2294,7 @@ sources:
       deadline: "close_at"
       external_id: "id"
       region: "area"
-      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
+      source_url_template: "https://hayotbirja.uz/procedure/{external_id}/core"
     keywords_fields: ["name", "meta"]
     pagination:
       type: offset
@@ -2325,7 +2325,7 @@ sources:
       deadline: "close_at"
       external_id: "id"
       region: "area"
-      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
+      source_url_template: "https://hayotbirja.uz/procedure/{external_id}/core"
     keywords_fields: ["name", "meta"]
     pagination:
       type: offset
@@ -2354,7 +2354,7 @@ sources:
       currency: "UZS"
       deadline: ""
       external_id: "id"
-      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
+      source_url_template: "https://hayotbirja.uz/procedure/{external_id}/core"
     keywords_fields: ["name", "product"]
     pagination:
       type: offset
@@ -2383,7 +2383,7 @@ sources:
       deadline: "close_at"
       external_id: "id"
       region: "company.region.title_ru"
-      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
+      source_url_template: "https://xt-xarid.uz/procedure/{external_id}/core"
     keywords_fields: ["meta.good_maps"]
     pagination:
       type: offset
@@ -2410,7 +2410,7 @@ sources:
       deadline: "close_at"
       external_id: "id"
       region: "area"
-      source_url_template: "https://parsing-seo.vercel.app/tenders/{external_id}"
+      source_url_template: "https://xt-xarid.uz/procedure/{external_id}/core"
     keywords_fields: ["name", "meta"]
     pagination:
       type: offset
