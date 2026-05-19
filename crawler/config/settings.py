@@ -57,7 +57,13 @@ class Settings(BaseSettings):
     # max model. If fast accepts → trust it (saves ~99% of tokens). Set
     # ai_relevance_model_fast to empty string to disable hybrid and use only
     # ai_relevance_model.
-    ai_relevance_model_fast: str = "qwen/qwen3-30b-a3b"
+    #
+    # 2026-05-19: switched fast from qwen/qwen3-30b-a3b → deepseek/deepseek-v4-flash
+    # (paid: $0.112/$0.224 per M tokens) for A/B comparison. JSONL logs at
+    # /var/log/parsing-seo-ai-decisions.jsonl (analyse via scripts/compare_ai_models.py).
+    # Override via env AI_RELEVANCE_MODEL_FAST=qwen/qwen3-30b-a3b to roll back
+    # without redeploy.
+    ai_relevance_model_fast: str = "deepseek/deepseek-v4-flash"
     ai_relevance_model: str = "qwen/qwen3.6-max-preview"
     # Structured AI output (migration 017): minimum score 0-100 to pass filter.
     # 70 = "вероятно наш". Lower = noisier alerts, higher = miss edge cases.

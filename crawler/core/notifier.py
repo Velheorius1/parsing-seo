@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple
 import httpx
 
 from crawler.config.settings import settings
+from crawler.core.ai_decision_log import log_ai_decision
 from crawler.core.models import RawTender
 
 logger = logging.getLogger(__name__)
@@ -153,13 +154,24 @@ async def _ai_call_one(
     tender: RawTender,
     client: httpx.AsyncClient,
     model: str,
+    role: str = "unknown",
 ) -> Optional[RelevanceResult]:
     """Single OpenRouter call. Returns RelevanceResult on success, None on
-    network/parse failure (caller decides how to fall back)."""
+    network/parse failure (caller decides how to fall back).
+
+    `role` is "fast" or "max" — used only for JSONL comparison logging.
+    """
+    import time as _time
+
     prompt = _RELEVANCE_PROMPT.format(
         title=tender.title[:300],
         organization=tender.organization or "",
     )
+
+    _t0 = _time.monotonic()
+    http_status: Optional[int] = None
+    error: Optional[str] = None
+    result: Optional[RelevanceResult] = None
     try:
         resp = await client.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -174,22 +186,50 @@ async def _ai_call_one(
             },
             timeout=15,
         )
+        http_status = resp.status_code
         if resp.status_code != 200:
             logger.warning("[AI Filter:%s] OpenRouter %d: %s", model, resp.status_code, resp.text[:100])
+            error = "http_%d: %s" % (resp.status_code, resp.text[:80])
             return None
         data = resp.json()
         raw = data["choices"][0]["message"]["content"] or ""
         answer = _strip_think_tags(raw)
         if not answer:
+            error = "empty_answer"
             return None
         payload = _extract_json_object(answer)
         if not payload:
             logger.warning("[AI Filter:%s] No JSON: %s", model, answer[:120])
+            error = "no_json: %s" % answer[:80]
             return None
-        return _parse_relevance_payload(payload)
+        result = _parse_relevance_payload(payload)
+        if result is None:
+            error = "bad_payload"
+        return result
     except Exception as exc:
         logger.warning("[AI Filter:%s] Error: %s", model, str(exc)[:80])
+        error = "exception: %s" % str(exc)[:80]
         return None
+    finally:
+        latency_ms = int((_time.monotonic() - _t0) * 1000)
+        # NB: use `is not None`, not truthy check — RelevanceResult.__bool__
+        # returns is_relevant, so `if result` is False for rejected tenders
+        # (score=0, category=irrelevant), which would null out the log.
+        log_ai_decision(
+            model=model,
+            role=role,
+            tender_external_id=getattr(tender, "external_id", None),
+            source=getattr(tender, "source", "") or "",
+            title=tender.title or "",
+            organization=getattr(tender, "organization", "") or "",
+            is_relevant=(result.is_relevant if result is not None else None),
+            score=(result.score if result is not None else None),
+            category=(result.category if result is not None else None),
+            reason=(result.reason if result is not None else None),
+            latency_ms=latency_ms,
+            http_status=http_status,
+            error=error,
+        )
 
 
 async def _ai_check_relevance(
@@ -216,7 +256,7 @@ async def _ai_check_relevance(
 
     # Hybrid disabled (empty fast): single-model legacy path.
     if not fast_model:
-        result = await _ai_call_one(tender, client, max_model)
+        result = await _ai_call_one(tender, client, max_model, role="max")
         if result is None:
             return _allow("max_failed")
         if not result.is_relevant:
@@ -228,10 +268,10 @@ async def _ai_check_relevance(
         return result
 
     # Fast pass.
-    fast_result = await _ai_call_one(tender, client, fast_model)
+    fast_result = await _ai_call_one(tender, client, fast_model, role="fast")
     if fast_result is None:
         # Fast failed → fall through to Max.
-        max_result = await _ai_call_one(tender, client, max_model)
+        max_result = await _ai_call_one(tender, client, max_model, role="max")
         if max_result is None:
             return _allow("both_failed")
         if not max_result.is_relevant:
@@ -247,7 +287,7 @@ async def _ai_check_relevance(
 
     # Fast rejected → second opinion from Max (catches "печатные… копированию
     # звуко-видеозаписей" type tenders that a3b false-rejects ~4% of the time).
-    max_result = await _ai_call_one(tender, client, max_model)
+    max_result = await _ai_call_one(tender, client, max_model, role="max")
     if max_result is None:
         # Max unavailable → trust fast rejection.
         logger.info(
