@@ -82,7 +82,11 @@ sources:
       date_end: end_date_submitting_offers
       region: "customer_region_name"
       external_id: id
-      source_url_template: "https://xarid.uzex.uz/competitions/view/{id}"
+      # 2026-05-21: UZEX migrated xarid.uzex.uz → new-xarid.uzex.uz. Old deep
+      # links redirect to root. Universal URL pattern `shop/detail/{id}?elektron=true`
+      # works for ALL UZEX lot types (competitions, direct-purchases, prequalification).
+      # API endpoint that exposed mapping: xarid-api-shop.uzex.uz/Common/GetOffer/{id}
+      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true"
     keywords_fields: [category_name, customer_region_name]
     pagination:
       type: offset
@@ -111,7 +115,8 @@ sources:
       deadline: contract_date
       date_end: contract_date
       external_id: display_id
-      source_url_template: "https://xarid.uzex.uz/direct-purchases/view/{id}"
+      # 2026-05-21: see note above (UZEX migration). Universal new-xarid URL.
+      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true"
     keywords_fields: [category_name, customer_name, provider_name]
 
   # ── World Bank API ─────────────────────────────────────────────────
@@ -838,7 +843,8 @@ sources:
       date_end: endDate
       region: regionName
       external_id: id
-      source_url_template: "https://xarid.uzex.uz/auction/detail/{id}"
+      # 2026-05-21: UZEX migration — universal new-xarid URL.
+      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true"
     keywords_fields: [categoryName]
 
   - id: uzex-prequest
@@ -865,7 +871,9 @@ sources:
       date_start: startDate
       date_end: endDate
       external_id: id
-      source_url_template: "https://xarid.uzex.uz/prequalification/detail/{id}"
+      # 2026-05-21: see UZEX migration note above. Universal new-xarid URL works
+      # for prequalifications too (verified on SO0068843, SO0068603).
+      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true"
       extra_info:
         customer_inn: customerInn
         display_id: displayId

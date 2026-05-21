@@ -565,7 +565,9 @@ def fetch_and_transform_uzex_auctions():
             'deadline': end_date[:10] if end_date else None,
             'date_end': end_date[:10] if end_date else None,
             'source': 'UZEX Обратные аукционы',
-            'source_url': 'https://xarid.uzex.uz/auction/detail/%s' % lot_id,
+            # 2026-05-21: UZEX migrated xarid.uzex.uz → new-xarid.uzex.uz.
+            # Universal URL pattern works for all UZEX lot types.
+            'source_url': 'https://new-xarid.uzex.uz/home/shop/detail/%s?elektron=true' % lot_id,
             'status': 'active',
             'search_text': search_text[:1000],
             'collected_at': now,
@@ -639,7 +641,9 @@ def fetch_and_transform_uzex_prequest():
             'date_start': start_date[:10] if start_date else None,
             'date_end': end_date[:10] if end_date else None,
             'source': 'UZEX Предквалификации',
-            'source_url': 'https://xarid.uzex.uz/prequalification/detail/%s' % lot_id,
+            # 2026-05-21: UZEX migrated xarid.uzex.uz → new-xarid.uzex.uz.
+            # Universal URL works for prequalifications (verified SO0068843, SO0068603).
+            'source_url': 'https://new-xarid.uzex.uz/home/shop/detail/%s?elektron=true' % lot_id,
             'status': 'active',
             'search_text': search_text[:1000],
             'collected_at': now,
