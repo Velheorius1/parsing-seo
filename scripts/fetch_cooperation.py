@@ -681,6 +681,136 @@ def get_existing_ids(source_name):
     return existing
 
 
+# ── Source: Auction Contracts (NEW 2026-05-22 — replaces blocked E-IMZO path) ──
+
+def fetch_and_transform_auction_contracts(max_pages=10, page_size=500):
+    # type: (int, int) -> List[Dict[str, Any]]
+    """Fetch CLOSED auction contracts from stat-new.cooperation.uz — buyer + winner + prices.
+
+    This replaces the E-IMZO blocker for organization enrichment. Previously
+    cooperation.uz/cabinet GetLotInfo required E-IMZO auth → blocked. The new
+    stat-new portal (launched ~2026-04) exposes /gateway/api-stat/auction-contracts
+    publicly with full customer/producer/prices/regions.
+
+    Response: {code, total, content: [{contractNumber, lotNumber, products, customerName,
+               customerTin, producerName, producerTin, beginDate, endDate, dealTime,
+               startPrice, contractAmount, price, amount, offerCount,
+               customerRegionId, customerDistrictId, producerRegionId, producerDistrictId,
+               statusId}]}
+    """
+    logger.info('[AucContracts] Fetching closed auction contracts...')
+    all_items = []  # type: List[Dict[str, Any]]
+    total = 0
+
+    with httpx.Client(timeout=30) as client:
+        for page in range(max_pages):
+            try:
+                resp = client.get(
+                    'https://stat-new.cooperation.uz/gateway/api-stat/auction-contracts',
+                    params={'skip': page * page_size, 'take': page_size},
+                    headers={**HEADERS, 'Referer': 'https://stat-new.cooperation.uz/'},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if not isinstance(data, dict):
+                    break
+                if page == 0:
+                    total = int(data.get('total') or 0)
+                    logger.info('[AucContracts] Total available: %d', total)
+                items = data.get('content', []) or []
+                if not items:
+                    break
+                all_items.extend(items)
+                if len(all_items) >= total:
+                    break
+            except Exception as exc:
+                logger.error('[AucContracts] Page %d error: %s', page, str(exc))
+                break
+
+    logger.info('[AucContracts] Got %d items', len(all_items))
+    if not all_items:
+        return []
+
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for item in all_items:
+        contract_no = str(item.get('contractNumber') or '').strip()
+        lot_no = str(item.get('lotNumber') or '').strip()
+        # Prefer contractNumber for ID (unique per contract); fall back to lotNumber.
+        ext_key = contract_no or lot_no
+        if not ext_key:
+            continue
+
+        # Title: join up to 3 product names
+        products = item.get('products') or []
+        product_names = []
+        for p in products[:5]:
+            name = _extract_ru((p or {}).get('name', ''))
+            if name:
+                product_names.append(name)
+        title = ', '.join(product_names) if product_names else 'Контракт %s' % ext_key
+        if len(title) > 500:
+            title = title[:497] + '...'
+
+        org = _extract_ru(item.get('customerName', '')) or None
+        producer = _extract_ru(item.get('producerName', '')) or None
+
+        contract_amount = item.get('contractAmount')
+        start_price = item.get('startPrice')
+        # contractAmount = final agreed total. startPrice = budget. Use contractAmount.
+        price_val = contract_amount or start_price
+
+        deal_time = item.get('dealTime') or ''
+        begin_date = item.get('beginDate') or ''
+        end_date = item.get('endDate') or ''
+
+        # extra_info: producer + TINs + regions + offer count
+        extra_info = {}
+        if producer:
+            extra_info['Победитель'] = producer[:120]
+        customer_tin = item.get('customerTin')
+        if customer_tin:
+            extra_info['ИНН заказчика'] = str(customer_tin)
+        producer_tin = item.get('producerTin')
+        if producer_tin:
+            extra_info['ИНН победителя'] = str(producer_tin)
+        offer_count = item.get('offerCount')
+        if offer_count is not None:
+            extra_info['Кол-во оферт'] = str(offer_count)
+        if start_price and contract_amount and start_price > 0:
+            try:
+                discount_pct = round(100 * (1 - float(contract_amount) / float(start_price)), 1)
+                if discount_pct > 0:
+                    extra_info['Скидка'] = '%s%%' % discount_pct
+            except Exception:
+                pass
+
+        search_text = ' '.join(filter(None, [title, org or '', producer or ''])).lower()
+
+        rows.append({
+            'external_id': 'coop-contract-%s' % ext_key,
+            'title': title,
+            'organization': org[:200] if org else None,
+            'price': float(price_val) if price_val else None,
+            'currency': 'UZS',
+            'deadline': end_date[:10] if end_date else None,
+            'date_start': begin_date[:10] if begin_date else None,
+            'date_end': deal_time[:10] if deal_time else (end_date[:10] if end_date else None),
+            'source': 'Cooperation.uz Контракты',
+            # 2026-05-22: stat-new portal launched; no per-contract deep-link yet
+            # discovered. Use registry page so user can search by contractNumber.
+            'source_url': 'https://stat-new.cooperation.uz/all-deals',
+            'status': 'closed',  # contracts are completed deals
+            'message_type': 'info',
+            'search_text': search_text[:1000],
+            'extra_info': extra_info,
+            'collected_at': now,
+        })
+
+    logger.info('[AucContracts] Transformed %d -> %d rows', len(all_items), len(rows))
+    return rows
+
+
 def upsert_to_supabase(rows):
     # type: (List[Dict[str, Any]]) -> int
     if not SUPABASE_URL or not SUPABASE_KEY:
@@ -1089,7 +1219,7 @@ def main():
     parser = argparse.ArgumentParser(description='Fetch cooperation.uz data')
     parser.add_argument('--dry-run', action='store_true', help='Fetch only, no DB')
     parser.add_argument('--pages', type=int, default=3, help='Max pages for plans (default: 3)')
-    parser.add_argument('--source', choices=['plans', 'offers', 'lots', 'auction', 'eshop', 'uzex-auc', 'uzex-prq', 'all'],
+    parser.add_argument('--source', choices=['plans', 'offers', 'lots', 'auction', 'eshop', 'contracts', 'uzex-auc', 'uzex-prq', 'all'],
                         default='all', help='Which source to fetch')
     args = parser.parse_args()
 
@@ -1145,6 +1275,17 @@ def main():
     if args.source in ('all', 'eshop'):
         rows = fetch_and_transform_eshop_lots()
         u, n, a, c, l = process_source(rows, 'Cooperation.uz Э-магазин лоты', 'EshopLots', args.dry_run)
+        total_upserted += u
+        total_new += n
+        total_alerts += a
+        total_competitor += c
+        total_leads += l
+
+    # 5b. Auction Contracts (NEW 2026-05-22: closed deals with customer/producer/prices
+    # via public stat-new portal — replaces blocked E-IMZO path for organization data)
+    if args.source in ('all', 'contracts'):
+        rows = fetch_and_transform_auction_contracts(max_pages=10, page_size=500)
+        u, n, a, c, l = process_source(rows, 'Cooperation.uz Контракты', 'AucContracts', args.dry_run)
         total_upserted += u
         total_new += n
         total_alerts += a

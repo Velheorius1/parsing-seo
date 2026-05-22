@@ -17,6 +17,9 @@ echo "=== $(date +%Y-%m-%d\ %H:%M:%S) START proxy fetch ===" >> "$LOG"
 ( .venv/bin/python3 scripts/fetch_cooperation.py --source plans   || echo 'plans FAILED' )   >> "$LOG" 2>&1
 ( .venv/bin/python3 scripts/fetch_cooperation.py --source auction || echo 'auction FAILED' ) >> "$LOG" 2>&1
 ( .venv/bin/python3 scripts/fetch_cooperation.py --source eshop   || echo 'eshop FAILED' )   >> "$LOG" 2>&1
+# Contracts: closed auction deals via stat-new.cooperation.uz (added 2026-05-22).
+# Public endpoint with full customer+producer+prices — replaces blocked E-IMZO path.
+( .venv/bin/python3 scripts/fetch_cooperation.py --source contracts || echo 'contracts FAILED' ) >> "$LOG" 2>&1
 
 # UZEX auctions + prequalifications
 ( .venv/bin/python3 scripts/fetch_uzex_auctions.py || echo 'uzex FAILED' ) >> "$LOG" 2>&1
