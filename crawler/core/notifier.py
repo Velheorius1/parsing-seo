@@ -81,7 +81,7 @@ _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и У�
 Заказчик: {organization}
 
 Ответь СТРОГО в JSON (только JSON, без пояснений и markdown):
-{{"score": <0-100>, "category": "<client|ad|irrelevant>", "reason": "<1 короткое предложение почему>"}}
+{{"score": <0-100>, "category": "<client|ad|irrelevant>", "reason": "<до 100 символов>"}}
 
 score: 90-100 = точно наш заказ; 70-89 = вероятно наш; 40-69 = смежная область;
        0-39 = точно не наш.
@@ -181,10 +181,15 @@ async def _ai_call_one(
             json={
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 200,
+                # 200 обрезало JSON ровно посередине reason → 74% no_json.
+                # 400 даёт запас даже для длинного reason без структурного слома.
+                "max_tokens": 400,
                 "temperature": 0,
+                # OpenRouter structured output — enforce JSON object для моделей
+                # поддерживающих response_format (DeepSeek / OpenAI / большинство Qwen).
+                "response_format": {"type": "json_object"},
             },
-            timeout=15,
+            timeout=20,
         )
         http_status = resp.status_code
         if resp.status_code != 200:
