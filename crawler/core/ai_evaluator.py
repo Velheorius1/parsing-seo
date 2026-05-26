@@ -1,7 +1,14 @@
-"""AI crawl quality evaluator — daily analysis via Qwen (OpenRouter).
+"""AI crawl quality evaluator — daily analysis via DeepSeek V4 Pro (OpenRouter).
 
 Queries Supabase for daily truth (not per-cycle stats), classifies sources
 into 3 buckets (ok/idle/error), sends actionable summary to Telegram once per day.
+
+Pipeline:
+  Supabase daily stats → _compute_stats() → _get_ai_recommendations() (LLM)
+  → fallback _get_template_recommendations() on LLM failure → Telegram alert.
+
+Model: settings.ai_evaluator_model (default "deepseek/deepseek-v4-pro").
+Rollback to template-only: set AI_EVALUATOR_ENABLED=false in .env.
 """
 
 import json
@@ -182,6 +189,72 @@ def _compute_stats(
     }
 
 
+async def _get_ai_recommendations(stats):
+    # type: (dict) -> Optional[str]
+    """Generate recommendations via LLM (DeepSeek V4 Pro by default).
+
+    Returns LLM text on success, None on any failure (caller falls back to
+    template). Stats fed to model as JSON for max signal density.
+    """
+    if not settings.openrouter_api_key:
+        logger.debug("[AI Eval] No OpenRouter key, skipping LLM")
+        return None
+
+    model = getattr(settings, "ai_evaluator_model", "deepseek/deepseek-v4-pro")
+
+    # Slim stats to what the model actually needs (avoid leaking source lists)
+    payload = {
+        "total_today": stats.get("total_today", 0),
+        "new_this_cycle": stats.get("new_this_cycle", 0),
+        "alerts_sent": stats.get("alerts_sent", 0),
+        "sources_ok": stats.get("sources_ok", 0),
+        "sources_idle": stats.get("sources_idle", 0),
+        "sources_error": stats.get("sources_error", 0),
+        "error_source_ids": stats.get("error_sources", [])[:10],
+        "no_price_pct": stats.get("no_price_pct", 0),
+        "no_deadline_pct": stats.get("no_deadline_pct", 0),
+        "no_organization_pct": stats.get("no_organization_pct", 0),
+    }
+
+    prompt = _EVAL_PROMPT.format(
+        stats_json=json.dumps(payload, ensure_ascii=False, indent=2),
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": "Bearer %s" % settings.openrouter_api_key,
+                },
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    # DeepSeek V4 Pro is a reasoning model — actual response
+                    # text shares budget with internal reasoning tokens (smoke
+                    # test: 33 reasoning + 18 text for a one-sentence reply).
+                    # 800 leaves room for ~3 bullets * ~2 sentences + reasoning.
+                    "max_tokens": 800,
+                    "temperature": 0.2,
+                },
+            )
+            if resp.status_code != 200:
+                logger.warning(
+                    "[AI Eval] OpenRouter HTTP %d: %s",
+                    resp.status_code, resp.text[:160],
+                )
+                return None
+            data = resp.json()
+            text = (data["choices"][0]["message"]["content"] or "").strip()
+            if not text:
+                logger.warning("[AI Eval] Empty LLM response")
+                return None
+            return text
+    except Exception as exc:
+        logger.warning("[AI Eval] LLM error: %s", str(exc)[:120])
+        return None
+
+
 def _get_template_recommendations(stats):
     # type: (dict) -> str
     """Generate recommendations from stats using rule-based templates (no LLM needed)."""
@@ -274,8 +347,13 @@ async def evaluate_crawl_quality(
         all_tenders=all_tenders, daily_stats=daily_stats,
     )
 
-    # Generate template-based recommendations (no LLM cost)
-    recommendations = _get_template_recommendations(stats)
+    # Try LLM first (DeepSeek V4 Pro by default), fallback to template on failure.
+    # LLM gives нюансы (e.g. "alerts_sent низкий относительно total_today —
+    # подозрительно строгий filter") которые template не покрывает.
+    recommendations = await _get_ai_recommendations(stats)
+    if not recommendations:
+        logger.info("[AI Eval] LLM unavailable, using template recommendations")
+        recommendations = _get_template_recommendations(stats)
 
     # Format and send to Telegram
     message = _format_eval_message(stats, recommendations)
