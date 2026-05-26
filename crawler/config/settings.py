@@ -64,13 +64,20 @@ class Settings(BaseSettings):
     # Override via env AI_RELEVANCE_MODEL_FAST=qwen/qwen3-30b-a3b to roll back
     # without redeploy.
     ai_relevance_model_fast: str = "deepseek/deepseek-v4-flash"
-    ai_relevance_model: str = "qwen/qwen3.6-max-preview"
+    # 2026-05-26: max model switched qwen/qwen3.6-max-preview → deepseek/deepseek-v4-pro
+    # after permanent 75% discount ($0.435/$0.87 per M vs Qwen ~$2/$8). Pro is also
+    # ~5-7x faster than Qwen3.6-max-preview p95=42s (was hurting alert latency).
+    # Override via env AI_RELEVANCE_MODEL=qwen/qwen3.6-max-preview to roll back.
+    ai_relevance_model: str = "deepseek/deepseek-v4-pro"
     # Structured AI output (migration 017): minimum score 0-100 to pass filter.
     # 70 = "вероятно наш". Lower = noisier alerts, higher = miss edge cases.
     ai_score_threshold: int = 70
 
-    # AI evaluator (daily quality report)
+    # AI evaluator (daily quality report) — DeepSeek V4 Pro for nuanced analysis
+    # of crawl quality stats. Falls back to template-based recommendations if
+    # LLM call fails (network / 402 / parse). Set ai_eval_enabled=false to skip.
     ai_eval_enabled: bool = True
+    ai_evaluator_model: str = "deepseek/deepseek-v4-pro"
 
     # Crawler behaviour
     dry_run: bool = False
