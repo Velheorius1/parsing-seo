@@ -181,15 +181,21 @@ async def _ai_call_one(
             json={
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
-                # 200 обрезало JSON ровно посередине reason → 74% no_json.
-                # 400 даёт запас даже для длинного reason без структурного слома.
-                "max_tokens": 400,
+                # Token budget зависит от роли:
+                # - fast (deepseek-v4-flash): 400 хватает, не reasoning model
+                # - max (deepseek-v4-pro): 1200 — это reasoning model с hybrid
+                #   attention, reasoning токены съедают бюджет до text. Compare
+                #   на 1 день после первичного fix (max_tokens=400) показал
+                #   no_json=20% + empty_answer=20% именно на max model.
+                "max_tokens": 1200 if role == "max" else 400,
                 "temperature": 0,
                 # OpenRouter structured output — enforce JSON object для моделей
                 # поддерживающих response_format (DeepSeek / OpenAI / большинство Qwen).
                 "response_format": {"type": "json_object"},
             },
-            timeout=20,
+            # max model медленнее (V4 Pro reasoning p95=18s observed) — даём
+            # запас. Fast не страдает от этого таймаута (p95=10s).
+            timeout=30 if role == "max" else 20,
         )
         http_status = resp.status_code
         if resp.status_code != 200:
