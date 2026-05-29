@@ -537,7 +537,7 @@ def _format_alert(
     if alert_seq is not None:
         prefix = "#%03d " % alert_seq
     if tender.message_type == "customer_request":
-        parts.append("%s[ЗАПРОС КЛИЕНТА]" % prefix)
+        parts.append("%s🔥 ГОРЯЧИЙ ЛИД — ЗАПРОС КЛИЕНТА" % prefix)
     elif tender.message_type == "info":
         parts.append("%s[ИНФО]" % prefix)
     else:
@@ -625,6 +625,20 @@ def _format_alert(
 
     parts.append("#%s" % matched_kw.replace(" ", "_"))
     return "\n".join(parts)
+
+
+def _alert_chat_id(tender: RawTender) -> Optional[str]:
+    """Route hot leads (customer_request) to the dedicated channel if configured.
+
+    Falls back to the main alert chat when telegram_hotleads_chat_id is unset —
+    so behaviour is unchanged until Daniyar creates the dedicated channel.
+    """
+    if (
+        getattr(tender, "message_type", None) == "customer_request"
+        and settings.telegram_hotleads_chat_id
+    ):
+        return settings.telegram_hotleads_chat_id
+    return settings.telegram_alert_chat_id
 
 
 async def send_alerts(
@@ -806,6 +820,33 @@ async def send_alerts(
         if rejected:
             logger.info("[AI Filter] Passed %d / %d (rejected %d)", len(filtered), len(matching), rejected)
         matching = filtered
+
+        # Annotate-not-gate: UZEX-passthrough items are SENT regardless (by
+        # design — Daniyar wants prequalifications early), but we still score
+        # them with the cheap fast model for coverage/data (this stream had 0%
+        # AI coverage). Score is persisted; the item is NEVER dropped here.
+        if uzex_bypass:
+            fast_only = settings.ai_relevance_model_fast or settings.ai_relevance_model
+            try:
+                async with httpx.AsyncClient(timeout=20) as ann_client:
+                    sem_a = _asyncio.Semaphore(5)
+
+                    async def _annotate(tk):
+                        t, _kw = tk
+                        async with sem_a:
+                            r = await _ai_call_one(t, ann_client, fast_only, role="fast")
+                        if r is not None and r.score is not None:
+                            t.relevance_score = r.score
+                            t.relevance_category = r.category
+                            t.relevance_reason = r.reason
+                            update_relevance_fields(t.external_id, t.source, r.score, r.category or "", r.reason or "")
+                        return None
+
+                    await _asyncio.gather(*[_annotate(tk) for tk in uzex_bypass])
+                logger.info("[AI Annotate] Scored %d UZEX-passthrough items (sent regardless)", len(uzex_bypass))
+            except Exception as exc:
+                logger.warning("[AI Annotate] failed (non-fatal): %s", str(exc)[:120])
+
         if not matching and not uzex_bypass:
             logger.info("[Alerts] All tenders rejected by AI filter")
             return 0
@@ -813,6 +854,11 @@ async def send_alerts(
     # Merge UZEX-bypass items back in (they skipped AI by design)
     if uzex_bypass:
         matching = matching + uzex_bypass
+
+    # Hot leads first: customer_request items (real clients asking to buy NOW)
+    # jump the queue — lowest seq + sent before tender noise. Stable sort keeps
+    # relative order within each group.
+    matching.sort(key=lambda tk: 0 if getattr(tk[0], "message_type", None) == "customer_request" else 1)
 
     # Reserve sequential alert numbers
     from crawler.core.feedback import get_next_seq, save_alert_seq
@@ -838,6 +884,7 @@ async def send_alerts(
             extra = _group_sources.get(tender.id)
             # Look up Supabase UUID for detail page link
             db_id = _lookup_tender_uuid(tender.external_id, tender.source)
+            target_chat = _alert_chat_id(tender)  # hot leads → dedicated channel if set
             text = _format_alert(tender, kw, extra_sources=extra, alert_seq=seq, db_id=db_id)
             # Inline keyboard for feedback
             reply_markup = {
@@ -871,7 +918,7 @@ async def send_alerts(
                     # sendPhoto \u2014 caption max 1024 chars
                     caption = text if len(text) <= 1024 else (text[:1020] + "...")
                     resp = await client.post(photo_send_url, json={
-                        "chat_id": settings.telegram_alert_chat_id,
+                        "chat_id": target_chat,
                         "photo": photo_url,
                         "caption": caption,
                         "parse_mode": "Markdown",
@@ -880,7 +927,7 @@ async def send_alerts(
                     })
                 else:
                     resp = await client.post(bot_url, json={
-                        "chat_id": settings.telegram_alert_chat_id,
+                        "chat_id": target_chat,
                         "text": text,
                         "parse_mode": "Markdown",
                         "disable_web_page_preview": True,
