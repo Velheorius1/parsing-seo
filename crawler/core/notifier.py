@@ -560,7 +560,19 @@ def _format_alert(
         spa_auth = False
     submission_lines = []
     if spa_auth and tender.source_url:
-        submission_lines.append("📝 Подача КП: %s (требует E-IMZO)" % tender.source_url)
+        # Deep-link этих источников битый (SPA + auth-wall: прямой URL ведёт на
+        # homepage или удалённую/чужую карточку — напр. prequest id попадает в
+        # e-shop /home/shop/detail и резолвится в чужой товар). НЕ показываем
+        # сырой source_url — он дезориентирует ("кликнул печать → увидел адаптер
+        # 2021"). Карточка с реальными данными уже идёт Vercel-ссылкой выше;
+        # здесь даём рабочий КОРЕНЬ площадки + инструкцию найти лот по названию.
+        try:
+            from urllib.parse import urlparse
+            _p = urlparse(tender.source_url)
+            _home = "%s://%s" % (_p.scheme, _p.netloc) if (_p.scheme and _p.netloc) else tender.source_url
+        except Exception:
+            _home = tender.source_url
+        submission_lines.append("📝 Подача КП: %s (E-IMZO) — найти по названию выше" % _home)
     extra = tender.extra_info if isinstance(tender.extra_info, dict) else {}
     contacts = extra.get("customer_contacts") if extra else None
     if isinstance(contacts, dict):
