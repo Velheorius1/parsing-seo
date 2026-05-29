@@ -537,7 +537,7 @@ def _format_alert(
     if alert_seq is not None:
         prefix = "#%03d " % alert_seq
     if tender.message_type == "customer_request":
-        parts.append("%s🔥 ГОРЯЧИЙ ЛИД — ЗАПРОС КЛИЕНТА" % prefix)
+        parts.append("%s🔥🔥🔥 ГОРЯЧИЙ ЛИД" % prefix)
     elif tender.message_type == "info":
         parts.append("%s[ИНФО]" % prefix)
     else:
@@ -625,20 +625,6 @@ def _format_alert(
 
     parts.append("#%s" % matched_kw.replace(" ", "_"))
     return "\n".join(parts)
-
-
-def _alert_chat_id(tender: RawTender) -> Optional[str]:
-    """Route hot leads (customer_request) to the dedicated channel if configured.
-
-    Falls back to the main alert chat when telegram_hotleads_chat_id is unset —
-    so behaviour is unchanged until Daniyar creates the dedicated channel.
-    """
-    if (
-        getattr(tender, "message_type", None) == "customer_request"
-        and settings.telegram_hotleads_chat_id
-    ):
-        return settings.telegram_hotleads_chat_id
-    return settings.telegram_alert_chat_id
 
 
 async def send_alerts(
@@ -884,7 +870,6 @@ async def send_alerts(
             extra = _group_sources.get(tender.id)
             # Look up Supabase UUID for detail page link
             db_id = _lookup_tender_uuid(tender.external_id, tender.source)
-            target_chat = _alert_chat_id(tender)  # hot leads → dedicated channel if set
             text = _format_alert(tender, kw, extra_sources=extra, alert_seq=seq, db_id=db_id)
             # Inline keyboard for feedback
             reply_markup = {
@@ -918,7 +903,7 @@ async def send_alerts(
                     # sendPhoto \u2014 caption max 1024 chars
                     caption = text if len(text) <= 1024 else (text[:1020] + "...")
                     resp = await client.post(photo_send_url, json={
-                        "chat_id": target_chat,
+                        "chat_id": settings.telegram_alert_chat_id,
                         "photo": photo_url,
                         "caption": caption,
                         "parse_mode": "Markdown",
@@ -927,7 +912,7 @@ async def send_alerts(
                     })
                 else:
                     resp = await client.post(bot_url, json={
-                        "chat_id": target_chat,
+                        "chat_id": settings.telegram_alert_chat_id,
                         "text": text,
                         "parse_mode": "Markdown",
                         "disable_web_page_preview": True,

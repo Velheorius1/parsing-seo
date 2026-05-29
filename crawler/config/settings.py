@@ -20,12 +20,6 @@ class Settings(BaseSettings):
     # Telegram alerts (bot token for sending notifications)
     telegram_bot_token: Optional[str] = None
     telegram_alert_chat_id: Optional[str] = None
-    # Optional dedicated chat/channel for HOT LEADS (message_type=customer_request
-    # from TG client-request channels — "нужна печать сегодня"). If UNSET, hot
-    # leads go to telegram_alert_chat_id (same as tenders) but are still sent
-    # FIRST and with a 🔥 prominent header. Set TELEGRAM_HOTLEADS_CHAT_ID to
-    # split them into their own channel so they don't drown in tender noise.
-    telegram_hotleads_chat_id: Optional[str] = None
     alert_keywords: str = ",".join([
         # Русские
         "упаковка", "полиграфия", "гофра", "гофрокоробка", "печать", "этикетка",
