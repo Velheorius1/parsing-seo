@@ -24,8 +24,8 @@ ALERT="/opt/second-brain/Projects/dsbot/scripts/dsbot-alert.py"
 LOG="/var/log/openrouter-healthcheck.log"
 
 # Thresholds in USD (after OpenRouter free credits exhausted, paid calls draw from this)
-LOW_THRESHOLD=0.50
-CRITICAL_THRESHOLD=0.10
+LOW_THRESHOLD=5.00      # ранний warn: ~5-6 дней рантайма при текущем burn (~$1/день). Было 0.50 = <1 дня — поздно
+CRITICAL_THRESHOLD=2.00 # было 0.10 — AI падал в fail-open до того как Данияр успевал пополнить (3 обнуления/мес)
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 
