@@ -421,33 +421,72 @@ _FALSE_POSITIVES = {
     "календар": [" кун", "кун ", " дн", " день"],  # "календарных дней/кун" = time, not product
 }
 
+# Слабые ключи (стемы): высокочастотные омонимы, которые на мультилотовых
+# reverse-аукционах ловят чужую отрасль. Матч ТОЛЬКО по слабому ключу проходит
+# лишь если рядом нет дисквалификатора (_NEGATIVE_STEMS). Сильные ключи
+# (печат/этикет/упаков/коробк/картон/брошюр…) сюда НЕ входят и пропускаются
+# безусловно — это защищает от false negatives.
+_WEAK_STEMS = frozenset({
+    "лент",       # лента/ленты → изолента, лента светоотражающая/малярная, конвейерная
+    "гофр",       # гофра → кабельная гофра/гофрошланг (гофрокороб остаётся через др. ключи)
+    "магнит",     # электромагнит, магнитный пускатель, магнитная муфта
+    "папк",       # папка → офисный скоросшиватель
+    "плёнк", "пленк", "plyonka",  # плёнка → теплица/стретч/термоусадка
+})
+
+# Дисквалификаторы — слова заведомо чужих отраслей (металл/электрика/стройка/ДВС).
+# НЕ включаем end-use слова ("кабельн", "дорожн") — упаковка/печать МОЖЕТ быть
+# для кабеля или дорожной отрасли. Только сам продукт-чужак.
+_NEGATIVE_STEMS = (
+    "сварочн", "электрод", "растворител", "разбавител", "пускател", " реле",
+    "турбокомпресс", "шестерн", "подшипник", "двигател", "генератор",
+    "трансформатор", "арматур", "задвижк", "насос", "редуктор",
+    "видеонаблюд", "светоотраж", "изолент", "краскораспылит", "окрасочн",
+)
+
+
+def _has_negative_context(text: str) -> bool:
+    """True if text contains a wrong-industry disqualifier stem."""
+    return any(neg in text for neg in _NEGATIVE_STEMS)
+
 
 def _find_matching_keyword(tender: RawTender, keywords: List[str]) -> Optional[str]:
     """Return first matching keyword or None.
 
     Uses stem-based matching with word-boundary check to avoid
     false positives like 'зонт' in 'горизонтал'.
+
+    Weak-keyword gate (2026-05-29): a match coming ONLY from a weak/ambiguous
+    keyword (_WEAK_STEMS) is dropped if the lot also contains a wrong-industry
+    disqualifier (_NEGATIVE_STEMS) — kills multi-item reverse-auction FPs like
+    "Лента светоотражающая, … электрод сварочный" matching on «лента». Strong
+    keywords are never gated, so real print/packaging tenders still pass.
     """
     text = (tender.search_text + " " + tender.title).lower()
+    has_negative = _has_negative_context(text)
     for kw in keywords:
         stem = _stem(kw) if len(kw) > _MIN_STEM else kw
 
         if len(stem) < _MIN_STEM:
             # Short keywords: exact match only
-            if _word_start_match(text, kw) >= 0:
-                return kw
-            continue
-
-        idx = _word_start_match(text, stem)
-        if idx < 0:
-            continue
-
-        # Check false positive exclusions
-        excl = _FALSE_POSITIVES.get(stem)
-        if excl:
-            after = text[idx + len(stem):idx + len(stem) + 10]
-            if any(after.startswith(fp) for fp in excl):
+            if _word_start_match(text, kw) < 0:
                 continue
+        else:
+            idx = _word_start_match(text, stem)
+            if idx < 0:
+                continue
+
+            # Check false positive exclusions
+            excl = _FALSE_POSITIVES.get(stem)
+            if excl:
+                after = text[idx + len(stem):idx + len(stem) + 10]
+                if any(after.startswith(fp) for fp in excl):
+                    continue
+
+        # Weak-keyword gate: skip a weak-only match in a wrong-industry lot,
+        # keep scanning for a STRONG keyword. If none found → reject (None).
+        if (stem in _WEAK_STEMS or kw in _WEAK_STEMS) and has_negative:
+            continue
 
         return kw
     return None
