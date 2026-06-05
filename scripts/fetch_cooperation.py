@@ -887,6 +887,21 @@ def _ai_check_relevance(title, organization, client):
         return True
 
 
+_SB_CLIENT = None
+
+
+def _get_supabase():
+    # type: () -> Any
+    """Cached Supabase client. Was referenced by 5 callers but never defined,
+    so _save_alert_seq / _lookup_tender_uuid / _get_next_alert_seq silently no-op'd
+    (NameError caught by their try/except). Defining it restores them."""
+    global _SB_CLIENT
+    if _SB_CLIENT is None:
+        from supabase import create_client
+        _SB_CLIENT = create_client(SUPABASE_URL, SUPABASE_KEY)
+    return _SB_CLIENT
+
+
 def _get_next_alert_seq(count=1):
     """Reserve sequential alert numbers from Supabase."""
     try:
@@ -916,6 +931,26 @@ def _save_alert_seq(external_id, source, alert_seq, telegram_message_id=None):
         sb.table("tenders").update(update).eq("external_id", external_id).eq("source", source).execute()
     except Exception as exc:
         logger.warning("[Feedback] Failed to save alert_seq %d: %s", alert_seq, str(exc)[:80])
+
+
+def _persist_relevance(external_id, source, score, category, reason):
+    # type: (str, str, int, str, str) -> None
+    """Persist AI relevance decision to the tender row (analytics + feedback substrate).
+
+    Phase 1: binary score (passed=70/client, rejected=20/irrelevant). A real 0-100 score
+    arrives in Phase 2 with the TNVED/ENKT pipeline. Reuses existing columns (migration 017).
+    """
+    if not external_id:
+        return
+    try:
+        sb = _get_supabase()
+        sb.table("tenders").update({
+            "relevance_score": score,
+            "relevance_category": category,
+            "relevance_reason": (reason or "")[:500],
+        }).eq("external_id", external_id).eq("source", source).execute()
+    except Exception as exc:
+        logger.warning("[Persist] relevance_score fail %s: %s", external_id, str(exc)[:80])
 
 
 def _lookup_tender_uuid(external_id, source):
@@ -986,7 +1021,14 @@ def send_alerts(new_rows, source_label):
         filtered = []  # type: List[tuple]
         with httpx.Client(timeout=15, trust_env=False) as ai_client:
             for row, kw in matching:
-                if _ai_check_relevance(row['title'], row.get('organization', ''), ai_client):
+                passed = _ai_check_relevance(row['title'], row.get('organization', ''), ai_client)
+                _persist_relevance(
+                    row.get('external_id', ''), row['source'],
+                    70 if passed else 20,
+                    'client' if passed else 'irrelevant',
+                    'AI relevance: ' + ('YES' if passed else 'NO') + ' (kw=' + kw + ')',
+                )
+                if passed:
                     filtered.append((row, kw))
         rejected = len(matching) - len(filtered)
         if rejected:
