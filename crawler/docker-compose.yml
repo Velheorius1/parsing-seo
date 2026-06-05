@@ -14,6 +14,12 @@ services:
       - ./logs:/app/crawler/logs
       - crawler-logs:/var/log
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,time; assert time.time()-os.path.getmtime('/tmp/last_crawl_ok')<10800\" || exit 1"]
+      interval: 300s
+      timeout: 5s
+      retries: 3
+      start_period: 900s
     logging:
       driver: json-file
       options:
