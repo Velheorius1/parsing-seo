@@ -132,6 +132,33 @@ def _find_matching_keyword(title, search_text, keywords):
     return None
 
 
+# Phase 2 ТНВЭД prefilter: machine-precise printing/packaging gate.
+# Validated on 1719 live lots: +10 recall (Блакнот typo, Баннер, books), -5 hygiene FP, -47 reagent noise.
+_TNVED_INCLUDE = ('4811', '4817', '4819', '4820', '4821', '4901', '4909', '4910', '4911')
+_TNVED_EXCLUDE = ('4818', '4803', '3822')  # hygiene paper (toilet/napkins) + lab reagents
+
+
+def _extract_tnved(search_text):
+    # type: (str) -> str
+    """Lots append the 10-digit ТНВЭД to search_text ('<product> <tnved>'). Take the last run."""
+    import re
+    matches = re.findall(r'\d{10}', search_text or '')
+    return matches[-1] if matches else ''
+
+
+def _classify_tnved(search_text):
+    # type: (str) -> str
+    """'exclude' (hygiene/reagents) | 'include' (printing) | 'other' | 'none'."""
+    t = _extract_tnved(search_text)
+    if not t:
+        return 'none'
+    if t.startswith(_TNVED_EXCLUDE):
+        return 'exclude'
+    if t.startswith(_TNVED_INCLUDE):
+        return 'include'
+    return 'other'
+
+
 def _extract_ru(obj):
     # type: (Any) -> str
     if isinstance(obj, dict):
@@ -996,9 +1023,13 @@ def send_alerts(new_rows, source_label):
         price = row.get('price')
         if price is not None and price < MIN_PRICE:
             continue
-        kw = _find_matching_keyword(row['title'], row.get('search_text', ''), keywords)
-        if kw:
-            matching.append((row, kw))
+        st = row.get('search_text', '')
+        tcls = _classify_tnved(st)
+        if tcls == 'exclude':
+            continue  # hygiene paper (4818/4803) or lab reagents (3822) — reject even if keyword matched
+        kw = _find_matching_keyword(row['title'], st, keywords)
+        if kw or tcls == 'include':
+            matching.append((row, kw or ('tnved' + _extract_tnved(st)[:4])))
 
     if not matching:
         logger.info('[Alerts/%s] No matches (%d checked)', source_label, len(new_rows))
