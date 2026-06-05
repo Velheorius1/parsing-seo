@@ -64,7 +64,11 @@ ALERT_KEYWORDS = (
     'книга,книж,каталог,брошюр,блокнот,календар,пакет,конверт,папка,'
     'ежедневник,сувенир,журнал,картон,подарочн,зонт,ручка,флешк,'
     'power bank,набор,плакат,постер,стенд,вывеск,'
-    'packaging,printing,cardboard,label,box,qadoqlash,bosma'
+    'бланк,наклейк,самоклей,тетрад,открытк,визитк,листовк,буклет,'
+    'ярлык,стикер,бирк,'
+    'quti,qog,qogoz,yorliq,daftar,karton,etiketka,konvert,kitob,blank,broshyur,katalog,'
+    'қути,қоғоз,ёрлиқ,дафтар,китоб,'
+    'packaging,printing,cardboard,label,box,qadoqlash,qadoq,bosma'
 )
 
 _MIN_STEM = 4
