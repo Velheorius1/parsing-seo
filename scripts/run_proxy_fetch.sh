@@ -8,6 +8,13 @@ export $(grep -E "^(SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|TELEGRAM_BOT_TOKEN|TE
 export HTTP_PROXY=$RESIDENTIAL_PROXY_URL
 export HTTPS_PROXY=$RESIDENTIAL_PROXY_URL
 
+# Precheck: skip silently if proxy is down. Dedicated cron proxy_health_check.sh sends the alert.
+__pc=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 -x "$RESIDENTIAL_PROXY_URL" http://httpbin.org/ip 2>/dev/null || echo 000)
+if [ "$__pc" != "200" ]; then
+  echo "=== $(date +%Y-%m-%d\ %H:%M:%S) SKIP proxy fetch: proxy HTTP $__pc (down) ===" >> "$LOG"
+  exit 0
+fi
+
 echo "=== $(date +%Y-%m-%d\ %H:%M:%S) START proxy fetch ===" >> "$LOG"
 
 # Cooperation.uz — lots+offers (high-volume) + plans/auction/eshop (resurrected 2026-04-28)
