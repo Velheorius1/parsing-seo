@@ -66,7 +66,7 @@ def _send_telegram_alert(text):
             'chat_id': TELEGRAM_ALERT_CHAT_ID,
             'text': text,
             'parse_mode': 'HTML',
-        }, timeout=10)
+        }, timeout=10, trust_env=False)
         if r.status_code != 200:
             logger.warning('Telegram alert failed: %s', r.text[:100])
     except Exception as exc:

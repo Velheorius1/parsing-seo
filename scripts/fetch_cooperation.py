@@ -980,7 +980,7 @@ def send_alerts(new_rows, source_label):
     # AI relevance filter
     if OPENROUTER_API_KEY:
         filtered = []  # type: List[tuple]
-        with httpx.Client(timeout=15) as ai_client:
+        with httpx.Client(timeout=15, trust_env=False) as ai_client:
             for row, kw in matching:
                 if _ai_check_relevance(row['title'], row.get('organization', ''), ai_client):
                     filtered.append((row, kw))
@@ -998,7 +998,7 @@ def send_alerts(new_rows, source_label):
     bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
     sent = 0
 
-    with httpx.Client(timeout=10) as client:
+    with httpx.Client(timeout=10, trust_env=False) as client:
         for i, (row, kw) in enumerate(matching):
             seq = start_seq + i
             parts = []
@@ -1079,7 +1079,7 @@ def send_competitor_alerts(new_rows, source_label):
     bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
     sent = 0
 
-    with httpx.Client(timeout=10) as client:
+    with httpx.Client(timeout=10, trust_env=False) as client:
         for row in new_rows:
             org = (row.get('organization') or '').lower()
             if not org:
@@ -1135,7 +1135,7 @@ def send_lead_alerts(new_rows, source_label):
     bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
     sent = 0
 
-    with httpx.Client(timeout=10) as client:
+    with httpx.Client(timeout=10, trust_env=False) as client:
         for row in new_rows:
             org = row.get('organization') or ''
             if not org:
