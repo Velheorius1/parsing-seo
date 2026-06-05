@@ -159,6 +159,26 @@ def _classify_tnved(search_text):
     return 'other'
 
 
+_ENKT_INCLUDE = ('17.21', '17.23', '17.29', '18.12')  # boxes/corrugated, stationery, other paper, printed matter
+_ENKT_EXCLUDE = ('17.22',)  # sanitary paper (toilet/napkins)
+
+
+def _classify_enkt(search_text):
+    # type: (str) -> str
+    """ЕНКТ (NN.NN.NN.NNN, e.g. 17.23.13.191): 'exclude'|'include'|'other'|'none'.
+    eshop/auction expose enktCode; appended to search_text in their transforms."""
+    import re
+    m = re.search(r'(\d{2}\.\d{2})\.\d', search_text or '')
+    if not m:
+        return 'none'
+    sec = m.group(1)
+    if sec in _ENKT_EXCLUDE:
+        return 'exclude'
+    if sec in _ENKT_INCLUDE:
+        return 'include'
+    return 'other'
+
+
 def _extract_ru(obj):
     # type: (Any) -> str
     if isinstance(obj, dict):
@@ -430,6 +450,7 @@ def fetch_and_transform_auction_lots():
 
         org = _extract_ru(item.get('companyName', ''))
         region = _extract_ru(item.get('region', ''))
+        enkt = str(item.get('enktCode', '') or '')
         start_price = item.get('startPrice')
         current_price = item.get('price')
         providers = item.get('providerCount', 0)
@@ -437,7 +458,7 @@ def fetch_and_transform_auction_lots():
         begin_date = item.get('beginDate', '') or ''
 
         price_val = current_price or start_price
-        search_text = ' '.join(filter(None, [title, org, region])).lower()
+        search_text = ' '.join(filter(None, [title, org, region, enkt])).lower()
 
         rows.append({
             'external_id': 'coop-auc-%s' % lot_num,
@@ -1025,11 +1046,13 @@ def send_alerts(new_rows, source_label):
             continue
         st = row.get('search_text', '')
         tcls = _classify_tnved(st)
-        if tcls == 'exclude':
-            continue  # hygiene paper (4818/4803) or lab reagents (3822) — reject even if keyword matched
+        ecls = _classify_enkt(st)
+        if tcls == 'exclude' or ecls == 'exclude':
+            continue  # hygiene paper / lab reagents — reject even if keyword matched
         kw = _find_matching_keyword(row['title'], st, keywords)
-        if kw or tcls == 'include':
-            matching.append((row, kw or ('tnved' + _extract_tnved(st)[:4])))
+        if kw or tcls == 'include' or ecls == 'include':
+            label = kw or (('tnved' + _extract_tnved(st)[:4]) if tcls == 'include' else 'enkt')
+            matching.append((row, label))
 
     if not matching:
         logger.info('[Alerts/%s] No matches (%d checked)', source_label, len(new_rows))
