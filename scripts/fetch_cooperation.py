@@ -22,6 +22,8 @@ Requires: pip install httpx supabase python-dotenv
 import argparse
 import logging
 import os
+import json
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -888,51 +890,109 @@ def upsert_to_supabase(rows):
     return upserted
 
 
-def _ai_check_relevance(title, organization, client):
-    # type: (str, str, httpx.Client) -> bool
-    """Check tender relevance via Qwen (OpenRouter). Returns True if relevant."""
-    if not OPENROUTER_API_KEY:
-        return True  # no key = skip filter
+AI_MODEL_FAST = os.getenv('AI_RELEVANCE_MODEL_FAST', 'deepseek/deepseek-v4-flash')
+AI_SCORE_THRESHOLD = int(os.getenv('AI_SCORE_THRESHOLD', '50'))
+_VALID_CATEGORIES = ('client', 'ad', 'irrelevant')
 
-    prompt = (
-        "Ты — эксперт по тендерам в сфере полиграфии и упаковки.\n\n"
-        "Наша компания — типография и упаковочное производство в Узбекистане. "
-        "Мы производим: коробки, этикетки, каталоги, книги, конверты, блокноты, "
-        "календари, сувенирную продукцию, пакеты, папки.\n\n"
-        "Оцени тендер — может ли наша компания реально на него подать заявку? "
-        "Слово 'набор' может означать набор реагентов (НЕ наше), 'печать' — канцелярскую печать (НЕ наше), "
-        "'пакет' — пакет документов (НЕ наше).\n\n"
-        "Тендер:\nНазвание: %s\nЗаказчик: %s\n\n"
-        "Ответь YES или NO.\n/no_think"
-    ) % (title[:300], organization or "")
+_AI_PROMPT = (
+    "Ты — эксперт по тендерам в сфере полиграфии и упаковки.\n\n"
+    "Наша компания — типография и упаковочное производство в Узбекистане. "
+    "Мы производим: коробки, гофрокороб, этикетки, наклейки, каталоги, книги, брошюры, "
+    "конверты, блокноты, ежедневники, бланки, календари, папки, бумажные пакеты.\n\n"
+    "НЕ НАШЕ: набор реагентов (мед/лаб), канцелярская печать (штампы), пакет документов, "
+    "наружная реклама (баннеры на фасадах, вывески, световые короба), вакансии/найм, "
+    "IT/сайты/SMM, мебель/оборудование/станки, стройматериалы, туалетная бумага/салфетки, "
+    "закупка готовых книг/тетрадей (не печать на заказ), реклама ЧУЖИХ услуг.\n\n"
+    "Тендер:\nНазвание: %s\nЗаказчик: %s\n\n"
+    "Ответь СТРОГО в JSON (только JSON, без markdown):\n"
+    "{\"score\": <0-100>, \"category\": \"<client|ad|irrelevant>\", \"reason\": \"<до 100 символов>\"}\n\n"
+    "score: 90-100 = точно наш заказ; 70-89 = вероятно наш; 40-69 = смежная; 0-39 = не наш.\n"
+    "category: client = заказчик хочет купить полиграфию/упаковку; ad = реклама чужих услуг; "
+    "irrelevant = не наша область.\n/no_think"
+)
 
+
+def _extract_json_object(text):
+    # type: (str) -> Optional[dict]
+    """First {...} JSON object, tolerating code fences and <think> blocks."""
+    if not text:
+        return None
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    fenced = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if fenced:
+        candidate = fenced.group(1)
+    else:
+        m = re.search(r'\{.*\}', text, re.DOTALL)
+        if not m:
+            return None
+        candidate = m.group(0)
+    try:
+        return json.loads(candidate)
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_relevance(payload):
+    # type: (dict) -> Optional[dict]
+    """Validate AI JSON -> {is_relevant, score, category, reason}. None on bad shape."""
+    try:
+        score = int(payload.get('score'))
+    except (TypeError, ValueError):
+        return None
+    score = max(0, min(100, score))
+    cat = str(payload.get('category', '') or '').strip().lower()
+    if cat not in _VALID_CATEGORIES:
+        cat = 'client' if score >= AI_SCORE_THRESHOLD else 'irrelevant'
+    reason = str(payload.get('reason') or '')[:200].strip()
+    return {
+        'is_relevant': score >= AI_SCORE_THRESHOLD,
+        'score': score, 'category': cat, 'reason': reason,
+    }
+
+
+def _ai_json_call(title, organization, client, model):
+    # type: (str, str, httpx.Client, str) -> Optional[dict]
+    """One JSON relevance call. Returns parsed dict or None on failure."""
+    prompt = _AI_PROMPT % (title[:300], organization or '')
     try:
         resp = client.post(
             'https://openrouter.ai/api/v1/chat/completions',
             headers={'Authorization': 'Bearer %s' % OPENROUTER_API_KEY},
             json={
-                'model': AI_MODEL,
+                'model': model,
                 'messages': [{'role': 'user', 'content': prompt}],
-                'max_tokens': 20,
+                'max_tokens': 400,
                 'temperature': 0,
+                'response_format': {'type': 'json_object'},
             },
-            timeout=15,
+            timeout=20,
         )
         if resp.status_code != 200:
-            return True  # on error, let through
-
-        import re
-        answer = resp.json()['choices'][0]['message']['content'] or ''
-        answer = re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL).strip().upper()
-        if not answer:
-            return True
-        is_relevant = answer.startswith('YES')
-        if not is_relevant:
-            logger.info('[AI Filter] REJECTED: %s (answer=%s)', title[:60], answer)
-        return is_relevant
+            return None
+        content = resp.json()['choices'][0]['message']['content'] or ''
+        payload = _extract_json_object(content)
+        return _parse_relevance(payload) if payload else None
     except Exception as exc:
-        logger.warning('[AI Filter] Error: %s', str(exc)[:80])
-        return True
+        logger.warning('[AI] %s error: %s', model, str(exc)[:80])
+        return None
+
+
+def _ai_check_relevance(title, organization, client):
+    # type: (str, str, httpx.Client) -> dict
+    """Relevance via DeepSeek JSON. Hybrid: fast (flash) -> max (pro) second opinion on
+    parse-fail or reject (recall rescue). Returns {is_relevant, score, category, reason}."""
+    if not OPENROUTER_API_KEY:
+        return {'is_relevant': True, 'score': None, 'category': None, 'reason': None}
+    res = _ai_json_call(title, organization, client, AI_MODEL_FAST)
+    if res is None or not res['is_relevant']:
+        max_res = _ai_json_call(title, organization, client, AI_MODEL)
+        if max_res is not None:
+            res = max_res
+    if res is None:
+        return {'is_relevant': True, 'score': None, 'category': None, 'reason': 'AI parse failed (fail-open)'}
+    if not res['is_relevant']:
+        logger.info('[AI Filter] REJECTED: %s (score=%s)', title[:60], res['score'])
+    return res
 
 
 _SB_CLIENT = None
@@ -1073,16 +1133,16 @@ def send_alerts(new_rows, source_label):
     # AI relevance filter
     if OPENROUTER_API_KEY:
         filtered = []  # type: List[tuple]
-        with httpx.Client(timeout=15, trust_env=False) as ai_client:
+        with httpx.Client(timeout=20, trust_env=False) as ai_client:
             for row, kw in matching:
-                passed = _ai_check_relevance(row['title'], row.get('organization', ''), ai_client)
+                res = _ai_check_relevance(row['title'], row.get('organization', ''), ai_client)
                 _persist_relevance(
                     row.get('external_id', ''), row['source'],
-                    70 if passed else 20,
-                    'client' if passed else 'irrelevant',
-                    'AI relevance: ' + ('YES' if passed else 'NO') + ' (kw=' + kw + ')',
+                    res['score'] if res.get('score') is not None else (70 if res['is_relevant'] else 20),
+                    res.get('category') or ('client' if res['is_relevant'] else 'irrelevant'),
+                    (res.get('reason') or 'AI') + ' (kw=' + kw + ')',
                 )
-                if passed:
+                if res['is_relevant']:
                     filtered.append((row, kw))
         rejected = len(matching) - len(filtered)
         if rejected:
