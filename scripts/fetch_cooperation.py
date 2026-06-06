@@ -400,6 +400,7 @@ def fetch_and_transform_lots():
             'source_url': 'https://new.cooperation.uz/supplier/lots?lotId=%s' % lot_num,
             'status': 'active',
             'search_text': search_text[:1000],
+            'extra_info': {k: v for k, v in [('quantity', item.get('quantity')), ('measure', item.get('measureName')), ('tnved', tnved)] if v},
             'collected_at': now,
         })
 
@@ -1177,6 +1178,9 @@ def send_alerts(new_rows, source_label):
                 parts.append('Цена: {:,.0f} UZS'.format(row['price']))
             if row.get('deadline'):
                 parts.append('Дедлайн: %s' % row['deadline'])
+            _ei = row.get('extra_info') or {}
+            if _ei.get('quantity'):
+                parts.append('Кол-во: %s %s' % (_ei['quantity'], _ei.get('measure') or ''))
             parts.append('Источник: %s' % row['source'])
 
             # Detail page URL (accessible without auth)
