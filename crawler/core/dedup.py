@@ -294,12 +294,13 @@ def group_for_alerts(
     # Pass 1: collapse same-source spam against fingerprints of:
     #   (a) tenders that came earlier in this same crawl cycle,
     #   (b) tenders alerted in last 7d (so yesterday's "Календарь" suppresses today's copy).
-    new_ids = {t.id for t in new_tenders}
-    existing_keys = {
-        _within_source_key(t) for t in all_tenders if t.id not in new_ids
-    }
-    if recent_alerted_keys:
-        existing_keys |= recent_alerted_keys
+    # Suppress ONLY against already-alerted fingerprints (last 7d) — NOT against
+    # every prior-DB row. The old code seeded existing_keys from all_tenders-not-new,
+    # which silently dropped re-issued tenders (new GUID, same org+title) that were
+    # NEVER alerted (billions-сум printing/newspaper lots re-published 2-8x never reached
+    # keyword matching). Within-cycle spam is still collapsed by dedup_within_source's
+    # own seen-loop; already-alerted re-fires are still caught by recent_alerted_keys.
+    existing_keys = set(recent_alerted_keys) if recent_alerted_keys else set()
     new_tenders, _dropped = dedup_within_source(new_tenders, existing_keys)
     if not new_tenders:
         return [], {}
