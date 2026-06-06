@@ -736,6 +736,31 @@ def get_existing_ids(source_name):
     return existing
 
 
+def get_alerted_ids(source_name):
+    # type: (str) -> Set[str]
+    """external_ids that were ALREADY alerted (alert_seq IS NOT NULL) for a source.
+    Used to gate relevance alerts so active-but-never-alerted lots get re-evaluated
+    each crawl instead of being permanently skipped for not being 'new to DB'."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return set()
+    from supabase import create_client
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    alerted = set()  # type: Set[str]
+    offset = 0
+    batch = 1000
+    while True:
+        resp = client.table('tenders').select('external_id').eq(
+            'source', source_name
+        ).not_.is_('alert_seq', 'null').range(offset, offset + batch - 1).execute()
+        rows = resp.data or []
+        for r in rows:
+            alerted.add(r['external_id'])
+        if len(rows) < batch:
+            break
+        offset += batch
+    return alerted
+
+
 # ── Source: Auction Contracts (NEW 2026-05-22 — replaces blocked E-IMZO path) ──
 
 def fetch_and_transform_auction_contracts(max_pages=10, page_size=500):
@@ -1388,8 +1413,8 @@ def send_lead_alerts(new_rows, source_label):
 
 # ── Process one source ───────────────────────────────────────────
 
-def process_source(rows, source_name, label, dry_run=False, is_plans=False):
-    # type: (List[Dict[str, Any]], str, str, bool, bool) -> Tuple[int, int, int, int, int]
+def process_source(rows, source_name, label, dry_run=False, is_plans=False, gate_on_alerted=False):
+    # type: (List[Dict[str, Any]], str, str, bool, bool, bool) -> Tuple[int, int, int, int, int]
     """Upsert rows and send alerts. Returns (upserted, new_count, alerts, competitor_alerts, lead_alerts)."""
     if not rows:
         return 0, 0, 0, 0, 0
@@ -1400,26 +1425,38 @@ def process_source(rows, source_name, label, dry_run=False, is_plans=False):
             logger.info('  %s | %s', r['title'][:60], r.get('organization') or '-')
         return 0, 0, 0, 0, 0
 
-    # Find new rows
+    # Find new rows (brand-new to DB) — used for competitor/lead intel as before
     existing_ids = get_existing_ids(source_name)
     new_rows = [r for r in rows if r['external_id'] not in existing_ids]
     logger.info('[%s] New: %d (existing: %d)', label, len(new_rows), len(existing_ids))
+
+    # Relevance-alert gate: optionally re-surface active lots never alerted (alert_seq NULL).
+    # Fixes the leak where a relevant lot upserted during an outage / before keyword expansion
+    # became 'existing' and was permanently skipped. GetLotsInTrade returns only active lots,
+    # so this safely recovers active candidates; dedup is implicit (alerted rows are excluded).
+    if gate_on_alerted:
+        alerted_ids = get_alerted_ids(source_name)
+        alert_rows = [r for r in rows if r['external_id'] not in alerted_ids]
+        logger.info('[%s] Alert-gate(not-yet-alerted): %d (already alerted: %d)', label, len(alert_rows), len(alerted_ids))
+    else:
+        alert_rows = new_rows
 
     # Upsert all
     upserted = upsert_to_supabase(rows)
     logger.info('[%s] Upserted: %d / %d', label, upserted, len(rows))
 
-    # Alerts for new only
     alerts = 0
     comp_alerts = 0
     lead_alerts = 0
+    if alert_rows:
+        alerts = send_alerts(alert_rows, label)
+    # Competitor + lead intel stay gated on brand-new rows (no backfill burst)
     if new_rows:
-        alerts = send_alerts(new_rows, label)
         comp_alerts = send_competitor_alerts(new_rows, label)
         if is_plans:
             lead_alerts = send_lead_alerts(new_rows, label)
 
-    return upserted, len(new_rows), alerts, comp_alerts, lead_alerts
+    return upserted, len(alert_rows), alerts, comp_alerts, lead_alerts
 
 
 # ── Main ─────────────────────────────────────────────────────────
@@ -1464,7 +1501,7 @@ def main():
     # 3. Lots (reverse tenders)
     if args.source in ('all', 'lots'):
         rows = fetch_and_transform_lots()
-        u, n, a, c, l = process_source(rows, 'Cooperation.uz Лоты', 'Lots', args.dry_run)
+        u, n, a, c, l = process_source(rows, 'Cooperation.uz Лоты', 'Lots', args.dry_run, gate_on_alerted=True)
         total_upserted += u
         total_new += n
         total_alerts += a
@@ -1474,7 +1511,7 @@ def main():
     # 4. Auction lots (buyer-initiated reverse auctions)
     if args.source in ('all', 'auction'):
         rows = fetch_and_transform_auction_lots()
-        u, n, a, c, l = process_source(rows, 'Cooperation.uz Аукционы', 'AuctionLots', args.dry_run)
+        u, n, a, c, l = process_source(rows, 'Cooperation.uz Аукционы', 'AuctionLots', args.dry_run, gate_on_alerted=True)
         total_upserted += u
         total_new += n
         total_alerts += a
