@@ -1261,7 +1261,7 @@ def send_alerts(new_rows, source_label):
             if _ei.get('unit_price'):
                 parts.append('Цена: %s сум/%s' % ('{:,.0f}'.format(_ei['unit_price']), _ei.get('measure') or 'ед'))
             if _ei.get('photo'):
-                parts.append('📷 %s' % _ei['photo'])
+                parts.append('[📷 Фото](%s)' % _ei['photo'])
             parts.append('Источник: %s' % row['source'])
 
             # Detail page URL (accessible without auth)
