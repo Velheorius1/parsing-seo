@@ -1085,6 +1085,36 @@ _REJECT_TITLES = [
 ]
 
 
+_OFFER_CACHE = {}
+
+
+def _fetch_offer_detail(product_name, offer_number):
+    # type: (str, str) -> Optional[dict]
+    """E-catalog offer lookup (GetAllOffer OfferType=1, productName search) -> unitPrice + photo.
+    Joins a lot to its supplier offer (the priced catalog listing the lot references)."""
+    if not offer_number:
+        return None
+    if offer_number in _OFFER_CACHE:
+        return _OFFER_CACHE[offer_number]
+    result = None
+    try:
+        q = ' '.join((product_name or '').split()[:3])
+        with httpx.Client(timeout=20) as client:
+            r = client.get('https://new.cooperation.uz/ocelot/api-client/Client/GetAllOffer',
+                           params={'OfferType': 1, 'skip': 0, 'take': 50, 'productName': q}, headers=HEADERS)
+            if r.status_code == 200:
+                for o in (r.json().get('result') or {}).get('data') or []:
+                    if o.get('offerNumber') == offer_number:
+                        photo = (o.get('photos') or '').split('|')[0]
+                        result = {'unit_price': o.get('unitPrice'),
+                                  'photo': ('https://new.cooperation.uz/ocelot/' + photo) if photo else None}
+                        break
+    except Exception as exc:
+        logger.warning('[OfferEnrich] %s: %s', offer_number, str(exc)[:80])
+    _OFFER_CACHE[offer_number] = result
+    return result
+
+
 def send_alerts(new_rows, source_label):
     # type: (List[Dict[str, Any]], str) -> int
     """Send Telegram alerts for new tenders matching keywords.
@@ -1164,6 +1194,14 @@ def send_alerts(new_rows, source_label):
             seq = start_seq + i
             parts = []
 
+            # Enrich lot with offer price + photo (e-catalog join via offerNumber)
+            _lei = row.get('extra_info') or {}
+            if row.get('source') == 'Cooperation.uz Лоты' and _lei.get('offer') and not _lei.get('unit_price'):
+                _od = _fetch_offer_detail(row.get('title', ''), _lei['offer'])
+                if _od:
+                    _lei.update(_od)
+                    row['extra_info'] = _lei
+
             # Header with alert number
             msg_type = row.get('message_type', 'tender')
             if msg_type == 'customer_request':
@@ -1185,6 +1223,10 @@ def send_alerts(new_rows, source_label):
                 parts.append('Партия: %s-%s' % (_ei.get('min_part',''), _ei.get('max_part','')))
             if _ei.get('certificate'):
                 parts.append('Сертификат: требуется')
+            if _ei.get('unit_price'):
+                parts.append('Цена: %s сум/%s' % ('{:,.0f}'.format(_ei['unit_price']), _ei.get('measure') or 'ед'))
+            if _ei.get('photo'):
+                parts.append('📷 %s' % _ei['photo'])
             parts.append('Источник: %s' % row['source'])
 
             # Detail page URL (accessible without auth)
