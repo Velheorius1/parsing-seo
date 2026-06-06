@@ -570,7 +570,7 @@ class ApiAdapter(BaseAdapter):
                     logger.warning("[%s] Invalid JSON from %s: %s", self.config.name, url, str(json_exc)[:80])
                     raise
 
-            except (httpx.ConnectError, httpx.ReadTimeout) as exc:
+            except httpx.TransportError as exc:  # ConnectError/ConnectTimeout/ReadTimeout/ReadError/ProxyError/PoolTimeout — all transient transport
                 if attempt < max_retries - 1:
                     wait = 2 ** (attempt + 1)
                     logger.warning(

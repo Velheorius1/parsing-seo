@@ -2572,11 +2572,10 @@ sources:
     wait_selector: "table"
     html_selectors:
       container: "table tbody tr"
-      title: "td:nth-child(2)"
-      organization: "td:nth-child(6)"
-      price: "td:nth-child(8)"
-      deadline: "td:nth-child(11)"
-      link: "td:nth-child(2) a"
+      # Live table (7 cols): 1=Тип сделки 2=Номер контракта 3=Наименование товара …
+      title: "td:nth-child(3)"
+      link: "td:nth-child(3) a"
+      # No buyer/price/deadline columns in this commodity-spot listing — omitted.
     field_map:
       currency: "UZS"
       source_url_template: "https://ebirja.uz/ru/trade/reverse-listing"
