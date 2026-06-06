@@ -918,6 +918,10 @@ def upsert_to_supabase(rows):
 
 AI_MODEL_FAST = os.getenv('AI_RELEVANCE_MODEL_FAST', 'deepseek/deepseek-v4-flash')
 AI_SCORE_THRESHOLD = int(os.getenv('AI_SCORE_THRESHOLD', '50'))
+# Escalate a flash REJECT to the slow max model only when its score is within
+# [floor, threshold) — a borderline call worth a recall-rescue second opinion.
+# Confident rejects (score < floor) skip the slow call. Parse-fails always escalate.
+_AI_ESCALATE_FLOOR = int(os.getenv('AI_ESCALATE_FLOOR', '30'))
 _VALID_CATEGORIES = ('client', 'ad', 'irrelevant')
 
 _AI_PROMPT = (
@@ -1010,7 +1014,13 @@ def _ai_check_relevance(title, organization, client):
     if not OPENROUTER_API_KEY:
         return {'is_relevant': True, 'score': None, 'category': None, 'reason': None}
     res = _ai_json_call(title, organization, client, AI_MODEL_FAST)
-    if res is None or not res['is_relevant']:
+    # Escalate to the slow max model only on parse-fail or a BORDERLINE reject
+    # (recall rescue). A confident low score doesn't need a slow second opinion.
+    escalate = res is None or (
+        not res['is_relevant'] and res.get('score') is not None
+        and res['score'] >= _AI_ESCALATE_FLOOR
+    )
+    if escalate:
         max_res = _ai_json_call(title, organization, client, AI_MODEL)
         if max_res is not None:
             res = max_res
