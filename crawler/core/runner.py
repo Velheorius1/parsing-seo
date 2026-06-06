@@ -342,20 +342,25 @@ async def _update_group_ids(groups: Dict[str, str]) -> None:
 
         updated = 0
         for group_id, tender_ids in by_group.items():
-            # tender_id here is the RawTender.id (prefixed), match by external_id pattern
-            # We need to update by matching the tender's external_id+source combo
-            # For now, update by external_id prefix match
-            try:
-                for tid in tender_ids:
-                    # tid format: "etender-12345" — split to get source prefix + external_id
-                    parts = tid.split("-", 1)
-                    if len(parts) == 2:
-                        client.table("tenders").update(
-                            {"group_id": group_id}
-                        ).like("external_id", "%s%%" % parts[1]).execute()
-                        updated += 1
-            except Exception as exc:
-                logger.warning("[Dedup] Failed to update group_id: %s", str(exc)[:80])
+            # tid format: "<adapter>-<external_id>"; parts[1] is the FULL external_id.
+            # Batch one indexed `in_` UPDATE per group (exact match, no LIKE seq-scan).
+            ext_ids = []
+            for tid in tender_ids:
+                parts = tid.split("-", 1)
+                if len(parts) == 2:
+                    ext_ids.append(parts[1])
+            if not ext_ids:
+                continue
+            # Supabase caps URL length; chunk large groups to stay safe
+            for i in range(0, len(ext_ids), 100):
+                chunk = ext_ids[i:i + 100]
+                try:
+                    client.table("tenders").update(
+                        {"group_id": group_id}
+                    ).in_("external_id", chunk).execute()
+                    updated += len(chunk)
+                except Exception as exc:
+                    logger.warning("[Dedup] Failed to update group_id: %s", str(exc)[:80])
 
         if updated:
             logger.info("[Dedup] Updated %d group_id records in DB", updated)
