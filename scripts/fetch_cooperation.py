@@ -400,7 +400,7 @@ def fetch_and_transform_lots():
             'source_url': 'https://new.cooperation.uz/supplier/lots?lotId=%s' % lot_num,
             'status': 'active',
             'search_text': search_text[:1000],
-            'extra_info': {k: v for k, v in [('quantity', item.get('quantity')), ('measure', item.get('measureName')), ('tnved', tnved)] if v},
+            'extra_info': {k: v for k, v in [('quantity', item.get('quantity')), ('measure', item.get('measureName')), ('tnved', tnved), ('min_part', item.get('minPart')), ('max_part', item.get('maxPart')), ('certificate', item.get('isCertificate')), ('offer', item.get('offerNumber'))] if v is not None and v != ''},
             'collected_at': now,
         })
 
@@ -1181,6 +1181,10 @@ def send_alerts(new_rows, source_label):
             _ei = row.get('extra_info') or {}
             if _ei.get('quantity'):
                 parts.append('Кол-во: %s %s' % (_ei['quantity'], _ei.get('measure') or ''))
+            if _ei.get('min_part') or _ei.get('max_part'):
+                parts.append('Партия: %s-%s' % (_ei.get('min_part',''), _ei.get('max_part','')))
+            if _ei.get('certificate'):
+                parts.append('Сертификат: требуется')
             parts.append('Источник: %s' % row['source'])
 
             # Detail page URL (accessible without auth)
