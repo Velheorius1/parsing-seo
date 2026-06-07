@@ -166,6 +166,44 @@ def log_message(source, message_id, text, auto_label):
         logger.debug("[Feedback] Failed to log message: %s", str(exc))
 
 
+_playbook_cache = None
+_playbook_cache_ts = 0.0
+
+
+def get_relevance_playbook(limit=20):
+    # type: (int) -> str
+    """Active classifier_playbook principles formatted for the relevance prompt.
+    Empty string when none active (dormant — prompt stays at baseline). Cached 2h."""
+    global _playbook_cache, _playbook_cache_ts
+    import time
+    now = time.time()
+    if _playbook_cache is not None and (now - _playbook_cache_ts) < _FEW_SHOT_TTL:
+        return _playbook_cache
+    out = ""
+    try:
+        client = _get_client()
+        r = (client.table("classifier_playbook")
+             .select("taxonomy,principle,example")
+             .eq("status", "active")
+             .order("support_count", desc=True)
+             .limit(limit).execute())
+        rows = r.data or []
+        if rows:
+            lines = []
+            for row in rows:
+                tx = row.get("taxonomy") or ""
+                pr = row.get("principle") or ""
+                ex = row.get("example") or ""
+                lines.append("- [%s] %s%s" % (tx, pr, (" " + ex) if ex else ""))
+            out = "\n".join(lines)
+    except Exception as exc:
+        logger.warning("[Playbook] load failed: %s", str(exc)[:120])
+        out = ""
+    _playbook_cache = out
+    _playbook_cache_ts = now
+    return out
+
+
 def get_feedback_stats(days=7):
     # type: (int) -> dict
     """Get feedback statistics for the last N days."""
