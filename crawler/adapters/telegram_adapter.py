@@ -274,8 +274,14 @@ def _ai_extract_fields(text, openrouter_key, model, prompt_template=None, few_sh
             json={
                 "model": model,
                 "messages": [{"role": "user", "content": prompt_text}],
-                "max_tokens": 150,
+                "max_tokens": 256,
                 "temperature": 0,
+                # deepseek-v4-* are reasoning models: reasoning eats the token
+                # budget and returns EMPTY content (finish_reason=length), which
+                # silently disabled the demand-vs-ad classifier. Disable reasoning
+                # so this classification task returns a deterministic answer.
+                # Verified 2026-06-08 (flash + reasoning off = 3/3 on #2307/8/9).
+                "reasoning": {"enabled": False},
             },
             timeout=10,
         )
@@ -596,7 +602,7 @@ class TelegramAdapter(BaseAdapter):
         ai_fields = _ai_extract_fields(
             text,
             settings.openrouter_api_key or "",
-            settings.ai_relevance_model,
+            settings.ai_relevance_model_fast or settings.ai_relevance_model,
             few_shot=few_shot,
         )
         if ai_fields:
@@ -670,7 +676,7 @@ class TelegramAdapter(BaseAdapter):
             ai_fields = _ai_extract_fields(
                 text,
                 settings.openrouter_api_key or "",
-                settings.ai_relevance_model,
+                settings.ai_relevance_model_fast or settings.ai_relevance_model,
                 prompt_template=_AI_TENDER_PROMPT,
             )
             if ai_fields:

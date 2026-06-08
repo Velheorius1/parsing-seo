@@ -83,6 +83,11 @@ _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и У�
 Объявление:
 Название: {title}
 Заказчик: {organization}
+Позиции лота: {details}
+
+ВАЖНО (мульти-лот): если в лоте НЕСКОЛЬКО позиций и ХОТЯ БЫ ОДНА явно наша
+(печать, упаковка, книги/издания, бланки, бейджи, таблички, стенды) — оцени
+лот как НАШ (score >= 70), даже если остальные позиции не наши.
 
 Ответь СТРОГО в JSON (только JSON, без пояснений и markdown):
 {{"score": <0-100>, "category": "<client|ad|irrelevant>", "reason": "<до 100 символов>"}}
@@ -170,9 +175,14 @@ async def _ai_call_one(
     from crawler.core.feedback import get_relevance_playbook
     _pb = get_relevance_playbook()
     _pb_block = ("\nПРИНЦИПЫ (из обратной связи; при конфликте важнее единичных примеров):\n%s\n" % _pb) if _pb else ""
+    # Item names give the model the actual products for generic-title /
+    # multi-item lots (e.g. Hayotbirja "Отбор" where title="Отбор" but the
+    # body lists "Книги печатные"). Drop the raw good_maps JSON blob.
+    _details = (tender.search_text or "").split("{", 1)[0].strip()[:320]
     prompt = _RELEVANCE_PROMPT.format(
         title=tender.title[:300],
         organization=tender.organization or "",
+        details=_details,
         playbook=_pb_block,
     )
 
@@ -197,6 +207,12 @@ async def _ai_call_one(
                 #   no_json=20% + empty_answer=20% именно на max model.
                 "max_tokens": 1200 if role == "max" else 400,
                 "temperature": 0,
+                # deepseek-v4-pro (max role) is a reasoning model: reasoning
+                # tokens ate the budget -> empty_answer/no_json ~20% -> score=None
+                # -> fail-open (junk like startup announcements alerted). Disable
+                # reasoning: this is product-scope classification, not a reasoning
+                # task. Verified 2026-06-08.
+                "reasoning": {"enabled": False},
                 # OpenRouter structured output — enforce JSON object для моделей
                 # поддерживающих response_format (DeepSeek / OpenAI / большинство Qwen).
                 "response_format": {"type": "json_object"},
@@ -786,6 +802,13 @@ async def send_alerts(
             async def _check(tender_kw):
                 # type: (Tuple[RawTender, str]) -> Tuple[RawTender, str, RelevanceResult]
                 tender, kw = tender_kw
+                # Customer requests (group leads) are already vetted by the
+                # demand-vs-ad classifier + keyword prefilter. The tender
+                # product-scope prompt misjudges colloquial leads (a bag demand
+                # "сумка 1250шт, кимда бор" scored 0/irrelevant), so skip it for
+                # them — never drop a hot lead. Tenders are still checked.
+                if getattr(tender, "message_type", None) == "customer_request":
+                    return tender, kw, _allow("customer_request lead: skip product-scope")
                 async with sem:
                     result = await _ai_check_relevance(tender, ai_client)
                 # Mutate tender so any later code (DB update, formatter) sees the score.
