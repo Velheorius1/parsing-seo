@@ -86,7 +86,10 @@ sources:
       # links redirect to root. Universal URL pattern `shop/detail/{id}?elektron=true`
       # works for ALL UZEX lot types (competitions, direct-purchases, prequalification).
       # API endpoint that exposed mapping: xarid-api-shop.uzex.uz/Common/GetOffer/{id}
-      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true"
+      # prequest detail route (verified 2026-06-08: proposal-request/detail/:id
+      # component calls PREQUEST_API_URL/api/Public/GetLot?id={id}). The old
+      # /home/shop/detail/{id} used the e-shop id-space -> wrong card.
+      source_url_template: "https://new-xarid.uzex.uz/home/purchase/proposal-request/detail/{id}"
     keywords_fields: [category_name, customer_region_name]
     pagination:
       type: offset

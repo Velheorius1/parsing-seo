@@ -618,7 +618,7 @@ def _format_alert(
     # «Куда подать КП» — главное для пользователя
     try:
         from crawler.core.snap import is_broken_spa as _is_broken_spa2
-        spa_auth = _is_broken_spa2(tender.source) or tender.source.startswith("UZEX Предквалификации") or tender.source.startswith("Cooperation.uz Лоты")
+        spa_auth = _is_broken_spa2(tender.source) or tender.source.startswith("Cooperation.uz Лоты")
     except Exception:
         spa_auth = False
     submission_lines = []

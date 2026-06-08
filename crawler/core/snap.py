@@ -25,7 +25,6 @@ DETAIL_BASE = "https://parsing-seo.vercel.app/tenders"
 # Keep in sync with web/src/app/tenders/[id]/page.tsx BROKEN_SPA_HOSTS.
 BROKEN_SPA_SOURCES = {
     "Hayotbirja э-магазин",
-    "UZEX Предквалификации",
     "Xarid Конкурсы",
     "Xarid Прямые закупки",
 }
