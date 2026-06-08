@@ -635,7 +635,18 @@ def _format_alert(
             _home = "%s://%s" % (_p.scheme, _p.netloc) if (_p.scheme and _p.netloc) else tender.source_url
         except Exception:
             _home = tender.source_url
-        submission_lines.append("📝 Подача КП: %s (E-IMZO) — найти по названию выше" % _home)
+        # Prefer the unique public lot number (displayId) as the search key —
+        # generic category titles ("Услуги издательские") match hundreds of lots,
+        # the number is exact. UZEX prequest has no public /procedure-style deep
+        # link (SPA behind E-IMZO; verified 2026-06-08), so number-search is the
+        # best handoff; full data + screenshot are on the Vercel page above.
+        _disp = ""
+        if isinstance(tender.extra_info, dict):
+            _disp = str(tender.extra_info.get("display_id") or "").strip()
+        if _disp:
+            submission_lines.append("📝 Подача КП: %s (E-IMZO) — поиск по номеру лота %s" % (_home, _disp))
+        else:
+            submission_lines.append("📝 Подача КП: %s (E-IMZO) — найти по названию выше" % _home)
     extra = tender.extra_info if isinstance(tender.extra_info, dict) else {}
     contacts = extra.get("customer_contacts") if extra else None
     if isinstance(contacts, dict):
