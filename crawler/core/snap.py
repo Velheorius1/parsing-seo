@@ -17,13 +17,14 @@ logger = logging.getLogger(__name__)
 
 DETAIL_BASE = "https://parsing-seo.vercel.app/tenders"
 
-# Sources whose deep-link is broken outside of authenticated browser sessions.
+# Sources whose deep-link genuinely requires an authenticated session
+# (the public /procedure/{id}/core route resolves to a blank SPA or a
+# wrong id-space card). VERIFIED 2026-06-08: Hayotbirja отбор/встречные and
+# XT-Xarid встречные DO open publicly for active tenders -> removed so the
+# alert links straight to the lot. UZEX Предкв stays (wrong id-space).
 # Keep in sync with web/src/app/tenders/[id]/page.tsx BROKEN_SPA_HOSTS.
 BROKEN_SPA_SOURCES = {
-    "Hayotbirja отбор",
-    "Hayotbirja встречные аукционы",
     "Hayotbirja э-магазин",
-    "XT-Xarid встречные аукционы",
     "UZEX Предквалификации",
     "Xarid Конкурсы",
     "Xarid Прямые закупки",
