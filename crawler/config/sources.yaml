@@ -2351,10 +2351,16 @@ sources:
     item_filter:
       status: { in: [open, check_docs, docs_objections, commercial_checking, objections, tech_check_docs, docs_objections_summary] }
 
+  # ОТКЛЮЧЁН 2026-06-10: ref_online_shop_public у hayotbirja и xt-xarid — ОДИН общий
+  # бэкенд (одни и те же id/объявления, проверено curl'ом). Источник за всё время
+  # собрал 0 строк: field_map title: "name" — поле name у объявлений ПУСТОЕ
+  # (реальное имя в product_name), адаптер дропал каждую строку.
+  # Заменён на xt-xarid-shop ниже (xt-xarid deep-link /procedure/{id}/core
+  # verified публично открывается анонимно).
   - id: hayotbirja-shop
     name: "Hayotbirja э-магазин"
     adapter: jsonrpc
-    enabled: true
+    enabled: false
     url: "https://api.hayotbirja.uz/rpc"
     rpc_ref: "ref_online_shop_public"
     rpc_method: "ref"
@@ -2378,6 +2384,38 @@ sources:
       max_pages: 50
 
   # ===== XT-XARID.UZ — тот же бэкенд что hayotbirja =====
+
+  # Э-магазин (объявления поставщиков, госмагазин). Кейс 2026-06-10: объявления
+  # Winch 7628192/7627284 (Блокнот, полное печатное ТЗ в properties) были
+  # невидимы краулеру — ref_online_shop_public не краулился рабочим источником.
+  # Сортировка ответа = close_at DESC ≈ новейшие первыми; offset capped 3000
+  # (~16ч потока, ~4500 объявлений/день) — 30 страниц × 100 покрывают межкраульный
+  # промежуток при 3 краулах/день. price = цена/ед × amount (totalcost API не отдаёт).
+  - id: xt-xarid-shop
+    name: "XT-Xarid э-магазин"
+    adapter: jsonrpc
+    enabled: true
+    url: "https://api.xt-xarid.uz/rpc"
+    rpc_ref: "ref_online_shop_public"
+    rpc_method: "ref"
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "xtx-shop"
+    dedup_group: "xtx-shop"
+    field_map:
+      title: "product_name|mark|name"
+      organization: "vendor"
+      price: "_price_times_amount"
+      currency: "currency"
+      deadline: "close_at"
+      external_id: "id"
+      source_url_template: "https://xt-xarid.uz/procedure/{external_id}/core"
+    keywords_fields: ["product_name", "mark", "properties", "vendor"]
+    pagination:
+      type: offset
+      param: offset
+      page_size: 100
+      max_pages: 30
 
   - id: xt-xarid-reduction
     name: "XT-Xarid встречные аукционы"

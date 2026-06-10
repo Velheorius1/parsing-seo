@@ -205,6 +205,13 @@ class JsonRpcAdapter(BaseAdapter):
         title = ""
         if fm.title == "_goods_title":
             title = self._build_goods_title(item)
+        elif "|" in (fm.title or ""):
+            # Pipe-separated fallback paths: first non-empty wins.
+            # Нужно для э-магазина: name пустой, реальное имя в product_name.
+            for path in fm.title.split("|"):
+                title = _safe_str(_get_field(item, path.strip(), ""))
+                if title:
+                    break
         else:
             title = _safe_str(_get_field(item, fm.title, ""))
 
@@ -212,7 +219,17 @@ class JsonRpcAdapter(BaseAdapter):
             return None
 
         organization = _safe_str(_get_field(item, fm.organization, "")) if fm.organization else ""
-        price = _safe_float(_get_field(item, fm.price)) if fm.price else None
+        if fm.price == "_price_times_amount":
+            # Э-магазин: price = цена за единицу; totalcost API не отдаёт.
+            # Считаем сумму сами, иначе MIN_PRICE-фильтр (10M) глушит все алерты.
+            unit_price = _safe_float(item.get("price"))
+            amount = _safe_float(item.get("amount"))
+            if unit_price is not None and amount:
+                price = unit_price * amount
+            else:
+                price = unit_price
+        else:
+            price = _safe_float(_get_field(item, fm.price)) if fm.price else None
         currency = _safe_str(_get_field(item, fm.currency, "")) if fm.currency else "UZS"
         if not currency:
             currency = "UZS"
