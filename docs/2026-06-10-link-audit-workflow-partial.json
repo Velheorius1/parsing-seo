@@ -1,0 +1,515 @@
+{
+  "summary": "Аудит deep-links всех источников + поиск некраулящихся публичных каналов площадок + research способов поиска тендеров UZ",
+  "agentCount": 52,
+  "logs": [
+    "Реестр: 117 источников; БД census: 95 источников, мёртвых enabled: 15",
+    "Кластеров для link-audit: 38 (etender.uzex.uz, new-xarid.uzex.uz, projects.worldbank.org, b2biz.uz, tender.mc.uz, grants.gov, procurement.osce.org, isdb.org, procurement-notices.undp.org, ungm.org, corp.uzairways.com, xt-xarid.uz, hayotbirja.uz, xarid.ebirja.uz, cooperation.uz, telegram, xarid.tashkentsteel.uz, ipotekabank.uz, hamkorbank.uz, trustbank.uz, aab.uz, anorbank.uz, nbu.uz, uzkimyosanoat.uz, uzsm.uz, uz-kor.com, company.mobi.uz, railway.uz, agmk.uz, sqb.uz, uzbekistonmet.uz, gov.uz, ausschreibungen.giz.de, tenderweek.com, uzairports.com, saneg.com, beeline.uz, ebirja.uz)",
+    "[audit:aab.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:hayotbirja.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:xarid.ebirja.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:uzsm.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:anorbank.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:uz-kor.com] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:company.mobi.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:railway.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:agmk.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:uzbekistonmet.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:sqb.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:gov.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:tenderweek.com] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:uzairports.com] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:saneg.com] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:beeline.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[probe:xt-xarid.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:ebirja.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[probe:hayotbirja.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[probe:new-xarid.uzex.uz (UZEX)] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[probe:cooperation.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:ausschreibungen.giz.de] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[probe:e-birja / xarid.ebirja.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[research:bid-submission] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[research:discovery-methods] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[probe:etender.uzex.uz + xarid.uzex.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:trustbank.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:uzkimyosanoat.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:nbu.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[audit:new-xarid.uzex.uz] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "Audit кластеров: 16; платформ прозондировано: 0; research блоков: 0",
+    "Проверяю adversarially: 4 сломанных ссылок + 0 новых каналов",
+    "[verify:link:minstroy-tenders (Tender.mc.uz Минстрой)] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[verify:link:B2Biz.uz (Тендеры)] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[verify:link:B2Biz.uz (Планы закупок)] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)",
+    "[verify:link:tender-mc (Минстрой tender.mc.uz, дубль)] failed: You've hit your session limit · resets 7:20pm (Asia/Tashkent)"
+  ],
+  "result": {
+    "registry_size": 117,
+    "notifier_link_logic": "Адаптер кладёт ссылку в tender.source_url: api/jsonrpc — из field_map.source_url_template с подстановкой {id} (поле item.id), {external_id}, {link} (=external_id); html — только если извлечён link-селектор: шаблон с {link}, иначе absolute href / urljoin(page_url, link), при пустом link-селекторе source_url=\"\" (шаблон НЕ применяется — agmk, uzairports); spa — шаблон ИГНОРИРУЕТСЯ, ссылка = абсолютизированный href из link-селектора; telegram — https://t.me/{username}/{msg_id} (для numeric private каналов в customer_request-ветке: https://t.me/c/{id}/{msg_id}). Notifier._format_alert (notifier.py:550-662): (1) ищет db_id (Supabase UUID по external_id+source); (2) если is_broken_spa(source) (snap.py: точные имена \"Hayotbirja э-магазин\",\"Xarid Конкурсы\",\"Xarid Прямые закупки\" + префиксы \"Cooperation.uz\",\"xt-xarid\", case-sensitive по NAME источника) — прямая ссылка НЕ показывается, шлётся только Vercel detail page https://parsing-seo.vercel.app/tenders/{uuid} + скриншот этой страницы через sendPhoto (snap_and_upload), fallback на сырой source_url если db_id нет; (3) иначе — прямая source_url первой + \"Архив: vercel/{uuid}\" запасной; (4) для источников с именем на \"Cooperation.uz\" дополнительно \"Поиск: https://new.cooperation.uz/supplier/all?productName={первое_слово_названия}\" (SEARCH_FALLBACK); (5) для broken-SPA блок \"Подача КП\": корень площадки (scheme://host из source_url) + \"поиск по номеру лота {extra_info.display_id}\" если есть, иначе \"(E-IMZO) — найти по названию выше\" (поиск по названию вручную); (6) если source_url пуст и db_id есть — остаётся только Vercel-ссылка; если нет ни того ни другого — алерт без ссылки. Несоответствие: комментарий snap.py \"UZEX Предкв stays\" не отражён в коде — \"UZEX Предквалификации\" отсутствует в BROKEN_SPA_SOURCES, прямая ссылка шлётся хотя ведёт в чужой id-space (e-shop).",
+    "dead_enabled_sources": [
+      "Hayotbirja э-магазин — enabled, 0 строк в БД (известный)",
+      "UNDP Procurement — enabled, 0 строк в БД",
+      "UN Global Marketplace — enabled, 0 строк в БД",
+      "TG: Закупки Prom.uz — enabled, 0 строк в БД",
+      "TG: Фонд предпринимательства — enabled, 0 строк в БД",
+      "Asia Alliance Bank — enabled, 0 строк в БД",
+      "GIZ Ausschreibungen — enabled, 0 строк в БД",
+      "E-Birja встречные аукционы — enabled, 0 строк в БД (main.md: API пуст)",
+      "E-Birja торговые продукты (авторизованный) — enabled, 0 строк в БД",
+      "E-Birja аукционные товары (авторизованный) — enabled, 0 строк в БД",
+      "OSCE Uzbekistan — enabled, last_seen 2026-04-23",
+      "Ипотека-банк — enabled, last_seen 2026-05-05",
+      "Хамкорбанк — enabled, last_seen 2026-05-07",
+      "Минстрой (tender.mc.uz) — enabled в yaml, last_seen 2026-04-15 (в KNOWN_RETIRED watchdog'а, заменён на Tender.mc.uz (Минстрой) — рассинхрон yaml/allowlist)",
+      "E-Birja активные аукционы (xarid) — enabled в yaml, last_seen 2026-04-15 (в KNOWN_RETIRED watchdog'а — рассинхрон yaml/allowlist)"
+    ],
+    "link_audit": {
+      "all": [
+        {
+          "cluster": "etender.uzex.uz",
+          "verdicts": [
+            {
+              "source": "etender",
+              "sample_url": "https://etender.uzex.uz/lot/495694",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "Страница — Angular SPA (HTTP 200, пустой <app-root>), но роут path:\"lot/:id\" есть в main.js бандле. Публичный API GET https://apietender.uzex.uz/api/common/GetTrade/495694/0 → HTTP 200: display_no=\"26120012495694\" точно равен external_id из БД, в budget_products описание \"Islomiy bank faoliyatini yo'lga qo'yish bo'yicha qator xizmatlarni taqdim etish...\" совпадает с title лота, status_name=\"Эълон қилинди\". Контрольный сэмпл 494233 → HTTP 200, display_no=26120012494233, продукт \"Услуга по проведению экспертизы промышленной безопасности\" (электровозы, ПКМ №784) — совпадает с title \"Проведения экспертизы промышленной безопасности электровозов\". URL id = числовой хвост external_id (display_no без префикса 2612001/2611001).",
+              "fix_proposal": "Фикс не нужен — шаблон https://etender.uzex.uz/lot/{id} корректен. Для автоматического healthcheck использовать GET https://apietender.uzex.uz/api/common/GetTrade/{id}/0 и сверять result.display_no с external_id (curl HTML бесполезен — SPA). Опционально пометить источник broken_spa-like в проверках линков, чтобы чекер не считал пустой HTML ошибкой."
+            },
+            {
+              "source": "etender-discussion",
+              "sample_url": "https://etender.uzex.uz/lot/496335",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "GET https://apietender.uzex.uz/api/common/GetTrade/496335/0 → HTTP 200: display_no=\"26110012496335\" равен external_id из БД; customer_name=\"Управление внутренних дел Самаркандской области\" = \"Самарқанд вилояти ИИБ\" из title (\"полиграфик хизматлар\" — продукт \"Услуга по изготовлению адресных папок с нанесением логотипа\", категория \"Бумага и изделия из бумаги\"); status_name=\"Лойиха мухокамаси\" (обсуждение проекта) — подтверждает что лоты стадии обсуждения обслуживаются тем же роутом /lot/{id}, отдельный URL не нужен.",
+              "fix_proposal": "Фикс не нужен — шаблон https://etender.uzex.uz/lot/{id} корректно ведёт на лоты в стадии обсуждения (SPA сама показывает discussion-вид по status_id). Healthcheck тот же: GET https://apietender.uzex.uz/api/common/GetTrade/{id}/0, сверка display_no с external_id; status_name=\"Лойиха мухокамаси\" = лот ещё в обсуждении."
+            }
+          ]
+        },
+        {
+          "cluster": "projects.worldbank.org",
+          "verdicts": [
+            {
+              "source": "world-bank",
+              "sample_url": "https://projects.worldbank.org/en/projects-operations/procurement-detail/OP00449863",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "Страница: HTTP 200 без редиректа, og:url = тот же deep link с OP00449863 (HTML — Angular SPA-шаблон, title лота рендерится клиентски). API-подтверждение через публичный https://search.worldbank.org/api/v2/procnotices?format=json&id=OP00449863 → total=1, project_name='Ferghana Valley Water Resources Management - Phase II', bid_reference_no='FVWRMP-II/EUG-II/CON/6', notice_status='Published' — точное совпадение с title и external_id из БД. Второй сэмпл OP00449706 аналогично: HTTP 200, API вернул project_name='Agriculture Modernization Project', bid_reference_no='AMP/C1/RFQ/162' — совпадение 2/2.",
+              "fix_proposal": "Фикс не нужен — шаблон https://projects.worldbank.org/en/projects-operations/procurement-detail/{id} корректен (id = notice id вида OP00449xxx). Для автоматического healthcheck'а ссылок использовать API-эндпоинт GET https://search.worldbank.org/api/v2/procnotices?format=json&id={id} (проверять total=1 и совпадение bid_reference_no с external_id), а не curl HTML — страница SPA и title в сыром HTML отсутствует. Побочно: оба сэмпла notice_type='Contract Award' (присуждение контракта, не открытый тендер) — если краулер должен алертить только открытые закупки, добавить фильтр по notice_type/submission_date в адаптер."
+            }
+          ]
+        },
+        {
+          "cluster": "b2biz.uz",
+          "verdicts": [
+            {
+              "source": "B2Biz.uz (Тендеры)",
+              "sample_url": "https://b2biz.uz/home/tenders/5a929811-0a2c-42ad-9999-918145ab5e14",
+              "verdict": "WRONG_PAGE",
+              "confidence": "high",
+              "evidence": "HTTP 200, но это React SPA-shell (2894 байта, пустой #root) — пометка broken_spa:false неверна. Headless-рендер (Playwright) шаблонного URL даёт client-side страницу 'heading: 404 Страница не найдена'. В route map бандла main.88c86d12.js НЕТ роута /home/tenders/:id — есть только листинг home_tenders:'/home/tenders' и детальные home_tender_overview:'/home/tender/:id/overview' (+ /participants, /results — ЕДИНСТВЕННОЕ число 'tender'). Лот реален: публичный анонимный API GET https://b2biz.uz/api/v1/etp/get-list-published-procedures/ вернул запись с guid=5a929811-0a2c-42ad-9999-918145ab5e14, ptitle='Закупка услуг по изготовлению и монтажу крышной вывески «под ключ» согласно Техническому заданию' (точное совпадение с title из БД), pcode=528-1874, pstatus=3 (review_offers), psupl='Uzum Tech'. Корректный роут /home/tender/{id}/overview при headless-рендере анонимом редиректит на /login (детальные API etp/procedure/get-aside-info/?etp_guid= и get-stages → 401 'Authentication credentials were not provided').",
+              "fix_proposal": "Сменить link_template на https://b2biz.uz/home/tender/{id}/overview (singular 'tender', суффикс /overview) — это канонический детальный URL площадки; залогиненный пользователь попадает ровно на лот. Текущий шаблон ведёт на 404 для ВСЕХ. Учесть: для анонима страница редиректит на /login (auth-wall площадки, не лечится URL'ом). Для health-check лота краулером использовать публичный API: GET https://b2biz.uz/api/v1/etp/get-list-published-procedures/?page=N (анонимный, пагинация по 30, поле guid=external_id, ptitle/pstatus/deadline). В конфиге также исправить broken_spa: true."
+            },
+            {
+              "source": "B2Biz.uz (Планы закупок)",
+              "sample_url": "https://b2biz.uz/home/procurement-plans",
+              "verdict": "SEARCH_FALLBACK",
+              "confidence": "high",
+              "evidence": "link_template — статический листинг без {id}: все 165 записей БД шарят один URL, юзер должен вручную листать 6 страниц client-side пагинации. Страница отдаёт HTTP 200 (SPA-shell). Сами лоты реальны: публичный анонимный API GET https://b2biz.uz/api/v1/etp/plan/proc/list/ вернул count=165 (точно равен total в БД), все 3 сэмпла найдены по proc_guid с точным совпадением title: 177390c2-…='Поставка термотрансферных этикеток', d1704f4b-…='Поставка бейджиков', 6f464e59-…='Поставка печатной продукции' (все plan_row.status.planned, brandname='UZUM MARKET'). Deep-link на план у площадки СУЩЕСТВУЕТ: в бандле SPA найден share-link `https://b2biz.uz/home/procurement-plans/${guid}/row` и роут home_procurement_plans_row:'/home/procurement-plans/:id/row'. Headless-проверка на 2 сэмплах (177390c2, d1704f4b): роут резолвится, но аноним редиректится на /login (детальный API etp/plan/proc/?proc_guid= → 401).",
+              "fix_proposal": "Сменить link_template на https://b2biz.uz/home/procurement-plans/{id}/row (id=external_id=proc_guid) — это нативный share-URL площадки (SPA сам генерирует его кнопкой 'поделиться'); залогиненный пользователь попадает ровно на строку плана вместо листания 6 страниц. Для анонима — auth-wall /login (как и у тендеров, ограничение площадки). Для верификации/обогащения краулером использовать публичный API GET https://b2biz.uz/api/v1/etp/plan/proc/list/?page=N (анонимный, поля proc_guid/title/proc_status/plan_end/brandname). Примечание: один раз при переходе на /row наблюдался redirect на внешний лот https://xarid.ebirja.uz/ru/shop/91087 — не воспроизвёлся повторно (вероятно race в SPA), не закладываться."
+            }
+          ]
+        },
+        {
+          "cluster": "tender.mc.uz",
+          "verdicts": [
+            {
+              "source": "minstroy-tenders (Tender.mc.uz Минстрой)",
+              "sample_url": "https://tender.mc.uz/tender/257680",
+              "verdict": "WRONG_PAGE",
+              "confidence": "high",
+              "evidence": "curl -sL https://tender.mc.uz/tender/257680 → HTTP 200, но это SPA-шелл 1205 байт (React, пустой #root, title 'Elektron tender tizimi'). Playwright-навигация на /tender/257680 → клиентский redirect на главную https://tender.mc.uz/ (роута /tender/:id в React Router НЕТ — в бандле main.77807a39.js только path:\"/tender-list\" и path:\"/tender-list/tender/:id/view\"). Правильный роут проверен: https://tender.mc.uz/tender-list/tender/257680/view рендерит ТОТ лот — заголовок 'Qarshi magistral kanalidan foydalanish boshqarmasiga qarashli M-3-1 nasos stansiyasi...' и '№ 26411012257680' (= external_id из БД). Публичный API: GET https://apisitender.mc.uz/api/tenders/257680 → HTTP 200, result.data.id=257680, result.data.unique_name=26411012257680, result.data.name='Qarshi magistral kanalidan foydalanish boshqarmasiga qarashli M-3-1 nasos stansiyasi...' — полное совпадение с сэмплом БД.",
+              "fix_proposal": "Сменить link_template на https://tender.mc.uz/tender-list/tender/{id}/view. ВАЖНО: {id} = числовой id (257680, поле result.data.id из API), НЕ external_id/unique_name (26411012257680). Адаптер уже хранит числовой id в source_url-пути — брать его же. Если в коде доступен только unique_name — числовой id это его суффикс после 8-значного префикса, либо дернуть GET https://apisitender.mc.uz/api/tenders/{id} и взять result.data.id. Для healthcheck ссылок использовать этот же API endpoint (curl страницы бесполезен — всегда 200/шелл). Также стоит выставить broken_spa=true в конфиге источника: текущее false вводит в заблуждение, площадка — чистый SPA."
+            },
+            {
+              "source": "tender-mc (Минстрой tender.mc.uz, дубль)",
+              "sample_url": "https://tender.mc.uz/tender/241612",
+              "verdict": "WRONG_PAGE",
+              "confidence": "high",
+              "evidence": "Тот же сломанный шаблон: curl https://tender.mc.uz/tender/241612 → HTTP 200, SPA-шелл 1205 байт; роут /tender/:id отсутствует в роутере → редирект на главную. Правильный роут проверен в браузере: https://tender.mc.uz/tender-list/tender/241612/view рендерит ТОТ лот — 'Фарғона шаҳар Мураббийлар кўчаси 19-уй ҳудудида замонавий 4-қаватли кутубхона биносини қуриш' и '№ 26411006241612'. API: GET https://apisitender.mc.uz/api/tenders/241612 → HTTP 200, result.data.id=241612, result.data.unique_name=26411006241612, name совпадает с title сэмпла БД (status=5 — лот завершён, last_seen 2026-04-15 согласуется).",
+              "fix_proposal": "Сменить link_template на https://tender.mc.uz/tender-list/tender/{id}/view — для этого источника external_id уже числовой (241612), подстановка {id}=external_id работает напрямую. Отдельно: источник помечен как дубль minstroy-tenders (без status=2 фильтра и пагинации, 440 записей vs 15818, last_seen 2026-04-15 — два месяца молчит) — кандидат на enabled=false после миграции, чтобы не плодить дубли алертов; решение за владельцем конфига."
+            }
+          ]
+        },
+        {
+          "cluster": "grants.gov",
+          "verdicts": [
+            {
+              "source": "Grants.gov (USAID)",
+              "sample_url": "https://www.grants.gov/search-results-detail/362502",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "БД-сэмплов не было (samples=[]), поэтому id взят из живого API теми же параметрами что у краулера: POST api.grants.gov/v1/api/search2 {keyword:Uzbekistan, oppStatuses:posted|forecasted} → HTTP 200, errorcode=0, hit id=362502, number=TASHKENT-PDS-FY26-002. Верификация лота: POST api.grants.gov/v1/api/fetchOpportunity {opportunityId:362502} → data.id=362502, opportunityNumber=TASHKENT-PDS-FY26-002, opportunityTitle='Storytelling to Safeguard Cultural Identity and Sovereignty: Bolstering the Tourism Industry', agency DOS-UZB (U.S. Mission to Uzbekistan) — ТОТ лот, совпадение по id+number+title. Код подстановки проверен: adapters/api.py:689 заменяет {id} на item['id'] (числовой oppId из search2), НЕ на external_id(number) — т.е. в БД ложится канонический URL grants.gov. Страница search-results-detail/362502 → HTTP 200, но SPA-shell без SSR (~35KB, title лота в HTML нет; тот же shell на любой id, даже невалидный) — curl страницы ничего не доказывает, доказательство = публичный fetchOpportunity API.",
+              "fix_proposal": "Фикс шаблона не нужен — /search-results-detail/{numeric oppId} = канонический роут grants.gov, адаптер подставляет правильный числовой id. Два улучшения: (1) пометить источник broken_spa-аккуратно для link-healthcheck: страница отдаёт 200-shell на ЛЮБОЙ id, поэтому автопроверку ссылок делать не curl'ом страницы, а через POST https://api.grants.gov/v1/api/fetchOpportunity {\"opportunityId\":<id>} и assert data.id==id && data.opportunityTitle непустой (bogus id возвращает errorcode=0 но пустой data без id/title — проверять поле, не HTTP-код); (2) guard в adapters/api.py: для grants-usaid fallback {id}→ext_id_val опасен — если API уберёт поле 'id', в URL попадёт number (TASHKENT-PDS-FY26-002) и SPA отрендерит пустую карточку; логировать warning если item['id'] отсутствует или не digits."
+            }
+          ]
+        },
+        {
+          "cluster": "procurement.osce.org",
+          "verdicts": [
+            {
+              "source": "osce-uz (OSCE Uzbekistan)",
+              "sample_url": "https://procurement.osce.org/tenders/supply-and-delivery-household-kitchen-supplies-osce-centre-ashgabat-until-30062027",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "Сэмплов в БД не было (samples: []), URL построен из link_template + реального href с живого листинга /tenders (HTTP 200, 10 лотов вида /tenders/<slug>). Deep-link: HTTP 200 без редиректа, <title>RFQ/TUR/02/2026 | OSCE Procurement</title>, в теле полный заголовок лота 'Supply and delivery of household kitchen supplies for OSCE Centre in Ashgabat until 30.06.2027' + поля Reference Number и Deadline — это ИМЕННО тот лот, slug совпадает с листингом. Сайт = Drupal HTML (не SPA), curl-проверка валидна. Контрольный негатив: несуществующий slug /tenders/nonexistent-lot-check-12345 → чистый HTTP 404 'Page not found | OSCE Procurement' (НЕ редирект на главную) — значит мёртвые ссылки детектируемы по коду ответа.",
+              "fix_proposal": "Шаблон https://procurement.osce.org{link} корректен, фикс кода не нужен — при условии что адаптер кладёт в {link} относительный href из листинга (начинается с /tenders/). Рекомендации: (1) добавить в адаптер валидацию что {link} матчит ^/tenders/[a-z0-9-]+$ перед сохранением; (2) отдельная проблема — last_seen 2026-04-23 (~7 недель), хотя листинг живой со свежими лотами (дедлайны июль 2026): проверить что краулер реально опрашивает источник (cron/scheduler, не упал ли парсер листинга после изменения вёрстки)."
+            }
+          ]
+        },
+        {
+          "cluster": "isdb.org",
+          "verdicts": [
+            {
+              "source": "Islamic Development Bank (IsDB)",
+              "sample_url": "https://www.isdb.org/project-procurement/tenders/2025/spn/procurement-plant-design-supply-and-installation-underground-cable-laying-lot-3",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "Сайт server-rendered (Drupal 8), curl работает. (1) Listing https://www.isdb.org/project-procurement/tenders -> HTTP 200, 107KB, ссылки лотов относительные вида /project-procurement/tenders/<год>/<тип>/<slug> — шаблон https://www.isdb.org{link} к ним подходит. (2) Deep-link SPN-лота -> HTTP 200, <title>='Procurement of Plant Design Supply and Installation for Underground Cable Laying (Lot 3) | Project Procurement', og:title совпадает, в body детали именно этого лота ('161 kV double circuit Underground cable system Substation R - Substation D2', 10 вхождений 'underground cable'). (3) Второй лот (EOI) https://www.isdb.org/project-procurement/tenders/2025/eoi/bcc2025-051-waqf-fund-financial-sustainability-model-and-associated-deliverables -> HTTP 200, title='BCC2025-051 - Waqf Fund Financial Sustainability Model...'. (4) Негативный тест: несуществующий slug -> честный HTTP 404 без soft-redirect на главную, т.е. 200 = реально живой лот. Оговорка: в БД total=2 но samples=[] — проверены живые лоты с listing, а не конкретные 2 записи БД (SSH к прод-БД запрещён политикой сессии); сам шаблон подтверждён эмпирически.",
+              "fix_proposal": "Шаблон менять не нужно. Два мелких улучшения адаптера: (1) guard от двойного префикса — в listing встречаются и АБСОЛЮТНЫЕ href (например https://www.isdb.org/project-procurement/tenders), при слепой подстановке в шаблон получится 'https://www.isdb.orghttps://...'; правило: if link.startswith('http'): url = link, else: url = 'https://www.isdb.org' + link. (2) Заполнять samples в БД (хранить link/external_id для каждой записи) — сейчас total=2, samples=[] и конкретные сохранённые лоты непроверяемы при аудите. Опционально: валидировать что link начинается с '/project-procurement/tenders/' чтобы отсечь служебные ссылки (сам listing, пагинация).",
+              "fix_proposal_extra": null
+            }
+          ]
+        },
+        {
+          "cluster": "procurement-notices.undp.org",
+          "verdicts": [
+            {
+              "source": "undp",
+              "sample_url": "https://procurement-notices.undp.org/view_notice.cfm?notice_id=98849",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, server-rendered HTML (не SPA, без auth). Страница содержит точный title лота: <h2>EXPRESSION OF INTEREST - Cafeteria and Catering Services in UN House BiH</h2>, breadcrumb с тем же title, Ref No 98849, секции Deadline/Overview/вложения (view_file.cfm?doc_id=323343) — совпадает с записью листинга для notice_id=98849. Второй сэмпл notice_id=98848 тоже OK: HTTP 200, <h2>SDP 02/2026 Apoyo a la integración institucional y mejora del Sistema Científico Tecnológico Argentino</h2>. Листинг главной отдаёт относительные href ровно в формате view_notice.cfm?notice_id=<id>, т.е. link_template + {link} собирается корректно. Оговорка: db=null — сэмплов из БД не было, проверено на живых id из листинга площадки.",
+              "fix_proposal": "Шаблон менять не нужно. Два улучшения: (1) Health-check мёртвых лотов: несуществующий id (notice_id=99999999) возвращает HTTP 200, а не 404 — детектировать по строке 'The notice was not found' в body, не по HTTP-коду. (2) Убедиться что адаптер сохраняет в {link} полный относительный путь 'view_notice.cfm?notice_id=<id>' (как в href листинга); если в БД хранится только числовой external_id — нормализовать шаблон в 'https://procurement-notices.undp.org/view_notice.cfm?notice_id={external_id}'."
+            }
+          ]
+        },
+        {
+          "cluster": "ungm.org",
+          "verdicts": [
+            {
+              "source": "ungm",
+              "sample_url": "https://www.ungm.org/Public/Notice/303644",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "В БД сэмплов не было (db:null) — id взят живьём: POST https://www.ungm.org/Public/Notice/Search (JSON body, X-Requested-With: XMLHttpRequest, без CSRF) вернул HTTP 200 с строками таблицы, первая строка data-noticeid=303644, title 'Reconstruction of 23 Shelters at Marka Camp', ref 'ITBW- 3526000009- (MI)', UNRWA, Jordan. GET https://www.ungm.org/Public/Notice/303644 → HTTP 200 без редиректа, size 379KB, <title>Reconstruction of 23 Shelters at Marka Camp</title> + та же ref 'ITBW- 3526000009- (MI)' + UNRWA в теле — это ТОТ ЖЕ лот. Контрольный второй id 301062 → HTTP 200, <title>Body cameras, IT equipment, software and incidental services for SCS</title>. Негативный тест id=999999999 → HTTP 404 с редиректом на /Home/FileNotFound (мёртвый лот детектируется по коду). Страница server-rendered, curl-friendly, авторизация не нужна.",
+              "fix_proposal": "Фикс не нужен — шаблон корректен, оставить как есть. Заметка в notes ('{id} = data-noticeid из строки таблицы') верна. Рекомендации для надёжности краулера: (1) брать id именно из data-noticeid строк ответа POST /Public/Notice/Search (endpoint работает без verification token, Content-Type: application/json, заголовок X-Requested-With: XMLHttpRequest); (2) в health-check deep-link'а валидировать HTTP-код: 200 = живой лот, 404/редирект на /Home/FileNotFound = лот удалён/id неверен; (3) дополнительная сверка — <title> страницы равен title лота из строки поиска."
+            }
+          ]
+        },
+        {
+          "cluster": "corp.uzairways.com",
+          "verdicts": [
+            {
+              "source": "uz-airways (Uzbekistan Airways)",
+              "sample_url": "https://corp.uzairways.com/ru/press-center/tenders/uslugi-po-transportirovke-zapasnykh-chastey-neobkhodimykh-komponentov-takzhe",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "Сайт Drupal 11, server-rendered (curl видит контент). Листинг /ru/press-center/tenders = HTTP 200, лоты как относительные href '/ru/press-center/tenders/<slug>'. Deep-link лота 1: HTTP 200, <h1 class=\"page-heading\">Услуги по транспортировке запасных частей, необходимых компонентов, а также опасных грузов</h1> — точное совпадение с тендером из листинга. Лот 2 (okazanie-uslug-po-strakhovaniyu-vozdushnykh-sudov): HTTP 200, <h1>Оказание услуг по страхованию воздушных судов</h1>. Негативный тест: фейковый slug → HTTP 500 (не редирект на главную), т.е. битые ссылки детектятся, ложного 'OK' не будет. Шаблон https://corp.uzairways.com{link} с относительным {link} даёт рабочий абсолютный URL.",
+              "fix_proposal": "Фикс не нужен — шаблон рабочий. Единственная проверка (samples в БД пустые, формат хранимого {link} не сверен): убедиться что адаптер сохраняет {link} как относительный путь с ведущим '/' (например '/ru/press-center/tenders/<slug>'); если хранится абсолютный URL — шаблон даст дубль хоста, тогда в коде нормализовать: link = urlparse(href).path или strip префикса 'https://corp.uzairways.com'. Доп. наблюдение: страница /ru/mezhdunarodnye-tendery сейчас без активных лотов — основной источник /ru/press-center/tenders."
+            }
+          ]
+        },
+        {
+          "cluster": "xt-xarid.uz",
+          "verdicts": [
+            {
+              "source": "xt-xarid.uz (id: xt-xarid, adapter: spa)",
+              "sample_url": "https://xt-xarid.uz/procedure/7628192/core",
+              "verdict": "DIRECT_OK",
+              "confidence": "medium",
+              "evidence": "В БД 0 сэмплов (samples=[]), поэтому URL построен из link_template + реального ad-proc 7628192 (из xt-xarid-get-proc-7628192.json в корне worktree, перепроверен live). API: POST https://api.xt-xarid.uz/urpc get_proc {proc_id:7628192} → HTTP 200, result.proc_id=7628192, type=ad, status=publicated — ID совпал, статус понятен. Сама страница /procedure/7628192/core → HTTP 200, но это пустой Vue-shell 633 байта (<title>...</title>, vue.min.js, launcher.js) — контент рендерится клиентом через urpc, поэтому broken_spa=true корректен: curl HTML бесполезен, deep-link в браузере рабочий.",
+              "fix_proposal": "Шаблон менять не нужно. Для healthcheck/верификации этого источника использовать не curl HTML, а POST https://api.xt-xarid.uz/urpc {method:'get_proc',params:{proc_id:<id>}} и сверять result.proc_id + status. Минус: в БД нет сэмплов с alerted — стоит добавить выборку source_url из этого источника в аудит-запрос, чтобы проверять реально сохранённые ссылки, а не синтетические."
+            },
+            {
+              "source": "XT-Xarid встречные аукционы (id: xt-xarid-reduction, adapter: jsonrpc)",
+              "sample_url": "https://xt-xarid.uz/procedure/7610547/core",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "POST https://api.xt-xarid.uz/urpc get_proc {proc_id:7610547} → HTTP 200, result.proc_id=7610547, type=reduction (= встречный аукцион, тип источника совпадает), status=publicated. Поля подтверждают живой лот: publicated_at 08.06.2026, close_at 15.06.2026, стартовая стоимость 16,256,260 UZS, заказчик 'Богишамол Йуллардан мунтазам фойдаланиш корхонаси ДМ' (ИНН 207273609) — дорожная организация, согласуется с товарами 'Труба напорная, клипса для труб' из title БД. Сами названия товаров в get_proc не возвращаются (методы get_proc_products/get_products анонимно → 'Действие запрещено'), но proc_id+тип+статус достаточны по критерию DIRECT_OK. Страница /core → HTTP 200 (SPA-shell, грузит этот же API).",
+              "fix_proposal": "Шаблон https://xt-xarid.uz/procedure/{external_id}/core рабочий, не трогать. Реальный дефект из notes: префикс-матчинг 'xt-xarid' case-sensitive не ловит имя 'XT-Xarid…' — нормализовать source.lower().startswith('xt-xarid') в коде кластеризации/алертов. Для проверки title в healthcheck использовать тот листинговый jsonrpc-метод, которым адаптер уже получает названия товаров (анонимный get_proc названий не отдаёт)."
+            },
+            {
+              "source": "XT-Xarid тендеры (id: xt-xarid-tender, adapter: jsonrpc)",
+              "sample_url": "https://xt-xarid.uz/procedure/196437/core",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "POST https://api.xt-xarid.uz/urpc get_proc {proc_id:196437} → HTTP 200, result.proc_id=196437, type=tender, status=commercial_checking, fields.name = 'Обслуживание не-телекоммуникационных элементов подсистемы базовых станций национального оператора сотовой сети «УзМобайл»' — ТОЧНОЕ совпадение с title из БД (в БД обрезан на 80 символов). Второй сэмпл 1801667 тоже проверен: proc_id=1801667, type=tender, status=check_docs, name='Изготовление, поставка Сегментных затворов и реконструкцию опор сегментных затворов… Андижанского водохранилища' — точное совпадение. 2/2 сэмплов подтверждены ИМЕННО как те лоты.",
+              "fix_proposal": "Фикс не требуется — шаблон https://xt-xarid.uz/procedure/{external_id}/core корректен для тендеров. Единственное: имя источника 'XT-Xarid тендеры' (заглавные) попадает под тот же case-sensitivity баг префикса 'xt-xarid' — тот же lowercase-фикс закроет и его."
+            }
+          ]
+        },
+        {
+          "cluster": "cooperation.uz",
+          "verdicts": [
+            {
+              "source": "cooperation-plans-filtered (Cooperation.uz Закупочные планы, filtered)",
+              "sample_url": "https://new.cooperation.uz/plan-schedule/1b93fb55-41d1-49ff-9a35-f57c424b56b8",
+              "verdict": "UNVERIFIABLE",
+              "confidence": "high",
+              "evidence": "Geo-block на уровне TCP для не-UZ IP: curl к new.cooperation.uz и cabinet.cooperation.uz (оба DNS → 185.100.53.244) = HTTP 000 connect-timeout (8-25с) с Mac; рендер-прокси r.jina.ai (US) = 'Navigation timeout 15000ms' — два независимых vantage. Открыт только stat-new.cooperation.uz (92.63.207.22): GET /gateway/api-stat/auction-contracts?skip=0&take=1 → HTTP 200 валидный JSON (contractNumber MAB1000027), но plan-эндпоинтов там нет (plan-schedules|plan-schedule/{guid}|plans → 404 на все 3 догадки). Локальные свидетельства (history.md): 2026-04-15 'прямые ссылки /plan-schedule/{uuid} работают (200 OK)' после миграции на cabinet-API (guid из API = guid страницы); 2026-04-20 desktop Chrome открывает реальный лот по такой ссылке ('Календарь 220 dona, март 2026, Toshkent Shayxontohur' = title из алерта), 404 только в Telegram in-app browser (SPA без JS). Т.е. шаблон корректен и id-space совпадает (verified внутри UZ, апрель 2026), но извне UZ непроверяем curl'ом в принципе — SPA + geo-block.",
+              "fix_proposal": "Шаблон ссылки менять НЕ надо — он верный, и алерт уже митигирует SPA (Vercel-архив + SEARCH_FALLBACK supplier/all?productName + 'Подача КП: корень'). Для регулярной аудит-проверки: гонять верификацию с краулерного VPS через тот же UZ-proxy, что использует адаптер (curl -x $UZ_PROXY), и проверять не HTML-шелл, а detail-API которое SPA зовёт — найти его в fetch_cooperation.py (/opt/parsing-seo) или в Network-табе: вероятный паттерн https://new.cooperation.uz/gateway/api-*/plan-schedule/{guid} либо cabinet.cooperation.uz/...{guid} (хост cabinet — источник guid'ов по history.md 2026-04-15; снаружи заблокирован, проверить можно только через UZ-proxy). Совпадение поля title/productName в JSON с title лота из БД = DIRECT_OK. Дополнительно: stat-new.cooperation.uz/gateway/ открыт глобально — если у платформы появится api-stat для планов, это единственный путь верифицировать без UZ-proxy (сейчас 404)."
+            }
+          ]
+        },
+        {
+          "cluster": "telegram",
+          "verdicts": [
+            {
+              "source": "tg-pruzb",
+              "sample_url": "https://t.me/c/1043210647/2118515",
+              "verdict": "UNVERIFIABLE",
+              "confidence": "medium",
+              "evidence": "HTTP 200, но страница отдаёт 'Message in a private group or channel. This link will only work if you are a member.' — приватный канал, анонимный curl содержимое не видит. Формат t.me/c/<internal_id>/<msg_id> канонически верный для приватных каналов; краулер читает канал (3832 строк, last_seen 2026-06-10), значит аккаунт — участник, и для Данияра-участника ссылка откроется в приложении.",
+              "fix_proposal": "Фикс не нужен. Шаблон https://t.me/c/1043210647/{msg_id} корректен. Опционально: сверить что internal_id 1043210647 соответствует peer_id -1001043210647 из конфига telegram-адаптера (один раз, вручную в приложении)."
+            },
+            {
+              "source": "tg-beeline-tenders",
+              "sample_url": "https://t.me/TENDERS_BeelineUZB/1099",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "Сэмплов в БД нет (alerted=0), взят реальный msg_id 1099 из публичного превью t.me/s/TENDERS_BeelineUZB. Embed HTTP 200, data-post=\"TENDERS_BeelineUZB/1099\", текст: 'Объявляется Тендер по выбору поставщиков ИТ оборудования... Лот №1 - Мобильное рабочее место Standart (ноутбук)' — реальный тендерный пост, deep-link ведёт на конкретное сообщение.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-goszakupki-uz",
+              "sample_url": "https://t.me/goszakupki_uz/1793",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"goszakupki_uz/1793\", embed-текст начинается '🔥 Топ запросов недели от заказчиков...' — точное совпадение с title лота из БД (external_id 1793).",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-undp-uzb",
+              "sample_url": "https://t.me/undp_uzb_tenders/20",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "Сэмплов в БД нет. t.me/s/undp_uzb_tenders редиректит на профиль (веб-превью канала отключено, 'UNDP Uzbekistan Tenders', 401 members), НО пер-сообщенный embed работает: HTTP 200, data-post=\"undp_uzb_tenders/20\", контент — PDF-вложения 'UNDP_Quantum_User_Guide_For_suppliers...pdf' (тендерные гайды UNDP). Deep-link на сообщение валиден.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-prom-zakupki",
+              "sample_url": "https://t.me/prom_zakupki/2949",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "db=null — у источника НОЛЬ строк в БД, сэмплов нет. Канал жив: t.me/s/prom_zakupki ('Закупки@Prom.uz (Тендеры)') показывает посты до 2949. Embed реального поста: HTTP 200, data-post=\"prom_zakupki/2949\", текст рендерится. Ссылочный шаблон рабочий.",
+              "fix_proposal": "Шаблон ссылки менять не надо. Проблема upstream: источник enabled, канал активен, но в БД 0 строк — проверить что аккаунт краулера подписан на @prom_zakupki и что имя источника 'TG: Закупки Prom.uz' в адаптере совпадает с тем, под которым пишутся строки в БД."
+            },
+            {
+              "source": "tg-xarid-uzex",
+              "sample_url": "https://t.me/xarid_uzex_uzasbo_uz/1637",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "Сэмплов в БД нет (alerted=0), взят реальный msg_id 1637 из t.me/s/xarid_uzex_uzasbo_uz. Embed HTTP 200, data-post=\"xarid_uzex_uzasbo_uz/1637\", текст '#elon 📢 Hurmatli blogerlar va buxgalterlar! Soliq qo‘mitasi...' рендерится.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-uzex",
+              "sample_url": "https://t.me/uzexuz/9186",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"uzexuz/9186\", embed-текст '🎼🪕 Важный вклад в развитие национального музыкального искусства...' — точное совпадение с title из БД.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-minstroy",
+              "sample_url": "https://t.me/minstroyuz/39764",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"minstroyuz/39764\", embed-текст '#JARAYON 📍 Toshkent shahri Sergeli tumanida...' — совпадает с title '#JARAYON' из БД.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-mintrans",
+              "sample_url": "https://t.me/Mintrans_uz/27468",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"Mintrans_uz/27468\", embed-текст 'Ertaga, 10-iyun kuni navbatdagi \"Avtomobilsiz kun\" aksiyasi o‘tkaziladi...' — совпадает с title из БД.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-minenergy",
+              "sample_url": "https://t.me/minenergy_uz/20057",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"minenergy_uz/20057\", embed-текст '#sayyor_qabul Energetika vazirligining Andijon viloyatida...' — совпадает с title '#sayyor_qabul'.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-minzdrav",
+              "sample_url": "https://t.me/ssvuz/21795",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"ssvuz/21795\", сообщение рендерится: '🔴 ✏️✏️✏️✏️ ❗️Соғлиқни сақлаш вазири: Ҳар бир ходим ишга бўлган муносабатини...'. Title в БД — только эмодзи ('🔴 ✏️✏️✏️✏️'), embed подтверждает что это ТОТ пост (эмодзи-префикс совпадает).",
+              "fix_proposal": "Ссылка корректна. Косметика на стороне краулера: title-экстрактор берёт первую строку (одни эмодзи) — лучше брать первую непустую строку с буквами, чтобы алерты были читаемыми."
+            },
+            {
+              "source": "tg-mitc",
+              "sample_url": "https://t.me/mitcuz/23287",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"mitcuz/23287\", embed-текст 'Prezident Shavkat Mirziyoyev togʻ-kon sanoati va geologiya sohasida raqamli va sunʼiy intellekt...' — точное совпадение с title из БД.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-agro-ministry",
+              "sample_url": "https://t.me/uzagroministry/50937",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"uzagroministry/50937\", embed-текст 'Agrotexnologiyaga amal qilish — yuqori hosil garovi...' — точное совпадение с title из БД.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-eco",
+              "sample_url": "https://t.me/ecogovuz/49148",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"ecogovuz/49148\", embed-текст '#ekspertfikri 💬Xalqaro tabiatni muhofaza qilish ittifoqi (IUCN)...' — совпадает с title '#ekspertfikri'.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-uzbekneftegaz",
+              "sample_url": "https://t.me/ao_uzbekneftegaz/12702",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"ao_uzbekneftegaz/12702\", embed-текст '#islohot_va_natija O‘zbekneftgazda yangi bosqich: ishchilar uchun 18 ta avtobus...' — совпадает с title.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-uztelecom",
+              "sample_url": "https://t.me/uztelecomuz/4032",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"uztelecomuz/4032\", embed-текст 'Uztelecom Smart Services xizmatini ishga tushirdi — endi maishiy va raqamli xizmatlar...' — точное совпадение с title из БД.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-hamkorbank",
+              "sample_url": "https://t.me/Hamkorbankuz/6646",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"Hamkorbankuz/6646\", embed-текст '❤️ Hamkor mobil ilovasida hisob raqamlaringiz va kartalaringiz bo‘yicha barcha operatsiyalarni...' — точное совпадение с title из БД.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            },
+            {
+              "source": "tg-statefund",
+              "sample_url": "https://t.me/statefund_uz/577",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "db=null — НОЛЬ строк в БД. Канал жив ('Tadbirkorlik faoliyatini qo‘llab-quvvatlash davlat jamg‘armasi'). Embed msg 577: HTTP 200, data-post=\"statefund_uz/577\", текст '🇺🇿 O‘zbekiston Respublikasi Qurolli Kuchlari...' рендерится (msg 592 = 'Service message', тоже резолвится, но без текста). Шаблон ссылки рабочий. Последний пост в превью — апрель 2024: канал малоактивен.",
+              "fix_proposal": "Шаблон ссылки менять не надо. Upstream: источник enabled, но 0 строк в БД — проверить подписку аккаунта краулера на @statefund_uz и маппинг имени источника; учесть что канал почти не постит (последние посты 2024) — возможно 0 строк это норма, тогда снять с подозрения."
+            },
+            {
+              "source": "tg-boxmaker",
+              "sample_url": "https://t.me/box_maker_tashkent/1034",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "HTTP 200, data-post=\"box_maker_tashkent/1034\", embed-текст 'У кого есть синие коробки 30х30см в наличии?' — посимвольное совпадение с title из БД.",
+              "fix_proposal": "Шаблон корректен, менять нечего."
+            }
+          ]
+        },
+        {
+          "cluster": "xarid.tashkentsteel.uz",
+          "verdicts": [
+            {
+              "source": "Tashkent Steel (ТМЗ)",
+              "sample_url": "https://xarid.tashkentsteel.uz/lot/15",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "Сэмплов в БД нет (samples=[]), URL построен из живого листинга — ровно как делает адаптер (a[href*='/lot/']). Главная HTTP 200, server-rendered HTML с абсолютными href вида https://xarid.tashkentsteel.uz/lot/<id> (5,6,7,8,10,15). GET /lot/15 → HTTP 200, <title>№134-RM — Цинк сурьмянистый сплав в соответствии с технической спецификацией №034 от 10.06.2022 года</title> — дословно совпадает с текстом анкора этого лота в листинге, т.е. это ТОТ лот. Контент в сыром HTML (curl без JS). Контроль: /lot/99999 → честный HTTP 404 'Not Found', без soft-redirect на главную.",
+              "fix_proposal": "Фикс не нужен — шаблон '{link} = абсолютный href из a[href*=\"/lot/\"]' работает. Рекомендации: (1) в БД хранить url сэмплов (сейчас total=1, samples пустые — аудит пришлось делать по живому листингу); (2) при детекте dead-link можно опираться на HTTP 404 — площадка отдаёт его честно. urpc API (как у xt-xarid) тут не требуется: сайт server-rendered, HTML-адаптер корректен."
+            }
+          ]
+        },
+        {
+          "cluster": "ipotekabank.uz",
+          "verdicts": [
+            {
+              "source": "ipoteka-bank",
+              "sample_url": "https://ipotekabank.uz/about/tenders/65886/",
+              "verdict": "DIRECT_OK",
+              "confidence": "high",
+              "evidence": "Сэмплы в БД пустые, поэтому {link} взят с живого листинга https://www.ipotekabank.uz/about/tenders/ (HTTP 200), где hrefs относительные: /about/tenders/{id}/. Проверка шаблона: https://ipotekabank.uz/about/tenders/65886/ -> 301 -> https://www.ipotekabank.uz/about/tenders/65886/ -> HTTP 200, <title> страницы = полный заголовок лота ('Ipoteka-bank ATIB xalqaro bank kartalarini ... maxsus konvert buyurtma qilish uchun tijorat takliflari qabul qilishga so'rov') — это ТОТ лот, контент детальной страницы, не главная. Второй лот /about/tenders/64855/ -> HTTP 200, title 'Etalon 9PX UPS qurilmalarini xarid qilish...'. Негативный тест: фейковый id /about/tenders/99999999/ -> чистый HTTP 404 '404 Not Found' (без редиректа на главную), значит битые ссылки детектируемы по коду.",
+              "fix_proposal": "Шаблон рабочий, фикс не требуется. Косметика: заменить на https://www.ipotekabank.uz{link} — убирает лишний 301-хоп (apex ipotekabank.uz всегда 301-редиректит на www). Также стоит заполнить samples в БД для этого источника (сейчас samples=[]), чтобы будущие аудиты не строили ссылку вручную."
+            }
+          ]
+        },
+        {
+          "cluster": "hamkorbank.uz",
+          "verdicts": [
+            {
+              "source": "hamkorbank",
+              "sample_url": "https://hamkorbank.uz/press-center/tenders/a4-formatda-ofis-qogozlari/",
+              "verdict": "DIRECT_OK",
+              "confidence": "medium",
+              "evidence": "БД samples пусты (31 строк, 0 alerted) — URL построен из структуры сайта. Сайт SSR HTML (не SPA): листинг https://hamkorbank.uz/press-center/tenders/ HTTP 200 (134KB, 30 страниц пагинации). Лот 1: HTTP 200, <title>Конкурс на поставку офисной бумаги в формате A4 | Hamkorbank</title> + <h1>АКБ «Hamkorbank» объявляет открытый конкурс на поставку офисной бумаги в формате A4</h1>. Лот 2 (supply-printers-scanners): HTTP 200, <title>Тендер на поставку принтеров и сканеров</title>. Bogus slug → чистый HTTP 404 без редиректа на главную (мёртвые ссылки детектируемы). РИСК: raw hrefs в листинге относительные БЕЗ ведущего слэша ('press-center/tenders/<slug>/'), резолвятся только через <base href=\"https://hamkorbank.uz/\">. Конкатенация шаблона с таким href даёт битый хост 'hamkorbank.uzpress-center' → HTTP 000 / DNS fail (проверено эмпирически). confidence=medium т.к. фактически сохранённые в БД значения {link} проверить нельзя (samples=[]).",
+              "fix_proposal": "Шаблон корректен, если {link} = '/press-center/tenders/<slug>/' (с ведущим слэшем). В адаптере hamkorbank нормализовать href перед сохранением: urljoin('https://hamkorbank.uz/', href) и хранить path с ведущим слэшем, либо link = href if href.startswith('/') else '/' + href. Альтернатива: сменить шаблон на 'https://hamkorbank.uz/{link}' + lstrip('/') при подстановке — устойчиво к обоим вариантам. Дополнительно: healthcheck ссылок прост — HEAD/GET, код 404 = лот удалён/протух (редиректа на главную нет).",
+              "fix_proposal_note": null
+            }
+          ]
+        }
+      ],
+      "confirmed_broken": [],
+      "refuted": [
+        {
+          "type": "link",
+          "cluster": "b2biz.uz",
+          "source": "B2Biz.uz (Тендеры)",
+          "sample_url": "https://b2biz.uz/home/tenders/5a929811-0a2c-42ad-9999-918145ab5e14",
+          "verdict": "WRONG_PAGE",
+          "confidence": "high",
+          "evidence": "HTTP 200, но это React SPA-shell (2894 байта, пустой #root) — пометка broken_spa:false неверна. Headless-рендер (Playwright) шаблонного URL даёт client-side страницу 'heading: 404 Страница не найдена'. В route map бандла main.88c86d12.js НЕТ роута /home/tenders/:id — есть только листинг home_tenders:'/home/tenders' и детальные home_tender_overview:'/home/tender/:id/overview' (+ /participants, /results — ЕДИНСТВЕННОЕ число 'tender'). Лот реален: публичный анонимный API GET https://b2biz.uz/api/v1/etp/get-list-published-procedures/ вернул запись с guid=5a929811-0a2c-42ad-9999-918145ab5e14, ptitle='Закупка услуг по изготовлению и монтажу крышной вывески «под ключ» согласно Техническому заданию' (точное совпадение с title из БД), pcode=528-1874, pstatus=3 (review_offers), psupl='Uzum Tech'. Корректный роут /home/tender/{id}/overview при headless-рендере анонимом редиректит на /login (детальные API etp/procedure/get-aside-info/?etp_guid= и get-stages → 401 'Authentication credentials were not provided').",
+          "fix_proposal": "Сменить link_template на https://b2biz.uz/home/tender/{id}/overview (singular 'tender', суффикс /overview) — это канонический детальный URL площадки; залогиненный пользователь попадает ровно на лот. Текущий шаблон ведёт на 404 для ВСЕХ. Учесть: для анонима страница редиректит на /login (auth-wall площадки, не лечится URL'ом). Для health-check лота краулером использовать публичный API: GET https://b2biz.uz/api/v1/etp/get-list-published-procedures/?page=N (анонимный, пагинация по 30, поле guid=external_id, ptitle/pstatus/deadline). В конфиге также исправить broken_spa: true.",
+          "verify": null
+        },
+        {
+          "type": "link",
+          "cluster": "b2biz.uz",
+          "source": "B2Biz.uz (Планы закупок)",
+          "sample_url": "https://b2biz.uz/home/procurement-plans",
+          "verdict": "SEARCH_FALLBACK",
+          "confidence": "high",
+          "evidence": "link_template — статический листинг без {id}: все 165 записей БД шарят один URL, юзер должен вручную листать 6 страниц client-side пагинации. Страница отдаёт HTTP 200 (SPA-shell). Сами лоты реальны: публичный анонимный API GET https://b2biz.uz/api/v1/etp/plan/proc/list/ вернул count=165 (точно равен total в БД), все 3 сэмпла найдены по proc_guid с точным совпадением title: 177390c2-…='Поставка термотрансферных этикеток', d1704f4b-…='Поставка бейджиков', 6f464e59-…='Поставка печатной продукции' (все plan_row.status.planned, brandname='UZUM MARKET'). Deep-link на план у площадки СУЩЕСТВУЕТ: в бандле SPA найден share-link `https://b2biz.uz/home/procurement-plans/${guid}/row` и роут home_procurement_plans_row:'/home/procurement-plans/:id/row'. Headless-проверка на 2 сэмплах (177390c2, d1704f4b): роут резолвится, но аноним редиректится на /login (детальный API etp/plan/proc/?proc_guid= → 401).",
+          "fix_proposal": "Сменить link_template на https://b2biz.uz/home/procurement-plans/{id}/row (id=external_id=proc_guid) — это нативный share-URL площадки (SPA сам генерирует его кнопкой 'поделиться'); залогиненный пользователь попадает ровно на строку плана вместо листания 6 страниц. Для анонима — auth-wall /login (как и у тендеров, ограничение площадки). Для верификации/обогащения краулером использовать публичный API GET https://b2biz.uz/api/v1/etp/plan/proc/list/?page=N (анонимный, поля proc_guid/title/proc_status/plan_end/brandname). Примечание: один раз при переходе на /row наблюдался redirect на внешний лот https://xarid.ebirja.uz/ru/shop/91087 — не воспроизвёлся повторно (вероятно race в SPA), не закладываться.",
+          "verify": null
+        },
+        {
+          "type": "link",
+          "cluster": "tender.mc.uz",
+          "source": "minstroy-tenders (Tender.mc.uz Минстрой)",
+          "sample_url": "https://tender.mc.uz/tender/257680",
+          "verdict": "WRONG_PAGE",
+          "confidence": "high",
+          "evidence": "curl -sL https://tender.mc.uz/tender/257680 → HTTP 200, но это SPA-шелл 1205 байт (React, пустой #root, title 'Elektron tender tizimi'). Playwright-навигация на /tender/257680 → клиентский redirect на главную https://tender.mc.uz/ (роута /tender/:id в React Router НЕТ — в бандле main.77807a39.js только path:\"/tender-list\" и path:\"/tender-list/tender/:id/view\"). Правильный роут проверен: https://tender.mc.uz/tender-list/tender/257680/view рендерит ТОТ лот — заголовок 'Qarshi magistral kanalidan foydalanish boshqarmasiga qarashli M-3-1 nasos stansiyasi...' и '№ 26411012257680' (= external_id из БД). Публичный API: GET https://apisitender.mc.uz/api/tenders/257680 → HTTP 200, result.data.id=257680, result.data.unique_name=26411012257680, result.data.name='Qarshi magistral kanalidan foydalanish boshqarmasiga qarashli M-3-1 nasos stansiyasi...' — полное совпадение с сэмплом БД.",
+          "fix_proposal": "Сменить link_template на https://tender.mc.uz/tender-list/tender/{id}/view. ВАЖНО: {id} = числовой id (257680, поле result.data.id из API), НЕ external_id/unique_name (26411012257680). Адаптер уже хранит числовой id в source_url-пути — брать его же. Если в коде доступен только unique_name — числовой id это его суффикс после 8-значного префикса, либо дернуть GET https://apisitender.mc.uz/api/tenders/{id} и взять result.data.id. Для healthcheck ссылок использовать этот же API endpoint (curl страницы бесполезен — всегда 200/шелл). Также стоит выставить broken_spa=true в конфиге источника: текущее false вводит в заблуждение, площадка — чистый SPA.",
+          "verify": null
+        },
+        {
+          "type": "link",
+          "cluster": "tender.mc.uz",
+          "source": "tender-mc (Минстрой tender.mc.uz, дубль)",
+          "sample_url": "https://tender.mc.uz/tender/241612",
+          "verdict": "WRONG_PAGE",
+          "confidence": "high",
+          "evidence": "Тот же сломанный шаблон: curl https://tender.mc.uz/tender/241612 → HTTP 200, SPA-шелл 1205 байт; роут /tender/:id отсутствует в роутере → редирект на главную. Правильный роут проверен в браузере: https://tender.mc.uz/tender-list/tender/241612/view рендерит ТОТ лот — 'Фарғона шаҳар Мураббийлар кўчаси 19-уй ҳудудида замонавий 4-қаватли кутубхона биносини қуриш' и '№ 26411006241612'. API: GET https://apisitender.mc.uz/api/tenders/241612 → HTTP 200, result.data.id=241612, result.data.unique_name=26411006241612, name совпадает с title сэмпла БД (status=5 — лот завершён, last_seen 2026-04-15 согласуется).",
+          "fix_proposal": "Сменить link_template на https://tender.mc.uz/tender-list/tender/{id}/view — для этого источника external_id уже числовой (241612), подстановка {id}=external_id работает напрямую. Отдельно: источник помечен как дубль minstroy-tenders (без status=2 фильтра и пагинации, 440 записей vs 15818, last_seen 2026-04-15 — два месяца молчит) — кандидат на enabled=false после миграции, чтобы не плодить дубли алертов; решение за владельцем конфига.",
+          "verify": null
+        }
+      ]
+    },
+    "new_channels": {
+      "confirmed": [],
+      "all_probes": []
+    },
+    "research": []
+  }
+}
