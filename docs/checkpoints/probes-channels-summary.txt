@@ -1,0 +1,270 @@
+====================================================================================================
+PLATFORM: UZEX new-xarid.uzex.uz — reverse-engineered via reachable mirror api.xt-xarid.uz (IAC JSON-RPC platform) + reachable new
+  [*** NEW ***] ref_request_proposals_public (Запросы предложений / RFP — DEMAND) | anonymous | vol=<3000 open (empty at offset 2999); pagin
+      kind: спрос покупателя (buyer RFP): name, totalcost, status, remain_time, part_count, publicated_at, meta.lots, meta.good_maps[{name, id
+      print: HIGH — direct buyer demand for goods incl. polygraphy; good_maps expose exact OKED product ids + quantities + buyer's expected pri
+      link: https://new-xarid.uzex.uz/home/purchase/proposal-request/detail/{id}
+  [*** NEW ***] ref_contest_public (Конкурсы / competitions — DEMAND) | anonymous | vol=via /rpc ~ a few k; NOTE separate channe
+      kind: конкурсы: name, totalcost, status (open/close), part_count, publicated_at, meta.good_maps[{name, id(GUID/OKED), price, amount, cat
+      print: MEDIUM-HIGH — competitions for services/goods incl. оформление/печать; good_maps carry OKED + buyer INN + region
+      link: https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true
+  [*** NEW ***] ref_selection_public (Отборы / selection — DEMAND + results via get_pr | anonymous | vol=<3000 open per ref
+      kind: отборы: name, totalcost, status (open/close/docs_objections), part_count, meta.lots, meta.good_maps[{name, id(OKED), price, amount
+      print: HIGH — selections list exact OKED goods + per-item buyer price; closed ones reveal participant count and contract id (results trai
+      link: https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true
+  [*** NEW ***] ref_reduction_object_public (Понижающие торги / reverse-reduction — DE | anonymous | vol=<3000 per ref; supports print filter and
+      kind: понижающие торги: status (publicated), start_price, remain_time (sec to close — LIVE), part_count (live bidder count), publicated_
+      print: HIGH — print filter 17.23.13.191_00001 returned 2 live print lots (ids 7531021 start 1.275M part_count 4; 7605472 start 12.6M part
+      link: https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true
+  [*** NEW ***] ref_master_agreement_public (Рамочные соглашения / framework agreement | anonymous | vol=historical; status:close = concluded agr
+      kind: рамочные соглашения (signed framework deals): name, totalcost (huge — incumbent supplier volume), status (close), part_count, publ
+      print: MEDIUM — reveals which suppliers hold framework agreements per OKED category and the agreed prices/volumes (competitive intel for 
+      link: https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true
+  [*** NEW ***] ref_online_shop_public (Э-магазин объявления / e-shop offers — SUPPLY/ | anonymous | vol=large catalog; offset capped at 3000 per
+      kind: объявления э-магазина (supplier offers): id, product_name (name field is EMPTY — use product_name), price, amount, unit, status (p
+      print: VERY HIGH — print filter returned Winch's OWN listing 7628192 (Блокнот 500шт 32110 sum) + direct competitors 7647821 (35000) and 7
+      link: https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true (NOTE: new-xarid e-shop uses a DIFFERENT id-spac
+  [CRAWLED] xarid-api-purchase.uzex.uz/Common/GetDirectPurchases (Прямые закупки к | anonymous | vol=229,258 contracts (total_count field). b
+      kind: ЗАКЛЮЧЁННЫЕ контракты прямых закупок: provider_name (WINNER), provider_inn, contract_sum (WINNING PRICE), contract_num, contract_d
+      print: VERY HIGH for results intel — full historical winner+price per category. Already crawled as source 'xarid-direct' (contract_sum->p
+      link: https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true
+  [CRAWLED] xarid-api-purchase.uzex.uz/Common/GetCompetitions (Конкурсы — DEMAND) | anonymous | vol=4,253 open competitions
+      kind: открытые конкурсы: id, category_name, customer_region_name, customer_district_name, cost (budget), currency_name, end_date_submitt
+      print: MEDIUM-HIGH — buyer-side demand with budget, region, deadline. Already crawled as 'xarid-competitions'. Requires full Chrome User-
+      link: https://new-xarid.uzex.uz/home/purchase/proposal-request/detail/{id}
+  [*** NEW ***] xarid-api-shop.uzex.uz/Common/GetOffer/{id} (Э-магазин карточка предло | anonymous | vol=per-id detail endpoint; maps a new-xarid
+      kind: карточка предложения э-магазина (new-xarid id-space): id, product_code(OKED), product_name, price, amount, min/max_delivery_amount
+      print: MEDIUM — detail enrichment for new-xarid e-shop offers. CAUTION: this host's id-space differs from IAC api.xt-xarid.uz (id 7628192
+      link: https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true
+  [*** NEW ***] api.xt-xarid.uz/urpc get_proc (Полная карточка процедуры — ANY type, i | anonymous | vol=per-proc; the urpc transport (NOT /rpc) 
+      kind: полная карточка любой процедуры по proc_id: type, status, fields{product_id(OKED), amount, price, price_gos, price_comm, company_n
+      print: HIGH — enrichment layer. For any print lot id found via refs, get_proc returns the full KTRU spec (paper density, format, finishin
+      link: xt-xarid.uz/procedure/{id}/core (IAC mirror) ; new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true (differen
+  [CRAWLED] api.xt-xarid.uz/rpc ref_tender_public + ref_selection_status_public et | anonymous | vol=tenders <3000 open
+      kind: ref_tender_public already used (status open/close). Status-dictionary refs (ref_status_request_proposals_public, ref_selection_sta
+      print: Baseline (already crawled via xt-xarid). Listed for completeness of the public ref surface
+      link: https://xt-xarid.uz/procedure/{id}/core
+  PRINT PRODUCT_IDS: ["17.23.13.191_00001 (Блокнот — Winch listing 7628192 + competitors 7647821/7637110 found in ref_online_shop_public)", "17.22.11.110_00001 (Ҳожатхона қоғози / toilet paper — appears in ref_reduction_object_public; adjacent paper OKED)", "Print KTRU lives under OKED 17.23.* (бумажные канцтовары) and 17.* (бумага/целлюлоза); category objects carry both OKED code (e.g. 17.23.13.191) and a category uid GUID, both filterable"]
+====================================================================================================
+PLATFORM: xt-xarid.uz (JSON-RPC api.xt-xarid.uz/rpc + urpc get_proc). SPA на Vue: index.html → launcher.js (v1.13.0_404) → iac.ker
+  [*** NEW ***] ref_request_proposals_public — ЗАПРОС ПРЕДЛОЖЕНИЙ (спрос покупателя) | anonymous | vol=много активных (status:open с remain_tim
+      kind: спрос покупателя: потребность гос/корп заказчика, good_maps[] с товаром+ценой+кол-вом, company_name, company_inn, totalcost, fin_s
+      print: ВЫСОКАЯ — здесь оседает спрос на полиграфию (печать, блокноты, бланки). Фильтровать по good_maps[].id с кодами 17.*/18.12.*/58.19.
+      link: xt-xarid.uz/procedure/{id}/core
+  [*** NEW ***] ref_selection_public — ОТБОР (спрос покупателя) | anonymous | vol=много (десятки активных на странице, ста
+      kind: спрос покупателя: процедура отбора, good_maps[] с товаром/ценой/кол-вом, category{code,title}, company_name/inn, totalcost, статус
+      print: ВЫСОКАЯ — отборы на товары; полиграфия проходит через good_maps[].id с кодами 17.23.*/18.12.*
+      link: xt-xarid.uz/procedure/{id}/core
+  [*** NEW ***] ref_master_agreement_public — РАМОЧНОЕ СОГЛАШЕНИЕ | anonymous | vol=исторический + активный; видны записи с 
+      kind: спрос покупателя (рамочные/долгосрочные закупки): good_maps с товаром+ценой, part_count (число участников), company_name, totalcos
+      print: СРЕДНЯЯ — крупные рамочные закупки, изредка полиграфия большими партиями
+      link: xt-xarid.uz/procedure/{id}/core
+  [*** NEW ***] ref_contest_public — КОНКУРС | anonymous | vol=меньше других (нишевые конкурсы), истори
+      kind: спрос покупателя (конкурс/тендер на услуги+товары): good_maps с ценой, company_name/inn, fin_src, статус
+      print: СРЕДНЯЯ — встречаются полиграфические/оформительские лоты (напр. изготовление и оформление)
+      link: xt-xarid.uz/procedure/{id}/core
+  [*** NEW ***] ref_cargo_procedure_public — ГРУЗОПЕРЕВОЗКИ | anonymous | vol=средний поток (свежие proc_id ~4.27M)
+      kind: спрос на перевозку грузов (логистика): вес, адрес отгрузки/доставки, стартовая стоимость, кол-во предложений. Формат другой — prop
+      print: НИЗКАЯ — логистика, не полиграфия (можно НЕ краулить)
+      link: xt-xarid.uz/procedure/{id}/core
+  [*** NEW ***] ref_online_shop_public — Э-МАГАЗИН / ОБЪЯВЛЕНИЯ ПОСТАВЩИКОВ (xt-xarid) | anonymous | vol=большой каталог активных офферов; фильтр
+      kind: объявления поставщиков (предложение): product{product_id,product_name,category}, price, amount, min/max_amount, properties (free-t
+      print: ОЧЕНЬ ВЫСОКАЯ — здесь живут офферы конкурентов по полиграфии И объявления Winch (7628192/7627284 Блокнот). Фильтр product_id:["17.
+      link: new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true (либо карточка через urpc get_proc {proc_id})
+  [*** NEW ***] ref_online_shop_public — Э-МАГАЗИН (hayotbirja, отдельный хост) | anonymous | vol=отдельный каталог (биржа Hayot); работае
+      kind: объявления поставщиков на hayotbirja.uz: name пустой, properties (спецификация), product_name (в product), price, amount, delivery
+      print: СРЕДНЯЯ-ВЫСОКАЯ — отдельный пул офферов; полиграфию ловить тем же фильтром product_id
+      link: hayotbirja.uz/procedure/{id}/core (карточка) либо аналог shop/detail
+  [*** NEW ***] get_proc (urpc) — ПОЛНАЯ КАРТОЧКА ПРОЦЕДУРЫ/ОБЪЯВЛЕНИЯ | anonymous | vol=1 карточка на proc_id; тянуть для нужных
+      kind: полная карточка любой процедуры/объявления по proc_id: type, status, fields{} с описанием (для ad — спецификация печати, фото, зел
+      print: ВЫСОКАЯ — именно здесь полная спецификация печати объявления и (для закрытых) данные о победителе/контракте/цене
+      link: эндпоинт api.xt-xarid.uz/urpc (метод get_proc {proc_id[, part_id, proc_key]})
+  [*** NEW ***] ref_enkt_products — КАТАЛОГ ТОВАРОВ ЕНКТ (master) | anonymous | vol=полный классификатор (тысячи). Разрешённ
+      kind: справочник товаров ЕНКТ: product_id (код вида 17.23.13.191_00001), product_name, name[локали], type, category_id. Это ключ для пер
+      print: КРИТИЧНАЯ — даёт все product_id полиграфии для фильтрации всех каналов выше
+      link: н/д (справочник)
+  [*** NEW ***] ref_enkt_categories / ref_enkt_tree_products / ref_products — ДЕРЕВО К | anonymous | vol=справочники, сотни узлов
+      kind: справочники категорий ЕНКТ (ref_enkt_categories: code, локали, parent_id), дерево товаров (ref_enkt_tree_products: name, has_child
+      print: ВСПОМОГАТЕЛЬНАЯ — навигация/маппинг категорий полиграфии
+      link: н/д
+  [*** NEW ***] ref_online_shop_products_private — список товаров э-магазина (доступен | anonymous | vol=каталог товаров магазина
+      kind: список товаров э-магазина: product_name + product_id (формат с дефисом 27.33.13.190-00013). Несмотря на _private — отдаёт анонимно
+      print: НИЗКАЯ-СРЕДНЯЯ — дублирует enkt_products, но в формате магазина
+      link: н/д
+  [*** NEW ***] ref_exchanges_contracts / ref_scheduled_exchange_contract / ref_billin | unknown | vol=н/д (закрыто анонимно)
+      kind: биржевые контракты (результаты с ценами победителей) — но ref_exchanges_contracts отдаёт 'Действие запрещено' (нужна авторизация);
+      print: потенциально высокая (цены контрактов), но анонимно НЕдоступно — нужна авторизация/eImzo
+      link: н/д
+  [*** NEW ***] ref_*_status_public (ad/selection/request_proposals/master_agreement/c | anonymous | vol=мелкие enum
+      kind: словари статусов процедур (enum-метки для UI). С пустым filters:{} дают HTTP500 — нужен параметр; ценности данных мало (только лей
+      print: НИЗКАЯ — вспомогательные словари для расшифровки status в основных каналах
+      link: н/д
+  PRINT PRODUCT_IDS: ["17.23.13.191_00001 | Блокнот", "17.23.13.191_00002 | Ежедневник", "17.23.13.191_00003 | Еженедельник", "17.23.13.191_00004 | Планинг", "17.23.13.191_00005 | Телефонная книга", "17.23.13.120_00001 | Книга учета универсальная", "17.23.13.110_00001 | Журнал учета", "17.23.13.120_00010 | Книга главная", "17.23.13.143_00001 | Бланки форм учетной и отчетной документации", "17.23.13.141_00001 | Бланки личных документов строгого учета", "17.23.13.194_00001 | Тетрадь ученическая школьная", "17.23.13.195_00001 | Тетрадь общая ученическая", "17.23.13.196_00001 | Тетрадь различного назначения", "17.23.1
+====================================================================================================
+PLATFORM: hayotbirja.uz / xt-xarid.uz (общий бэкенд api.hayotbirja.uz). JSON-RPC ref-API + urpc get_proc. JS-бандлы: реальные refs
+  [CRAWLED] ref_online_shop_public (э-магазин, объявления поставщиков) | anonymous | vol=По одному product_id печати (17.23.13.19
+      kind: объявления поставщиков (supply): товар на продажу в гос/нац/комм э-магазине, с ценой, остатком, спецификацией
+      print: ПРЯМАЯ. Winch-объявления 7628192/7637110/7647821 (Блокнот) + конкуренты по цене видны здесь. КРАУЛИТСЯ уже (xt-xarid-shop), но tit
+      link: https://hayotbirja.uz/procedure/{id}/core (HTTP 200) | enrichment: POST api.hayotbirja.uz/urpc get_proc {proc_
+  [*** NEW ***] ref_request_proposals_public (запрос предложений / RFP) | anonymous | vol=Активные есть прямо сейчас (publicated_a
+      kind: СПРОС покупателя: запрос ценовых предложений, перечень нужных товаров (поле good = массив product_id), бюджет (totalcost), заказчи
+      print: СРЕДНЯЯ-ВЫСОКАЯ как канал СПРОСА. Поле good содержит product_id — пост-фильтр по ОКЭД полиграфии (17.23.x/18.x) на стороне краулер
+      link: https://hayotbirja.uz/procedure/{id}/core | new-xarid.uzex.uz/home/purchase/proposal-request/detail/{id} | get
+  [*** NEW ***] ref_master_agreement_public (рамочные соглашения) | anonymous | vol=История с 2022 (part_count до 8). Активн
+      kind: рамочные/мастер-соглашения: крупные многолотовые закупки, заказчик, перечень good_maps, статус (open/close)
+      print: СРЕДНЯЯ. Рамочные на полиграфию (бумага/картон) попадают сюда; фильтр по good_maps[].category.code client-side. Канал крупных конт
+      link: https://hayotbirja.uz/procedure/{id}/core | get_proc {proc_id}
+  [*** NEW ***] ref_contest_public (конкурсы) | anonymous | vol=История с 2021. Поля fields: green,id,pu
+      kind: конкурсы (услуги/работы/изготовление): заказчик, предмет, источник финансирования, part_count участников
+      print: НИЗКАЯ-СРЕДНЯЯ. Конкурсы на 'изготовление и оформление' (полиграфия/POSM/таблички) встречаются — нашёл 'Изготовление и оформление 
+      link: https://hayotbirja.uz/procedure/{id}/core | get_proc {proc_id}
+  [*** NEW ***] ref_cargo_procedure_public (грузоперевозки) | anonymous | vol=Активные есть (proc 4271066+). Формат: r
+      kind: логистические/грузовые процедуры (вес, адрес отгрузки/доставки, стартовая стоимость). ОТЛИЧАЕТСЯ форматом: отдаёт title/props HTML
+      print: НИЗКАЯ для полиграфии (это перевозки). Включать только если нужен полный охват площадки; по теме печати — пропустить.
+      link: из ответа: title.link = /procedure/{id}/core
+  [*** NEW ***] ref_special_suppliers (реестр единственных/спец-поставщиков) | anonymous | vol=Полный реестр (limit/offset). На запись:
+      kind: реестр поставщиков-монополистов/единственного источника с каталогом их product (product_name, product_code, основание ПП)
+      print: СРЕДНЯЯ как разведка конкурентов: видно кто закреплён единственным поставщиком по конкретным product_code (в т.ч. печать). Фильтр 
+      link: —
+  [*** NEW ***] ref_green_suppliers + ref_bad_suppliers (реестры зелёных / недобросове | anonymous | vol=Полные реестры. Зелёные: name,inn,respub
+      kind: ref_green_suppliers — привилегированные поставщики (inn, регион, район); ref_bad_suppliers — чёрный список (inn, основание, даты)
+      print: НИЗКАЯ для лидов, но ПОЛЕЗНО для скоринга/комплаенса: проверка контрагента (не в blacklist) и понимание привилегированных игроков.
+      link: —
+  [*** NEW ***] get_proc (urpc) — обогащение карточки любой процедуры/объявления | anonymous | vol=1 запрос на карточку. Это ENRICHMENT-сло
+      kind: полная карточка по proc_id: type, status, fields (полное описание печати/ТЗ), gup, external_certificate_ids, ecosystem_producer, l
+      print: ВЫСОКАЯ для обогащения: ref_online_shop_public даёт обрезанное ТЗ, а get_proc отдаёт fields с полным печатным заданием (то самое '
+      link: POST https://api.hayotbirja.uz/urpc {jsonrpc,method:'get_proc',params:{proc_id}}; web /procedure/{id}/core
+  [*** NEW ***] ref_exchanges_contracts / ref_scheduled_exchange_contract_group (КОНТР | eimzo | vol=Недоступно анонимно.
+      kind: контракты бирж/итоги торгов (кто выиграл, цены победителей) — ИМЕННО искомый канал результатов
+      print: БЫЛА БЫ высокой (победители+цены), НО закрыто. Требует авторизации (E-IMZO/JWT). Это остаточный upside, открывается только регистр
+      link: —
+  PRINT PRODUCT_IDS: ["17.23.13.191_00001 (Блокнот — 50+ активных, Winch 7628192/7637110/7647821)", "17.23.13.130_00001 (Папки/Скоросшиватели — Ish papkasi, 50+ активных)", "17.12.14.190_00001 (бумага прочая — 0 активных сейчас)", "18.12.19.000_00001 (прочая печать — 0 активных сейчас)", "Категория в ответе: product.category.code (ОКЭД, напр 17.23.13) + product.product_id"]
+====================================================================================================
+PLATFORM: e-birja / ebirja.uz экосистема (3 раздельных бэкенда: (1) Yii REST xarid-api.ebirja.uz — госзакупки э-магазин; (2) Java 
+  [*** NEW ***] xt-xarid JSON-RPC ref_selection_public (СПРОС: гос-Отборы/конкурентные | anonymous | vol=50+ строк на limit=50 (пагинация offset)
+      kind: спрос покупателя — гос-Отбор (selection): лоты, good_maps с product_id, цена за единицу (price), итог (totalcost), статус, remain_
+      print: ВЫСОКАЯ — это прямой спрос гос-заказчиков. good_maps[].id содержит product_id полиграфии (17.23.13.x). Фильтрацию по полиграфии де
+      link: https://xt-xarid.uz/procedure/{id}/core
+  [CRAWLED] xt-xarid JSON-RPC ref_tender_public (СПРОС: гос-тендеры) | anonymous | vol=пагинация offset; активные тендеры
+      kind: спрос покупателя — тендер: лоты, good_maps с product_id и ценой, totalcost, publicated_at, статус open
+      print: ВЫСОКАЯ — спрос гос-заказчиков; good_maps[].id = product_id. Уже в sources.yaml (id: xt-xarid через SPA), но JSON-RPC дешевле/полн
+      link: https://xt-xarid.uz/procedure/{id}/core
+  [*** NEW ***] ebirja.uz fond-api external/seller-product/all-auction (ПРЕДЛОЖЕНИЕ: т | anonymous | vol=totalCount=42 (на момент проверки), паги
+      kind: объявления поставщиков, выставленных на биржевой аукцион: название, цена (mainPrice), регион/район/адрес продавца, упаковка, базис
+      print: СРЕДНЯЯ — биржа продаёт в основном сырьё/ГСМ/стройматериалы, не полиграфию. Но это ОТДЕЛЬНЫЙ от seller-product/all список (аукцион
+      link: https://ebirja.uz/ru/trade/release-sale
+  [*** NEW ***] ebirja.uz fond-api external/auction-product/all (ВСТРЕЧНЫЙ/обратный ау | anonymous | vol=0 в момент проверки (аукционы короткожив
+      kind: встречные (reverse) аукционы — активные лоты. Сейчас 0 активных (returns {success:true} без data). Страница /trade/reverse-auction
+      print: СРЕДНЯЯ-НИЗКАЯ — обратный аукцион биржи; полиграфия редка, но это чистый JSON API вместо SPA-скрейпа reverse-listing. Парный endpo
+      link: https://ebirja.uz/ru/trade/reverse-auction
+  [*** NEW ***] ebirja.uz fond-api external/seller-product/one (ДЕТАЛЬ объявления пост | anonymous | vol=по одному (param number), для всех 2115 
+      kind: карточка объявления поставщика по number: цена, регион/район/адрес, базис поставки (EXW), упаковка, тип контракта (INTERNAL/EXTERN
+      print: СРЕДНЯЯ — обогащение карточек ebirja-ext-products адресом/упаковкой/базисом. Имя компании НЕ публично
+      link: https://ebirja.uz/ru/trade/announcements
+  [CRAWLED] ebirja.uz fond-api external/contract/all (РЕЗУЛЬТАТЫ: завершённые бирж | anonymous | vol=totalCount=4259, pageCount растёт; пагин
+      kind: контракты/результаты: contractNumber, contractDate, totalPrice, price (цена за лот), lot, amount, продукт, упаковка. Покупатель/пр
+      print: НИЗКАЯ для полиграфии (сырьё/ГСМ), но это эталон рыночных цен. Уже крауится как ebirja-ext-contracts
+      link: https://ebirja.uz/ru/trade/release-sale
+  [CRAWLED] ebirja.uz fond-api external/seller-product/all (ПРЕДЛОЖЕНИЕ: все товар | anonymous | vol=totalCount=2115, pageCount=1058 при size
+      kind: объявления поставщиков (спот/контракт): продукт, цена mainPrice, адрес/регион продавца, упаковка ptName, ТНВЭД. Принимает фильтр s
+      print: СРЕДНЯЯ — уже крауится как ebirja-ext-products. Доп.фильтр sellerProductContractType может расширить выборку (но EXTERNAL дал 400 
+      link: https://ebirja.uz/ru/trade/announcements
+  [*** NEW ***] ebirja.uz fond-api external/seller-product/price-dynamic-for-menu (ДИН | anonymous | vol=справочный массив активных позиций
+      kind: справочник: продукты с динамикой цен (productId, productName*). Парные: price-dynamic-by-week / by-weekly (params), today-one (par
+      print: НИЗКАЯ — биржевое ценовое сырьё, для аналитики цен, не полиграфия
+      link: https://ebirja.uz/ru/trade/announcements
+  [CRAWLED] xarid-api.ebirja.uz /shop/product/announce-list (ПРЕДЛОЖЕНИЕ: гос-Э-ма | anonymous | vol=e-shop totalCount=45235; perPage кап = 1
+      kind: объявления поставщиков э-магазина: title (с OKED-кодом), классификатор/категория, картинки, made_in (страна), unit_price, min/max_
+      print: ВЫСОКАЯ — каталог содержит полиграфию/бумагу OKED 17.23.13.x (Папка 17.23.13.193, Блокнот 17.23.13.191) и 22.29.x. Уже крауится (e
+      link: https://xarid.ebirja.uz/ru/shop/{id}
+  [*** NEW ***] ebirja.uz fond-api external/sp/video-materials + external/sp/* (вспомо | anonymous | vol=video-materials totalCount=14
+      kind: контент-справочники: видео-материалы (инструкции), новости sp/new и sp/news (требуют доп.параметры — 400 на page/size)
+      print: НУЛЕВАЯ — служебный контент площадки, не закупочные данные. Перечислено для полноты карты endpoint
+      link: https://ebirja.uz/ru
+  PRINT PRODUCT_IDS: ["17.23.13.191_00001 (Блокнот — установленный факт)", "17.23.13.193-00005 (Папка — найдено в e-shop announce-list стр.0)", "17.23.13.x (бумажно-канцелярская группа классификатора)", "22.29.21.006-00006 (Клейкая лента — найдено в e-shop)", "В good_maps[].id refs ref_selection_public/ref_tender_public product_id приходит в формате CODE_NNNNN (напр. 22.11.13.110_00001) — фильтр полиграфии по префиксу 17.23/18 client-side"]
+====================================================================================================
+PLATFORM: cooperation.uz / stat-new.cooperation.uz — НЕДОСТУПНЫ из этого окружения (UZ-only geo-block на TCP). Реверс выполнен на 
+  [CRAWLED] stat-new.cooperation.uz/gateway/api-stat/auction-contracts (и кандидат | anonymous | vol=контракты — большой архив (уже краулим).
+      kind: результаты/контракты с ценами победителей (customerName/producerName/TINs/prices/скидка%); кандидаты api-stat/* НЕ проверены
+      print: ВЫСОКАЯ — печатные контракты ТНВЭД 4819/4911/4821, заказчик+цена победителя+скидка%. Главный канал результатов
+      link: stat-new.cooperation.uz/gateway/api-stat/{endpoint}?page=0&size=N (REST gateway, не RPC)
+  [*** NEW ***] cooperation.uz JS-бандлы (grep gateway/api) | anonymous | vol=—
+      kind: карта эндпоинтов платформы (имена api-stat/* путей и refs)
+      print: инструментальная — раскроет полный список api-stat/* эндпоинтов для проверки
+      link: https://cooperation.uz/ → <script src='*.js'>
+  [*** NEW ***] api.xt-xarid.uz/rpc ref_online_shop_public (э-магазин / объявления пос | anonymous | vol=тысячи активных объявлений; фильтруется 
+      kind: объявления поставщиков э-магазина (product_name, price, close_at, owner_registration_status, properties=полное описание товара); п
+      print: ВЫСОКАЯ — объявления конкурентов по блокнотам/печати с ценами. main.md: hayotbirja-shop источник enabled но 0 строк в БД (баг titl
+      link: xt-xarid.uz/online-shop/{proc_id} (карточка); proc_id из get_proc
+  [*** NEW ***] api.xt-xarid.uz/urpc get_proc (полная карточка объявления, анонимно) | anonymous | vol=1 запрос = 1 карточка; обогащает каждый 
+      kind: полная карточка объявления/процедуры: desc (печатная спека), product_id, producer, brand, year, фото-UUID, 47 полей
+      print: ВЫСОКАЯ — даёт ПОЛНУЮ печатную спеку конкурента (плотности, отделка, ламинация, пантоны) + фото. Это конкурентная разведка по объя
+      link: POST api.xt-xarid.uz/urpc method=get_proc {proc_id}
+  [CRAWLED] api.xt-xarid.uz/rpc ref_reduction_object_public (обратные аукционы — с | anonymous | vol=~167/прогон, БД 1542 (per main.md)
+      kind: объекты обратных аукционов: status, start_price, remain_time, publicated_at, part_count, meta.good_maps (товар+ТНВЭД-категория с u
+      print: ВЫСОКАЯ для бумажно-печатных ТНВЭД — это активный спрос (что покупатели хотят купить со снижением цены)
+      link: xt-xarid.uz/procedure/{id}/core
+  [CRAWLED] api.xt-xarid.uz/rpc ref_tender_public (тендеры — спрос покупателя) | anonymous | vol=большой архив (id ~7.4M)
+      kind: тендеры покупателей: анонимно отдаёт ТОЛЬКО {id, name='Tender', status}. customer_name/start_price/даты ТИХО отбрасываются без E-I
+      print: СРЕДНЯЯ — без customer_name/цены анонимно мало пользы; полные данные требуют E-IMZO (уже автоматизирован per main.md)
+      link: xt-xarid.uz/procedure/{id}/core
+  [*** NEW ***] etender.uzex.uz (SPA, миграция полиграфии по реформе-2026) | anonymous | vol=—
+      kind: Angular SPA — отдаёт shell с JS-бандлами (runtime/polyfills/scripts/main.*.js). API-host (new-xarid.uzex.uz / xarid-api-prequest.u
+      print: РАСТУЩАЯ — по реформе-2026 услуги полиграфии (ОКЭД 18.12/18.13/18.14) уходят сюда с cooperation. Реверснуть бандлы etender (достиж
+      link: new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true | /home/purchase/proposal-request/detail/{id}
+  PRINT PRODUCT_IDS: ["17.23.13.191_00001 (Блокнот / notebook — категория Winch, verified в e-shop и get_proc)", "17.22.11.110_00001 (Ҳожатхона қоғози / туалетная бумага — пример из ref_reduction_object_public, бумажная категория)"]
+====================================================================================================
+PLATFORM: etender.uzex.uz + xarid.uzex.uz (UZEX госзакупки). Обе — Angular SPA. КОРЕНЬ "почти не алертится": ВСЕ list-эндпоинты об
+  [CRAWLED] etender — TradeList (конкурсы/тендеры, typeid=1) | anonymous | vol=614 активных лотов (total_count=614). ty
+      kind: спрос покупателя (активные конкурсы госзаказчиков; заказчик=seller_name, цена=cost, дедлайн=end_date)
+      print: ВЫСОКАЯ как канал, но list НЕ содержит позиций — релевантность печати видна только в detail (budget_products[].Product_Name). Скор
+      link: https://etender.uzex.uz/lot/{id}?hasInviteProv=1
+  [*** NEW ***] etender — GetTrade/{id}/0 (DETAIL лота: позиции, спеки, файлы ТЗ) — НЕ | anonymous | vol=1 detail на каждый из 614 лотов
+      kind: спрос покупателя — ПОЛНАЯ карточка: budget_products[] (Product_Name/Category_Name/Description/Quantity/Price/Js_Properties), compe
+      print: КРИТИЧНО для recall: тут лежит Product_Name='Секундомер электронный' и т.п. — единственное место где видно что реально закупают. П
+      link: https://etender.uzex.uz/lot/{id}
+  [CRAWLED] etender — DiscussionTradeList (предтендерные обсуждения проектов) | anonymous | vol=208 активных обсуждений (total_count=208
+      kind: спрос покупателя НА РАННЕЙ стадии (project-discussion = консультация заказчика с рынком ДО объявления тендера) — опережающий сигна
+      print: Средняя — ранний спрос; позиции опять только в detail. Вероятно это и есть '+discussion' который мы краулим
+      link: https://etender.uzex.uz/lot/{id}
+  [*** NEW ***] etender — NotDealedList (несостоявшиеся / fail-list) | anonymous | vol=анонимно отдаёт; объём = архив несостояв
+      kind: результаты — лоты без победителя (status_id=12 и т.п.), category_name=предмет, customer, start_cost, participants_count
+      print: Низкая-средняя — конкурентная разведка (что не разыграли). category_name тут несёт предмет напрямую
+      link: https://etender.uzex.uz/lot/{trade_id}
+  [*** NEW ***] etender — DealsList (заключённые сделки/победители с ценами) | unknown | vol=GetTopStats: deals_count=3303. Список ан
+      kind: результаты/контракты с ценами победителей
+      print: Высокая если откроется (цены победителей по печати). Нужен ещё один реверс точного body (через рендер /deals-list страницы залогин
+      link: https://etender.uzex.uz/deals-list
+  [*** NEW ***] etender — GetTopStats / GetMapStats (агрегаты площадки) | anonymous | vol=GET без тела
+      kind: статистика площадки (deals_count, providers_count, active_proposals)
+      print: Низкая (мониторинг здоровья площадки, не лиды)
+      link: n/a
+  [CRAWLED] xarid — GetCompetitions (конкурсы, 'xarid-competitions') | anonymous | vol=4253 активных конкурса (total_count=4253
+      kind: спрос покупателя (открытые конкурсы). List: ТОЛЬКО category_name(ОКЭД)+cost+region+end_date. БЕЗ предмета/позиций
+      print: ВЫСОКАЯ как канал, но keyword по list мимо (только ОКЭД). Это и есть наш 'xarid-competitions' с потерей предмета
+      link: https://xarid.uzex.uz/purchase/competition/detail/{id}
+  [*** NEW ***] xarid — GetCompetition/{id} (DETAIL конкурса: позиции js_details) — НЕ | anonymous | vol=1 detail на каждый из 4253 конкурсов
+      kind: спрос покупателя — ПОЛНАЯ карточка: competition_description (предмет), js_details[] (product_name/description/quantity/price/js_pr
+      print: КРИТИЧНО для recall xarid-competitions: единственное место с предметом и позициями. Без него печатные конкурсы под generic-ОКЭД не
+      link: https://xarid.uzex.uz/purchase/competition/detail/{id}
+  [CRAWLED] xarid — GetDirectPurchases (прямые закупки/контракты, 'xarid-direct') | anonymous | vol=229258 контрактов (total_count=229258) —
+      kind: контракты с ценами и победителями: provider_name(победитель)+provider_inn, contract_sum, customer_name/inn, contract_num/date, dec
+      print: ВЫСОКАЯ для конкурентной разведки (кто/по какой цене выиграл печать). Но предмет в list — только ОКЭД; позиции в detail (has_detai
+      link: https://xarid.uzex.uz/purchase/direct-purchase/{id} (точный detail-роут не подтверждён, list-роут /purchase/di
+  [*** NEW ***] xarid — GetProcurementAnnouncements (планы/объявления закупок 'procure | anonymous | vol=анонимно отдаёт (пагинация from/to)
+      kind: ПЛАНЫ закупок (опережающий спрос): proc_plan_name, mfi (заказчик), delivery_days, date_submission, регион. Forward-looking
+      print: Средняя-высокая — план закупок на год вперёд = ранний сигнал на печать до объявления конкурса
+      link: https://xarid.uzex.uz/purchase/procurement-common/list
+  [*** NEW ***] xarid — GetMinimizedLotsList (электронные аукционы) — отдельный канал, | anonymous | vol=592 активных аукциона (total_count=592)
+      kind: спрос покупателя через обратные аукционы: category_name(ОКЭД)+customer_type+start_cost+min_cost+region+end_date. List без предмета
+      print: Высокая как канал; предмет/позиции — в detail аукциона. Не путать с xt-xarid-reduction (другая площадка)
+      link: https://xarid.uzex.uz/auction/detail/{id}
+  [*** NEW ***] xarid — GetOffersList (э-магазин: предложения поставщиков) — НЕ КРАУЛИ | anonymous | vol=551548 офферов (total_count=551548)
+      kind: объявления поставщиков (B2G каталог товаров): product_name+product_code(ТНВЭД-подобный код)+price+amount+country+фото. ЕСТЬ предме
+      print: ВЫСОКАЯ и ЛЕГКО краулится: product_name в list → keyword прямо работает без detail. Аналог xt-xarid ref_online_shop_public. Можно 
+      link: https://xarid.uzex.uz/shop/lot-details/{id} (роут /shop/products-list/eshop|national)
+  [CRAWLED] xarid — Public/GetLots (предквалификации 'Taklif so'rovi' / proposal-r | anonymous | vol=не дозамерено (host xarid-api-prequest т
+      kind: спрос покупателя (запросы предложений/предквалификации). Уже задокументирован в проекте (deep-link proposal-request/detail/{id})
+      print: Средняя-высокая; канал уже краулится и верифицирован рендером 08.06 (№261191410073385 Услуги издательские 68.7М)
+      link: https://xarid.uzex.uz/purchase/proposal-request/detail/{id} (PREQUEST_API_URL/api/Public/GetLot?id={id})
+  PRINT PRODUCT_IDS: ["xarid e-shop product_code (ОКЭД-подобный): 17.12=бумага, 17.21/17.22/17.23=гофра/коробки/блокноты, 18.12/18.13/18.14=полиграфия/допечать/брошюровка, 22.21.42=плёнка полиэтиленовая, 22.22=пластиковая упаковка. Пример из живого ответа GetOffersList: 22.21.42.120-00006 'Пленка полиэтиленовая'. Поиск печати в e-shop = фильтр GetOffersList по product_code начинающемуся на 17/18 + 22.21/22.22", "etender budget_products[].Category_Id (пример 119460='Оборудование компьютерное...'); для печати искать по Category_Name содержащему 'бумаг/полиграф/печат/издат/типограф' в detail GetTrade/{id}/0"]
