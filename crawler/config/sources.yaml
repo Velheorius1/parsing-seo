@@ -914,6 +914,154 @@ sources:
 
   # ── UZEX Обратные аукционы (спрос — покупатель создал лот) ──────
 
+  # ===== П5 (2026-06-11): UZEX э-магазин (GetOffersList, 552K+ офферов) =====
+  # Server-side фильтр ТОЛЬКО по category_id (free-text игнорируется). Print-срез
+  # ~21K в 4 категориях. Жёсткости API: page size = 12 (сервер игнорирует ширину
+  # окна from/to), ПОЛНЫЙ Chrome UA обязателен (без Chrome/...Safari/... суффикса
+  # → HTTP 500 "Missing User-Agent"). Сортировка newest-first (date_ini DESC) →
+  # первые страницы покрывают дельту. price = цена/ед × amount (как в xt-xarid
+  # shop). Имя источника содержит "э-магазин" → supplier-ad контекст в relevance
+  # промпте (PR #9). Дедуп по id (total_count растёт в реальном времени).
+  - id: uzex-shop-print
+    name: "UZEX Э-магазин печатные услуги"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api-shop.uzex.uz/Common/GetOffersList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    body: {"category_id": 113765}
+    rate_limit: 1.0
+    timeout: 30
+    id_prefix: "uzshop-print"
+    field_map:
+      title: product_name
+      organization: producer_country_name
+      price: "_price_times_amount"
+      currency: currency_name
+      deadline: ""
+      external_id: id
+      source_url_template: "https://xarid.uzex.uz/shop/lot-details/{external_id}"
+      extra_info:
+        "Цена/ед": "{price} {currency_name} за {unit_name}"
+        "Кол-во": "{amount} {unit_name}"
+        "Код": "{product_code}"
+        "Опубликовано": "{date_ini}"
+    keywords_fields: [product_name, product_code]
+    pagination:
+      type: offset
+      param: "from"
+      size_param: "to"
+      page_size: 12
+      max_pages: 10
+      total_field: "0.total_count"
+
+  - id: uzex-shop-paper
+    name: "UZEX Э-магазин бумага и изделия"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api-shop.uzex.uz/Common/GetOffersList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    body: {"category_id": 113434}
+    rate_limit: 1.0
+    timeout: 30
+    id_prefix: "uzshop-paper"
+    field_map:
+      title: product_name
+      organization: producer_country_name
+      price: "_price_times_amount"
+      currency: currency_name
+      deadline: ""
+      external_id: id
+      source_url_template: "https://xarid.uzex.uz/shop/lot-details/{external_id}"
+      extra_info:
+        "Цена/ед": "{price} {currency_name} за {unit_name}"
+        "Кол-во": "{amount} {unit_name}"
+        "Код": "{product_code}"
+        "Опубликовано": "{date_ini}"
+    keywords_fields: [product_name, product_code]
+    pagination:
+      type: offset
+      param: "from"
+      size_param: "to"
+      page_size: 12
+      max_pages: 15
+      total_field: "0.total_count"
+
+  - id: uzex-shop-publish
+    name: "UZEX Э-магазин издательские услуги"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api-shop.uzex.uz/Common/GetOffersList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    body: {"category_id": 125883}
+    rate_limit: 1.0
+    timeout: 30
+    id_prefix: "uzshop-publish"
+    field_map:
+      title: product_name
+      organization: producer_country_name
+      price: "_price_times_amount"
+      currency: currency_name
+      deadline: ""
+      external_id: id
+      source_url_template: "https://xarid.uzex.uz/shop/lot-details/{external_id}"
+      extra_info:
+        "Цена/ед": "{price} {currency_name} за {unit_name}"
+        "Кол-во": "{amount} {unit_name}"
+        "Код": "{product_code}"
+        "Опубликовано": "{date_ini}"
+    keywords_fields: [product_name, product_code]
+    pagination:
+      type: offset
+      param: "from"
+      size_param: "to"
+      page_size: 12
+      max_pages: 10
+      total_field: "0.total_count"
+
+  - id: uzex-shop-adv
+    name: "UZEX Э-магазин рекламные услуги"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api-shop.uzex.uz/Common/GetOffersList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    body: {"category_id": 126986}
+    rate_limit: 1.0
+    timeout: 30
+    id_prefix: "uzshop-adv"
+    field_map:
+      title: product_name
+      organization: producer_country_name
+      price: "_price_times_amount"
+      currency: currency_name
+      deadline: ""
+      external_id: id
+      source_url_template: "https://xarid.uzex.uz/shop/lot-details/{external_id}"
+      extra_info:
+        "Цена/ед": "{price} {currency_name} за {unit_name}"
+        "Кол-во": "{amount} {unit_name}"
+        "Код": "{product_code}"
+        "Опубликовано": "{date_ini}"
+    keywords_fields: [product_name, product_code]
+    pagination:
+      type: offset
+      param: "from"
+      size_param: "to"
+      page_size: 12
+      max_pages: 5
+      total_field: "0.total_count"
+
   - id: uzex-auctions
     name: "UZEX Обратные аукционы"
     adapter: api
