@@ -1618,6 +1618,8 @@ sources:
     timeout: 20
     id_prefix: "trust"
     html_selectors:
+      # П8 12.06: ext_id был «3» (из %3B в URL!) — слаг целиком.
+      external_id_regex: "/([^/?#]+)/?$"
       container: "div.tenders-list div.item"
       title: "h3 a"
       deadline: "div.caption"
@@ -1633,7 +1635,9 @@ sources:
     name: "Asia Alliance Bank"
     adapter: html
     enabled: true
-    url: "https://aab.uz/ru/press_center/tenders/last/"
+    # П8 12.06: /last/ = HTTP 404 (путь скопирован с trustbank) → 0 строк за всю
+    # историю. Реальный листинг /all/ (15 лотов, селекторы валидны без изменений).
+    url: "https://aab.uz/ru/press_center/tenders/all/"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
@@ -1666,6 +1670,8 @@ sources:
     timeout: 20
     id_prefix: "anor"
     html_selectors:
+      # П8 12.06: ext_id-гигиена — слаг целиком вместо первого числа.
+      external_id_regex: "/([^/?#]+)/?$"
       container: "div.news_list_wrapper_items"
       title: "h3"
       deadline: "div.news_list_wrapper_items_article-bottom span"
@@ -1689,6 +1695,9 @@ sources:
     timeout: 20
     id_prefix: "nbu"
     html_selectors:
+      # П8 12.06: первое число из href = ДЕНЬ из даты в слаге («14») → лоты
+      # одного дня коллидировали по external_id (в БД 9 строк). Берём слаг.
+      external_id_regex: "/ru/tendery/([^/?#]+)"
       container: "a.newsfeed_01_news-item"
       title: "div.newsfeed_01_news-title"
       deadline: ""
@@ -2166,6 +2175,8 @@ sources:
     timeout: 20
     id_prefix: "sqb"
     html_selectors:
+      # П8 12.06: ext_id-гигиена — слаг целиком вместо первого числа.
+      external_id_regex: "/([^/?#]+)/?$"
       container: ".news-item"
       title: "div.news-title a"
       deadline: "div.news-date"
