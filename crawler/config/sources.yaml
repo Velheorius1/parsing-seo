@@ -172,7 +172,11 @@ sources:
       organization: psupl
       deadline: deadline
       external_id: guid
-      source_url_template: "https://b2biz.uz/home/tenders/{id}"
+      # 2026-06-11: /home/tenders/{id} — роута нет в SPA (404 у всех алертов).
+      # Канонический детальный роут — /home/tender/{guid}/overview (единств. число,
+      # найден в route map бандла + share-link). Аноним редиректится на /login
+      # (auth-wall площадки) — залогиненный менеджер попадает ровно на лот.
+      source_url_template: "https://b2biz.uz/home/tender/{external_id}/overview"
     keywords_fields: [ptitle, psupl, ptypename]
     pagination:
       type: page
@@ -199,7 +203,9 @@ sources:
       organization: brandname
       deadline: plan_end
       external_id: proc_guid
-      source_url_template: "https://b2biz.uz/home/procurement-plans"
+      # 2026-06-11: был статический листинг (165 записей на 1 URL, листать 6 страниц
+      # руками). Нативный share-URL площадки ведёт прямо на строку плана.
+      source_url_template: "https://b2biz.uz/home/procurement-plans/{external_id}/row"
     keywords_fields: [title, brandname, description]
     pagination:
       type: page
@@ -224,7 +230,9 @@ sources:
     rate_limit: 1
     timeout: 30
     id_prefix: "minstroy"
-    response_path: "data"
+    # 2026-06-11: API сменил форму ответа {data:[...]} -> {result:{data:[...]}}
+    # (источник тихо молчал с 15.04 — response_path промахивался)
+    response_path: "result.data"
     field_map:
       title: name
       organization: customer.name
@@ -236,7 +244,10 @@ sources:
       region: region.name
       categories: service_type.name
       external_id: unique_name
-      source_url_template: "https://tender.mc.uz/tender/{id}"
+      # 2026-06-11: /tender/{id} — роута нет в React Router (клиентский редирект
+      # на главную). Рабочий роут /tender-list/tender/{id}/view; {id} = ЧИСЛОВОЙ
+      # item.id (адаптер подставляет item['id']), НЕ unique_name.
+      source_url_template: "https://tender.mc.uz/tender-list/tender/{id}/view"
     keywords_fields: [name, customer.name, address, region.name, service_type.name]
     pagination:
       type: page
@@ -1255,9 +1266,12 @@ sources:
       title: title
       organization: "Ипотека-банк"
       deadline: deadline
-      source_url_template: "https://ipotekabank.uz{link}"
+      source_url_template: "https://www.ipotekabank.uz{link}"  # www: apex всегда 301-редиректит
     keywords_fields: [title]
 
+  # 2026-06-11: сайт за F5/TSPD антибот-защитой (интермиттентно отдаёт
+  # challenge-страницу вместо HTML, источник молчит с 07.05). С VPS-IP может
+  # проходить — оставлен enabled. Если и там TSPD — нужен spa-адаптер (рендер).
   - id: hamkorbank
     name: "Хамкорбанк"
     adapter: html
@@ -1684,10 +1698,13 @@ sources:
 
   # — Строительство —
 
+  # ОТКЛЮЧЁН 2026-06-11: полный дубль minstroy-tenders (тот же API, но без
+  # status=2 фильтра и пагинации), молчит с 2026-04-15, уже в KNOWN_RETIRED
+  # watchdog'а. Держал двойные строки в БД.
   - id: tender-mc
     name: "Минстрой (tender.mc.uz)"
     adapter: api
-    enabled: true
+    enabled: false
     url: "https://apisitender.mc.uz/api/tenders"
     method: GET
     headers:
@@ -1705,7 +1722,7 @@ sources:
       date_end: end_term_work
       region: region.name
       external_id: id
-      source_url_template: "https://tender.mc.uz/tender/{id}"
+      source_url_template: "https://tender.mc.uz/tender-list/tender/{id}/view"
     keywords_fields: [name]
     response_path: "data"
 
