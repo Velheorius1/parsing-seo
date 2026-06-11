@@ -2663,6 +2663,41 @@ sources:
       page_size: 100
       max_pages: 30
 
+  # П6 (2026-06-11): запросы предложений (RFP) — СПРОС покупателей с перечнем
+  # товаров (good_maps), бюджетом и дедлайном. Поток малый (~15 open на всю
+  # платформу, print ~1-2/мес: «Гувоҳнома бланки» 4M, «Иш журнали» 68.5M), но
+  # это прямые лиды. Лента ~75% архива (close/cancel вперемешку с open) →
+  # item_filter по активным статусам ОБЯЗАТЕЛЕН. ⚠️ burst-throttle платформы
+  # маскируется под bad_params "limit <= 100" на валидный limit — это rate-limit,
+  # не ошибка схемы (rate_limit 2.0 + ранний break пагинации это гасят).
+  - id: xt-xarid-request-proposals
+    name: "XT-Xarid запросы предложений"
+    adapter: jsonrpc
+    enabled: true
+    url: "https://api.xt-xarid.uz/rpc"
+    rpc_ref: "ref_request_proposals_public"
+    rpc_method: "ref"
+    rate_limit: 2.0
+    timeout: 15
+    id_prefix: "xtx-rp"
+    dedup_group: "xtx-request-proposals"
+    field_map:
+      title: "name"
+      organization: "company_name"
+      price: "totalcost"
+      currency: "currency"
+      deadline: "close_at"
+      external_id: "id"
+      source_url_template: "https://xt-xarid.uz/procedure/{external_id}/core"
+    keywords_fields: ["name", "meta.good_maps"]
+    pagination:
+      type: offset
+      param: offset
+      page_size: 100
+      max_pages: 5
+    item_filter:
+      status: { in: [open, check_proposals] }
+
   - id: xt-xarid-reduction
     name: "XT-Xarid встречные аукционы"
     adapter: jsonrpc
