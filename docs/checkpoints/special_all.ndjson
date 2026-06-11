@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","id":1,"error":{"message":"Некоторые поля содержат ошибки","data":[{"name":"limit","message":"Значение должно быть <= 100"}],"code":"bad_params"}}
+{"jsonrpc":"2.0","id":1,"error":{"message":"Некоторые поля содержат ошибки","data":[{"name":"limit","message":"Значение должно быть <= 100"}],"code":"bad_params"}}
+{"jsonrpc":"2.0","id":1,"error":{"message":"Некоторые поля содержат ошибки","data":[{"name":"limit","message":"Значение должно быть <= 100"}],"code":"bad_params"}}
+{"jsonrpc":"2.0","id":1,"error":{"message":"Некоторые поля содержат ошибки","data":[{"name":"limit","message":"Значение должно быть <= 100"}],"code":"bad_params"}}

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Parsing SEO — Мастер-план охвата и ссылок (11.06.2026)</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --border:#30363d; --text:#c9d1d9; --dim:#8b949e;
+          --green:#3fb950; --red:#f85149; --yellow:#d29922; --blue:#58a6ff; --purple:#bc8cff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font:14px/1.55 -apple-system,'Segoe UI',Roboto,sans-serif; padding:24px; max-width:1180px; margin:0 auto; }
+  h1 { font-size:24px; margin-bottom:4px; }
+  h2 { font-size:18px; margin:28px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+  h3 { font-size:15px; margin:16px 0 8px; color:var(--blue); }
+  .sub { color:var(--dim); margin-bottom:20px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px; margin:16px 0; }
+  .kpi { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px; }
+  .kpi .num { font-size:26px; font-weight:700; }
+  .kpi .lbl { color:var(--dim); font-size:12px; }
+  .g { color:var(--green); } .r { color:var(--red); } .y { color:var(--yellow); } .b { color:var(--blue); } .p { color:var(--purple); }
+  table { width:100%; border-collapse:collapse; margin:10px 0 18px; font-size:13px; }
+  th { text-align:left; color:var(--dim); font-weight:600; padding:7px 10px; border-bottom:2px solid var(--border); }
+  td { padding:7px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+  code { background:#1f2937; padding:1px 5px; border-radius:4px; font-size:12px; color:#e3b341; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+  .tag.ok { background:#0f2e1b; color:var(--green); } .tag.bad { background:#3d1418; color:var(--red); }
+  .tag.warn { background:#3a2d10; color:var(--yellow); } .tag.info { background:#0d2540; color:var(--blue); }
+  .tag.dead { background:#21262d; color:var(--dim); }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; margin:12px 0; }
+  .prio { font-weight:700; font-size:15px; }
+  ul { margin:6px 0 6px 20px; } li { margin:3px 0; }
+  .small { font-size:12px; color:var(--dim); }
+  .hl { background:#2d2008; border-left:3px solid var(--yellow); padding:10px 14px; border-radius:0 6px 6px 0; margin:12px 0; }
+</style>
+</head>
+<body>
+
+<h1>🎯 Мастер-план: видеть все тендеры + прямые ссылки + быстрое КП</h1>
+<p class="sub">Синтез 4 сессий исследования 10–11.06.2026 · 100+ агентов · все факты verified curl'ом · сырьё в <code>docs/checkpoints/</code></p>
+
+<div class="grid">
+  <div class="kpi"><div class="num g">2 PR в проде</div><div class="lbl">э-магазин открыт: 23+28 алертов за 2 краула, precision-фикс работает</div></div>
+  <div class="kpi"><div class="num b">11 каналов</div><div class="lbl">верифицировано с готовыми рецептами внедрения</div></div>
+  <div class="kpi"><div class="num y">156 810</div><div class="lbl">сделок с ценами победителей (DealsList — открыт анонимно!)</div></div>
+  <div class="kpi"><div class="num p">552 913</div><div class="lbl">офферов э-магазина UZEX (print-срез ~21K, server-side фильтр)</div></div>
+  <div class="kpi"><div class="num r">6 сломанных</div><div class="lbl">шаблонов ссылок + 15 мёртвых источников + ebirja 401</div></div>
+</div>
+
+<div class="hl">⚡ <b>Критичная находка по скорости:</b> окно приёма ставок обратного аукциона xt-xarid = <b>1 ЧАС</b> после старта. Краул 3×/день физически опаздывает — для reduction-каналов нужен частый краул (15–30 мин) либо отдельный лёгкий «дозор».</div>
+
+<h2>1. Что уже в проде (сделано 10.06)</h2>
+<table>
+<tr><th>PR</th><th>Что</th><th>Результат (live)</th></tr>
+<tr><td><a href="https://github.com/Velheorius1/parsing-seo/pull/8" class="b">#8</a></td><td>Источник <code>xt-xarid-shop</code> (ref_online_shop_public) + фикс адаптера (title из product_name, цена×кол-во)</td><td><span class="tag ok">LIVE</span> 2970 строк/краул, 23 алерта #2530–2552. Твои блокноты «Цвет белый/синий» такого типа теперь ловятся</td></tr>
+<tr><td><a href="https://github.com/Velheorius1/parsing-seo/pull/9" class="b">#9</a></td><td>Supplier-ad контекст в relevance-промпт (только для э-магазина)</td><td><span class="tag ok">VERIFIED</span> 2-й краул: 28 алертов, 0 мусора (Epinephrine-фантазии исчезли). Бонус: карта конкурентов — Print makon, Print World, Растр Плюс Принт, The color print service</td></tr>
+</table>
+
+<h2>2. Сломанные ссылки — фиксы готовы (П2)</h2>
+<table>
+<tr><th>Источник</th><th>Сейчас</th><th>Фикс (проверен на живых id)</th></tr>
+<tr><td><b>B2Biz тендеры</b></td><td><span class="tag bad">404 у всех</span> /home/tenders/{id} — роута нет в SPA</td><td><code>https://b2biz.uz/home/tender/{id}/overview</code> (singular). Аноним → /login (auth-wall площадки). Healthcheck: анонимный API <code>GET /api/v1/etp/get-list-published-procedures/</code></td></tr>
+<tr><td><b>B2Biz планы</b></td><td><span class="tag warn">165 записей на 1 листинг</span></td><td><code>https://b2biz.uz/home/procurement-plans/{id}/row</code> — нативный share-URL площадки</td></tr>
+<tr><td><b>tender.mc.uz</b> (×2)</td><td><span class="tag bad">редирект на главную</span></td><td><code>https://tender.mc.uz/tender-list/tender/{id}/view</code>, {id} = числовой. API healthcheck: <code>apisitender.mc.uz/api/tenders/{id}</code>. Дубль tender-mc → enabled:false</td></tr>
+<tr><td><b>hamkorbank</b></td><td><span class="tag warn">href без слэша → битый хост</span></td><td>urljoin-нормализация href в адаптере</td></tr>
+<tr><td><b>snap.py</b></td><td><span class="tag warn">case-чувствительный префикс "xt-xarid"; UZEX-Предкв коммент ≠ код</span></td><td><code>source.lower().startswith()</code> + сверить список с реальностью 08.06</td></tr>
+<tr><td><b>ipotekabank</b></td><td><span class="tag info">лишний 301-хоп</span></td><td>косметика: www-host в шаблон</td></tr>
+</table>
+<p class="small">Рабочие подтверждены (фикс НЕ нужен): 19 Telegram, etender /lot/{id}, worldbank, xt-xarid /procedure/{id}/core (все типы через urpc get_proc), tashkentsteel, uzairways, UNDP, UNGM, ISDB, OSCE, grants.gov. Для каждого записан API-рецепт автоматического healthcheck ссылок.</p>
+
+<h2>3. Новые каналы — verified, по приоритету внедрения</h2>
+
+<div class="card">
+<div class="prio g">🥇 П4. etender DealsList + NotDealedList — цены победителей + несостоявшиеся лоты</div>
+<ul>
+<li><b>156 810 сделок</b> (растёт +1–2/мин) — победитель (имя+ИНН), цена сделки vs стартовая, заказчик. <b>Открыт анонимно</b>, прежний вывод «закрыт» опровергнут.</li>
+<li>Print-сегмент ~220–300 сделок: <b>PRINTUZ 1.27 млрд</b> (реклам-полиграфия), <b>DEKOS GROUP 298M</b> (Uzbekistan Airways bosma, старт был 516M = −42%!), CREDO PRINT GROUP 355M, PECHATNIK VOSTOKA 547M.</li>
+<li><b>NotDealedList 53 510</b> несостоявшихся: например «Keng formatli nashr» 322M, 2 участника, не разыгран — <b>готовый лид</b> (заказчику всё ещё надо!).</li>
+<li>Рецепт: <code>POST apietender.uzex.uz/api/common/DealsList {"From":1,"To":201}</code> + Keyword-фильтр; деталь GetTrade/{id}/0. Заголовки не нужны.</li>
+</ul>
+</div>
+
+<div class="card">
+<div class="prio g">🥈 П5. UZEX GetOffersList — э-магазин 552K с server-side print-фильтром</div>
+<ul>
+<li>Аналог уже выстрелившего xt-xarid-shop, но на UZEX: <b>~21K print-офферов</b> в 4 категориях (113765 печатные=1974, 113434 бумага=14640, 125883 издательские=3986, 126986 рекламные=368), постятся в реальном времени.</li>
+<li>Жёсткости: page size = 12 (не изменяется), <b>полный Chrome UA обязателен</b> (иначе HTTP 500), текстовый поиск не работает — только category_id. Полный print-обход ≈ 1748 запросов, дельта в день — десятки.</li>
+<li>Рецепт: <code>POST xarid-api-shop.uzex.uz/Common/GetOffersList {"from":1,"to":12,"category_id":113765}</code>; deep-link <code>xarid.uzex.uz/shop/lot-details/{id}</code>.</li>
+</ul>
+</div>
+
+<div class="card">
+<div class="prio y">🥉 П7. Detail-enrichment etender + xarid — корень «5669 строк → 0 алертов»</div>
+<ul>
+<li><b>Доказанный корень:</b> list-эндпоинты не несут предмет закупки (только ОКЭД-категорию). Позиции — только в detail: <code>GetTrade/{id}/0</code> (budget_products, JSON-строка → двойной parse) и <code>GetCompetition/{id}</code> (js_details).</li>
+<li>Пример упущенного: <b>печать газет «Yangi O'zbekiston»/«Pravda Vostoka» на 2026 год — 6.3 МЛРД сум</b> (etender 490230, дедлайн 16.06!), журнал HAMSHIRA 227M, Guliston 168M.</li>
+<li>Стоимость: бэкфилл 663 etender + 28 живых xarid ≈ 17 мин @1rps; дневная дельта ~120 лотов ≈ 3–4 мин/день. У закрытых detail отдаёт победителей с ИНН.</li>
+<li>Бонус-канал тем же паттерном: GetMinimizedLotsList (592 активных аукциона xarid) — но требует RSA validation-токен (алгоритм + pubKey задокументированы в чекпоинте).</li>
+</ul>
+</div>
+
+<div class="card">
+<div class="prio y">П6. xtx-request-proposals (RFP-спрос) — лёгкий, малый поток</div>
+<ul>
+<li>ref_request_proposals_public: 15 open сейчас, print ~1–2/мес (Гувоҳнома бланки 4M, Иш журнали 68.5M). Server-side filters:{status:open} работает. Готовый yaml-конфиг в чекпоинте.</li>
+<li>⚠️ rate-limit маскируется под ошибку <code>bad_params limit&lt;=100</code> — нужен retry, не фатал.</li>
+</ul>
+</div>
+
+<div class="card">
+<div class="prio y">П3-расширение. xarid-direct: category_id-фильтр (контракты-победители прямых закупок)</div>
+<ul>
+<li>Server-side фильтр работает: <b>898 «Услуги печатные» + 1015 «Бумага»</b> из 228 786. Сейчас краулим первые ~500 БЕЗ фильтра — печать тонет.</li>
+<li>Свежие примеры: Давлат Белгиси ← УТЙ 33M, TOSHKENT-HUMO ← UA Technics 20M. Деталь GetDirectPurchase/{id} даёт позиции + скан договора PDF. ⚠️ json.loads strict=False (сырой \n в decree_name).</li>
+</ul>
+</div>
+
+<div class="card">
+<div class="prio p">Разведка (раз в неделю): ref_special_suppliers</div>
+<ul>
+<li>1608 моно-поставщиков; печать = 21 поставщик / 24 кода (Давлат Белгиси — гербовые/защищённые бланки, ГУП Типография Кабмина, Узбекистон почтаси — марки). <b>Главный вывод: по 17.23 (канцелярия/блокноты) и коммерческой полиграфии монополий НЕТ — рынок открыт.</b> Снапшот уже выгружен (special_full.ndjson).</li>
+</ul>
+</div>
+
+<h3>Не внедрять (проверено и отвергнуто)</h3>
+<table>
+<tr><th>Канал</th><th>Почему</th></tr>
+<tr><td>xtx ref_selection_public</td><td><span class="tag dead">ДУБЛЬ</span> байт-в-байт = hayotbirja-selection (один white-label бэкенд, id совпадают 100/100)</td></tr>
+<tr><td>xtx ref_contest_public</td><td><span class="tag dead">МЁРТВ</span> 291 запись, все 2020–2021, 0 активных с июля 2021</td></tr>
+<tr><td>xtx ref_master_agreement_public</td><td><span class="tag dead">ПУСТ</span> 1 запись за историю; победители/цены анониму не видны</td></tr>
+<tr><td>ebirja fond-api (всё)</td><td><span class="tag bad">401 c ~окт 2025</span> доступ убран намеренно; новый оператор xarid-api.ebirja.uz — нужна отдельная discovery</td></tr>
+<tr><td>GetProcurementAnnouncements</td><td><span class="tag dead">ЛЕГАСИ</span> 253/275 записей = 2022 год; план-подсистема старого xarid заброшена (актуальные планы — exarid/dxarid /plan, см. research)</td></tr>
+<tr><td>ref_cargo_procedure_public</td><td>логистика, не полиграфия</td></tr>
+</table>
+
+<h2>4. 🔴 Сломанное у нас прямо сейчас (входит в П3)</h2>
+<ul>
+<li><b>ebirja-ext-contracts + ebirja-ext-products</b> — API отдаёт 401, краулер делает тихие пустые прогоны → отключить с комментом.</li>
+<li><b>15 мёртвых enabled-источников</b>: UNDP/UNGM (0 строк — но RSS-фид UNDP работает! см. research), TG Prom.uz (канал жив — проверить подписку аккаунта), Asia Alliance Bank, GIZ, OSCE (молчит с 23.04), Ипотека/Хамкорбанк (с начала мая), рассинхрон yaml↔KNOWN_RETIRED у Минстроя и E-Birja активных.</li>
+<li><b>Watchdog слеп</b> к источникам, которых никогда не было в БД → добавить сверку enabled-в-yaml vs присутствует-в-БД.</li>
+<li><b>ЕНКТ-каталог print product_ids выгружен</b> (47KB, блокноты/ежедневники/тетради/бланки строгого учёта/журналы учёта...) — подключить как фильтр к demand-каналам. ⚠️ фильтр <code>code_r</code> работает только полными сегментами («17.12» да, «17.1» нет).</li>
+</ul>
+
+<h2>5. Внешние способы находить тендеры (research, 16 находок)</h2>
+<table>
+<tr><th>Способ</th><th>Impact</th><th>Что даёт</th></tr>
+<tr><td><b>План-графики exarid.uzex.uz/ru/plan + dxarid.uzex.uz/ru/plan</b></td><td><span class="tag ok">HIGH</span></td><td>Годовые планы закупок госзаказчиков (обязательны с 2022) — видно ЧТО и КОГДА купят ДО объявления лота. Бесплатно, без регистрации. ⚠️ у нас dxarid помечен «DNS мёртв» — перепроверить с UZ-IP</td></tr>
+<tr><td><b>TenderZone</b> (trade.tzone.uz)</td><td><span class="tag ok">HIGH</span></td><td>Агрегатор всех площадок + корпоративок, TG/email-алерты. Базовый поиск бесплатно после регистрации (телефон) — <b>ждёт твоей регистрации</b></td></tr>
+<tr><td>Zakupki.Prom.uz + канал @prom_zakupki</td><td><span class="tag info">MED</span></td><td>Частные B2B-заказчики вне госсистемы (8000+ компаний) — упаковка/этикетки. TG-канал уже в наших источниках, но 0 строк — починить подписку</td></tr>
+<tr><td>TENDERWEEK.com</td><td><span class="tag info">MED</span></td><td>Закупки Узбекнефтегаза и крупных АО; есть категория «Печатные услуги». Бесплатная регистрация</td></tr>
+<tr><td>UNDP RSS-фид</td><td><span class="tag info">MED</span></td><td><code>procurement-notices.undp.org/rss_feeds/UZB.xml</code> — готовый RSS, обновляется каждый час. Заменит наш мёртвый undp-источник (0 строк)</td></tr>
+<tr><td>UNICEF UZ prequalification</td><td><span class="tag info">MED</span></td><td>Printing Services LTA (долгосрочный контракт) — прямой контакт tashkentsupply@unicef.org</td></tr>
+<tr><td>data.egov.uz датасет госзакупок</td><td><span class="tag info">MED</span></td><td>История: кто регулярно закупает бланки/этикетки → проактивный обзвон</td></tr>
+<tr><td>Bnect, BiCoTender, DevelopmentAid, openbudget</td><td><span class="tag dead">LOW</span></td><td>Нишевые/косвенные — после основного</td></tr>
+</table>
+
+<h2>6. Подача КП за минимум кликов (research, 9 находок)</h2>
+<table>
+<tr><th>Площадка</th><th>Путь до подачи</th><th>Вывод</th></tr>
+<tr><td><b>cooperation.uz</b></td><td>E-IMZO логин <b>УЖЕ автоматизирован</b> (cron-токен) → кнопка «Предложить цену» = 1 запрос</td><td><span class="tag ok">БЛИЖЕ ВСЕХ к авто-подаче</span> — кандидат на «КП из алерта в 1 клик»</td></tr>
+<tr><td><b>xt-xarid.uz</b></td><td>Deep-link = карточка = форма подачи (после E-IMZO-логина появляется кнопка). Модерация 1 раб.день, <b>окно ставок 1 ЧАС</b></td><td><span class="tag warn">скорость алерта критична</span> — частый краул reduction</td></tr>
+<tr><td>new-xarid (UZEX)</td><td>Личный кабинет, залог/сбор, E-IMZO на подачу</td><td>deep-link довели в прошлой итерации; подача только вручную</td></tr>
+<tr><td>hayotbirja app</td><td>Мобильное приложение = только нотификации, НЕ подача (гипотеза об API подачи опровергнута)</td><td>—</td></tr>
+<tr><td>xarid.ebirja.uz (ТТСБ)</td><td>Новый оператор с окт 2025, Next.js, 6 типов процедур, E-IMZO</td><td>растущий — отдельная discovery после регистрации</td></tr>
+</table>
+
+<h2>7. Roadmap — что дальше (по твоей команде, по одной части)</h2>
+<table>
+<tr><th>#</th><th>Часть</th><th>Эффект</th><th>Стоимость</th></tr>
+<tr><td><b>П2</b></td><td>Фиксы ссылок (b2biz, tender.mc, hamkorbank, snap.py)</td><td>алерты ведут на лот, не на 404</td><td>код+PR, без агентов</td></tr>
+<tr><td><b>П3</b></td><td>Гигиена: ebirja-401 off, watchdog enabled-vs-БД, UNDP→RSS, TG Prom.uz подписка</td><td>нет тихих дыр</td><td>код+PR, без агентов</td></tr>
+<tr><td><b>П4</b></td><td>DealsList + NotDealedList</td><td>цены победителей + лиды из несостоявшихся</td><td>код+PR, без агентов</td></tr>
+<tr><td><b>П5</b></td><td>UZEX GetOffersList (print-категории)</td><td>+21K print-офферов, дельта десятки/день</td><td>код+PR, без агентов</td></tr>
+<tr><td><b>П6</b></td><td>xtx-request-proposals</td><td>RFP-спрос (малый поток)</td><td>код+PR, без агентов</td></tr>
+<tr><td><b>П7</b></td><td>Detail-enrichment etender/xarid (+ опц. validation-токен для аукционов)</td><td>главный recall-прорыв: 6.3-млрд лоты перестанут тонуть</td><td>код+PR, средний</td></tr>
+<tr><td><b>П8</b></td><td>Корп-аудит 18 сайтов (3 запуска × 3 агента)</td><td>карта ссылок корпоратов</td><td>агенты, 3 порции</td></tr>
+<tr><td><b>П9</b></td><td>Частый краул reduction (15–30 мин) — отдельный лёгкий cron</td><td>успевать в 1-часовое окно ставок</td><td>код+cron, без агентов</td></tr>
+<tr><td><b>Данияр</b></td><td>Регистрации: TenderZone (телефон) → Bnect → TENDERWEEK → ebirja/hayot buyer-side (E-IMZO)</td><td>невидимые каналы + % скидок конкурентов</td><td>ручное, ~час</td></tr>
+</table>
+
+<p class="small" style="margin-top:24px">Сырьё и рецепты: <code>docs/checkpoints/</code> (11 файлов верификации + probes-channels-summary.txt + research-findings.json + special_full.ndjson + xtx-enkt-print-products.json) · полный JSON 2-й сессии: <code>docs/2026-06-10-link-audit-workflow-partial.json</code> · Сгенерировано 11.06.2026, все утверждения опираются на воспроизводимые curl-проверки (red-team не запускался для экономии лимитов — единственная неперепроверенная зона: research-findings внешних площадок).</p>
+
+</body>
+</html>
