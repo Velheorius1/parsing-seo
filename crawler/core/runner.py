@@ -58,6 +58,7 @@ async def run(
     config_path: str,
     dry_run: bool = False,
     source_ids: List[str] = None,
+    lite: bool = False,
 ) -> Dict[str, int]:
     """Run the full crawl pipeline.
 
@@ -227,7 +228,7 @@ async def run(
         crawl_log.log_alerts(alerts_sent)
 
     # Check tender results (who won)
-    if not dry_run:
+    if not dry_run and not lite:
         from crawler.core.results_tracker import update_results
 
         results_updated = await update_results(dry_run=dry_run)
@@ -236,7 +237,7 @@ async def run(
 
     # Check deadline reminders
     deadline_sent = 0
-    if not dry_run:
+    if not dry_run and not lite:
         from crawler.core.deadline_tracker import check_deadlines
 
         deadline_sent = await check_deadlines(dry_run=dry_run)
@@ -244,7 +245,7 @@ async def run(
             logger.info("Sent %d deadline reminders", deadline_sent)
 
     # Healthcheck — notify about new tenders or errors
-    if not dry_run:
+    if not dry_run and not lite:
         from crawler.core.notifier import send_healthcheck
 
         errors = [
@@ -258,6 +259,8 @@ async def run(
     # Zero-result tracker (task #6, RISK-1) — alerts sources that returned
     # nothing for 3+ consecutive cycles, recovery on return.
     try:
+        if lite:
+            raise RuntimeError("skip-in-lite")
         from crawler.core.zero_result_tracker import track_and_alert
 
         await track_and_alert(outcomes, dry_run=dry_run)
@@ -266,7 +269,7 @@ async def run(
         logger.warning("[ZeroResult] tracker error: %s", str(exc)[:120])
 
     # AI quality evaluation (daily)
-    if not dry_run:
+    if not dry_run and not lite:
         from crawler.core.ai_evaluator import evaluate_crawl_quality
 
         await evaluate_crawl_quality(
@@ -278,14 +281,21 @@ async def run(
         )
 
     # Seasonal predictions
-    if not dry_run:
+    if not dry_run and not lite:
         from crawler.core.predictor import run_predictions
 
         predictions_stored = await run_predictions(dry_run=dry_run)
         if predictions_stored:
             logger.info("Stored %d new tender predictions", predictions_stored)
 
-    # Quality tracking — snapshot + regression detection
+    # Quality tracking — snapshot + regression detection.
+    # lite (частый reduction-прогон): snapshot НЕ пишем — subset-прогоны
+    # каждые 20 мин затёрли бы baseline полного краула и регрессия-детектор
+    # сравнивал бы яблоки с апельсинами.
+    if lite:
+        await crawl_log.finalize()
+        return stats
+
     from crawler.core.quality_tracker import (
         QualitySnapshot, compare_snapshots, load_baseline, save_snapshot,
         flush_snapshot_to_supabase,
