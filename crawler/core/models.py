@@ -59,6 +59,34 @@ class PaginationConfig(BaseModel):
     page_start: int = 0  # first page number (0 or 1)
 
 
+class DetailFetchConfig(BaseModel):
+    """П7 (2026-06-11): двухшаговый detail-enrichment для list-API, которые не
+    несут предмет закупки (etender TradeList / xarid GetCompetitions отдают
+    только ОКЭД-категорию — печатные лоты тонули: газеты «Янги Узбекистон»
+    6.3 МЛРД были невидимы для keyword-матчинга).
+
+    Механика: после list + item_filter адаптер дотягивает detail-страницы
+    ТОЛЬКО для новых id (state max_seen_id в crawler_settings, бюджет
+    max_per_run на прогон), собирает текст по text_fields (wildcard dot-paths)
+    в item["_detail_text"] — дальше keywords_fields подхватывает его в
+    search_text."""
+
+    url_template: str  # "https://.../GetTrade/{id}/0"
+    state_key: str  # ключ в crawler_settings: "detail_state_<source>"
+    id_field: str = "id"  # числовое поле item'а для state-сравнения
+    max_per_run: int = 150  # бюджет detail-запросов на прогон
+    timeout: int = 30
+    retries: int = 1  # доп. попытки на таймаут (xarid: латентность 1-20с)
+    # Откуда собирать текст в detail-ответе (wildcard dot-paths)
+    text_fields: List[str] = Field(default_factory=list)
+    # Поля-СТРОКИ с вложенным JSON (etender budget_products) — двойной parse
+    json_string_fields: List[str] = Field(default_factory=list)
+    # Первый прогон (state пуст): "oldest" = бэкфилл всего list от старых к
+    # новым (etender: list только активные); "newest" = срез новейших и state
+    # сразу на максимум (xarid: list содержит мёртвый архив 4254 при ~28 open)
+    bootstrap: str = "oldest"
+
+
 class SourceConfig(BaseModel):
     """One tender source definition from sources.yaml."""
 
@@ -95,6 +123,8 @@ class SourceConfig(BaseModel):
     auth_header_prefix: str = "Bearer"
     # Proxy — use residential proxy for geo-restricted sources
     use_proxy: bool = False
+    # П7: двухшаговый detail-fetch (см. DetailFetchConfig)
+    detail_fetch: Optional[DetailFetchConfig] = None
     # Client-side item filter — applied to raw dict items BEFORE _convert_all.
     # Keys are dot-paths supporting [*] wildcard for list iteration.
     # Values are either scalars (equality) or {op: value} where op is eq/ne/in/nin/gt/gte/lt/lte.

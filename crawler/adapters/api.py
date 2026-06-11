@@ -331,6 +331,10 @@ class ApiAdapter(BaseAdapter):
                 cfg.name, cfg.item_filter, before, len(all_items),
             )
 
+        # П7: detail-enrichment — дотянуть предмет закупки для новых лотов
+        if cfg.detail_fetch:
+            all_items = await self._enrich_with_details(all_items)
+
         tenders = self._convert_all(all_items)
 
         # Apply country_filter if set (e.g. World Bank returns all countries)
@@ -580,6 +584,118 @@ class ApiAdapter(BaseAdapter):
                     await asyncio.sleep(wait)
                     continue
                 raise
+
+    async def _enrich_with_details(self, items):
+        # type: (List[Dict[str, Any]]) -> List[Dict[str, Any]]
+        """П7: дотянуть detail-страницы для НОВЫХ лотов (id > state max_seen).
+
+        Бюджет max_per_run/прогон; кандидаты обрабатываются от старых к новым,
+        state = max обработанного id — недообработанный хвост подберёт
+        следующий краул. Текст пишется в item["_detail_text"] (подключи его
+        в keywords_fields). State переживает рестарты в crawler_settings.
+        """
+        import json as _json
+
+        from crawler.auth.session_store import session_store
+
+        cfg = self.config
+        dcfg = cfg.detail_fetch
+
+        def _iid(it):
+            # type: (Dict[str, Any]) -> int
+            try:
+                return int(it.get(dcfg.id_field) or 0)
+            except (ValueError, TypeError):
+                return 0
+
+        state = None
+        try:
+            state = session_store.get_setting(dcfg.state_key)
+        except Exception:
+            pass
+        max_seen = int(state.get("max_seen_id", 0)) if isinstance(state, dict) else 0
+
+        fresh = [it for it in items if _iid(it) > max_seen]
+        if max_seen == 0 and dcfg.bootstrap == "newest":
+            # Архивный list: берём срез новейших, хвост не дотягиваем by design
+            candidates = sorted(fresh, key=_iid, reverse=True)[: dcfg.max_per_run]
+            candidates.reverse()  # обрабатываем от старых к новым внутри среза
+        else:
+            candidates = sorted(fresh, key=_iid)[: dcfg.max_per_run]
+        skipped = max(0, len(fresh) - len(candidates))
+        if not candidates:
+            return items
+
+        logger.info(
+            "[%s] detail-fetch: %d candidates (max_seen %d%s)",
+            cfg.name, len(candidates), max_seen,
+            ", %d deferred to next run" % skipped if skipped else "",
+        )
+
+        enriched = 0
+        processed_max = max_seen
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(dcfg.timeout, connect=10.0),
+            headers=cfg.headers,
+        ) as client:
+            for it in candidates:
+                iid = _iid(it)
+                url = dcfg.url_template.replace("{id}", str(iid))
+                data = None
+                for attempt in range(dcfg.retries + 1):
+                    await self.rate_limit()
+                    try:
+                        resp = await client.get(url)
+                        resp.raise_for_status()
+                        # strict=False: decree_name и пр. содержат сырые \n
+                        data = _json.loads(resp.text, strict=False)
+                        break
+                    except Exception as exc:
+                        if attempt < dcfg.retries:
+                            await asyncio.sleep(3 * (attempt + 1))
+                            continue
+                        logger.warning(
+                            "[%s] detail %s failed: %s",
+                            cfg.name, iid, str(exc)[:120],
+                        )
+                if not isinstance(data, dict):
+                    # Не двигаем state дальше провала — лот добьём в след. краул
+                    break
+
+                # Двойной parse строк с вложенным JSON (etender budget_products)
+                for f in dcfg.json_string_fields:
+                    v = data.get(f)
+                    if isinstance(v, str) and v.strip().startswith(("[", "{")):
+                        try:
+                            data[f] = _json.loads(v, strict=False)
+                        except ValueError:
+                            pass
+
+                parts = []  # type: List[str]
+                for path in dcfg.text_fields:
+                    for v in _resolve_wildcard_path(data, path):
+                        s = _safe_str(v)
+                        if s and s not in parts:
+                            parts.append(s)
+                if parts:
+                    it["_detail_text"] = " ".join(parts)[:2000]
+                    enriched += 1
+                processed_max = max(processed_max, iid)
+
+        logger.info(
+            "[%s] detail-fetch done: %d/%d enriched, state max_seen %d -> %d",
+            cfg.name, enriched, len(candidates), max_seen, processed_max,
+        )
+        if processed_max > max_seen:
+            try:
+                from datetime import datetime, timezone
+                session_store.set_setting(dcfg.state_key, {
+                    "max_seen_id": processed_max,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                logger.warning("[%s] detail state write failed: %s", cfg.name, str(exc)[:80])
+        return items
 
     def _extract_items(self, raw: Any) -> List[Dict[str, Any]]:
         """Extract list of items from response, navigating via response_path."""

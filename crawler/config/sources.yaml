@@ -28,13 +28,30 @@ sources:
       region: "region_name"
       external_id: display_no
       source_url_template: "https://etender.uzex.uz/lot/{id}"
-    keywords_fields: [name, seller_name, category_name]
+    keywords_fields: [name, seller_name, category_name, _detail_text]
     pagination:
       type: offset
       param: "from"
       size_param: "to"
       page_size: 500
       total_field: "0.total_count"
+    # П7 (2026-06-11): list НЕ несёт позиций лота — предмет закупки только в
+    # detail (budget_products = СТРОКА с вложенным JSON). Из-за этого 5669
+    # строк дали 0 алертов (печать газет «Янги Узбекистон» 6.3 МЛРД тонула).
+    # ~100-130 новых лотов/день, бюджет 250/прогон закрывает бэкфилл 650
+    # активных за ~3 краула. Латентность detail 1.2-1.9с.
+    detail_fetch:
+      url_template: "https://apietender.uzex.uz/api/common/GetTrade/{id}/0"
+      state_key: "detail_state_etender"
+      max_per_run: 250
+      timeout: 30
+      retries: 1
+      text_fields:
+        - "budget_products.*.Product_Name"
+        - "budget_products.*.Description"
+        - "budget_products.*.Category_Name"
+        - "budget_products.*.Product_Code"
+      json_string_fields: ["budget_products"]
 
   # П4 (2026-06-11): заключённые сделки с ЦЕНАМИ ПОБЕДИТЕЛЕЙ — открыт анонимно
   # (прежний вывод «закрыт» опровергнут аудитом 11.06). 156K+ сделок, +~700/день,
@@ -146,6 +163,7 @@ sources:
     method: POST
     headers:
       Content-Type: "application/json"
+      User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     body: {"from": 0, "to": 200}
     rate_limit: 5
     timeout: 15
@@ -167,13 +185,31 @@ sources:
       # component calls PREQUEST_API_URL/api/Public/GetLot?id={id}). The old
       # /home/shop/detail/{id} used the e-shop id-space -> wrong card.
       source_url_template: "https://new-xarid.uzex.uz/home/purchase/proposal-request/detail/{id}"
-    keywords_fields: [category_name, customer_region_name]
+    keywords_fields: [category_name, customer_region_name, _detail_text]
     pagination:
       type: offset
       param: "from"
       size_param: "to"
       page_size: 500
       total_field: "0.total_count"
+    # П7 (2026-06-11): list отдаёт ТОЛЬКО ОКЭД category_name (74% лотов в одной
+    # категории «Услуги профессиональные...») — предмет и позиции только в
+    # detail js_details[]. 4717 строк дали 2 алерта. List содержит мёртвый
+    # архив (4254 при ~28 open) → bootstrap newest. Латентность detail
+    # нестабильна 1.2-20с, бывают 30с-таймауты → timeout 60 + retry.
+    # Бонус detail: у закрытых виден победитель (winners_id с ИНН).
+    detail_fetch:
+      url_template: "https://xarid-api-purchase.uzex.uz/Common/GetCompetition/{id}"
+      state_key: "detail_state_xarid_competitions"
+      max_per_run: 100
+      timeout: 60
+      retries: 1
+      bootstrap: "newest"
+      text_fields:
+        - "js_details.*.product_name"
+        - "js_details.*.description"
+        - "competition_description"
+        - "customer_name"
 
   - id: xarid-direct
     name: "Xarid Прямые закупки"
