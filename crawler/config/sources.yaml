@@ -1784,11 +1784,15 @@ sources:
     rate_limit: 0.5
     timeout: 20
     id_prefix: "uzkimyo"
+    # 2026-06-11 (П8): div.article-view — единый wrapper ВСЕГО листинга (вёрстка
+    # плоская, без per-item обёрток) → извлекался только первый h3 из 5, 4/5
+    # лотов терялись каждый прогон (в БД 1 строка за всю историю). Контейнер =
+    # каждый h3 (5/5 на живом HTML).
     html_selectors:
-      container: "div.article-view"
-      title: "h3"
+      container: "div.article-view h3"
+      title: "a"
       deadline: ""
-      link: "h3 a@href"
+      link: "a@href"
     field_map:
       title: title
       organization: "Узкимёсаноат"
@@ -1796,10 +1800,14 @@ sources:
       source_url_template: "https://uzkimyosanoat.uz{link}"
     keywords_fields: [title]
 
+  # ОТКЛЮЧЁН 2026-06-11 (П8): листинг — архив 2017-2020, новейший тендер
+  # 02.09.2020, пагинации нет — новых тендеров ~6 лет. Ссылки технически
+  # рабочие (вердикт DIRECT_OK), но контент мёртв. Если ассоциация заведёт
+  # актуальный раздел закупок — пересмотреть.
   - id: uzsm
     name: "УЗСМ (Металлургия)"
     adapter: html
-    enabled: true
+    enabled: false
     url: "https://uzsm.uz/ru/activities/tenders/all/"
     method: GET
     headers:
@@ -1942,7 +1950,11 @@ sources:
     name: "Узбекистон темир йуллари (ЖД)"
     adapter: html
     enabled: true
-    url: "https://railway.uz/ru/informatsionnaya_sluzhba/tendery/vnutregosudarstvenniye/"
+    # 2026-06-11 (П8): старый раздел /informatsionnaya_sluzhba/... отдаёт 404 —
+    # краулер парсил с него tel:-контакты как «тендеры» (title="+998 71 ...").
+    # Листинг переехал, селекторы на новой странице валидны (20 лотов).
+    # ⚠️ Деталь лота: битый id отдаёт HTTP 200 (soft-404).
+    url: "https://railway.uz/ru/proekty/tendery/vnutregosudarstvenniye/"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
@@ -2096,18 +2108,22 @@ sources:
     headers:
       User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
     rate_limit: 1.0
-    timeout: 15
+    timeout: 30
     id_prefix: "agmk"
+    # timeout 30: сайт интермиттентно медленный/рвёт соединение (ретрай в html.py)
+    # 2026-06-11 (П8): link был пустой → source_url="" у всех строк (алерт без
+    # ссылки). Контейнер .news-inner__item САМ является <a href="абсолютный
+    # deep-link"> — берём @href контейнера (12/12 итемов на живом HTML).
     html_selectors:
       container: ".news-inner__item"
       title: "p"
       deadline: ""
-      link: ""
+      link: "@href"
     field_map:
       title: title
       organization: "АГМК (Алмалык ГМК)"
       deadline: deadline
-      source_url_template: "https://agmk.uz/ru/tenders"
+      source_url_template: "https://agmk.uz{link}"
     keywords_fields: [title]
 
   - id: navoi-gmk
