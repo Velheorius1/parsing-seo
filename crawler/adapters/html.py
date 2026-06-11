@@ -1,5 +1,6 @@
 """HTML adapter — scrapes tenders from HTML pages using BeautifulSoup."""
 
+import asyncio
 import hashlib
 import logging
 import re
@@ -97,22 +98,30 @@ class HtmlAdapter(BaseAdapter):
     ) -> Optional[str]:
         """Fetch a single HTML page. Returns HTML string or None."""
         cfg = self.config
-        await self.rate_limit()
 
-        try:
-            if cfg.method.upper() == "POST":
-                resp = await client.post(url, json=cfg.body)
-            else:
-                resp = await client.get(url, params=cfg.params)
+        # 2 попытки: корп-сайты (agmk.uz) интермиттентно рвут соединение
+        # (RemoteProtocolError с пустым str()) — одиночный фейл ронял весь прогон.
+        last_exc = None  # type: Optional[Exception]
+        for attempt in range(2):
+            await self.rate_limit()
+            try:
+                if cfg.method.upper() == "POST":
+                    resp = await client.post(url, json=cfg.body)
+                else:
+                    resp = await client.get(url, params=cfg.params)
 
-            resp.raise_for_status()
-            text = resp.text
-            if not text or len(text) < 50:
-                return None
-            return text
-        except Exception as exc:
-            logger.warning("[%s] Failed to fetch %s: %s", cfg.name, url, str(exc))
-            return None
+                resp.raise_for_status()
+                text = resp.text
+                if not text or len(text) < 50:
+                    return None
+                return text
+            except Exception as exc:
+                last_exc = exc
+                if attempt == 0:
+                    await asyncio.sleep(2)
+        logger.warning("[%s] Failed to fetch %s: %s: %s", cfg.name, url,
+                       type(last_exc).__name__, str(last_exc))
+        return None
 
     def _parse_page(self, html: str, page_url: str) -> List[RawTender]:
         """Parse one HTML page and extract tender items."""
