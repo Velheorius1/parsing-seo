@@ -630,6 +630,15 @@ class ApiAdapter(BaseAdapter):
         organization = _safe_str(_get_field(item, fm.organization, "")) if fm.organization else ""
         if fm.price and fm.price.startswith("sum:"):
             price = _compute_sum_price(item, fm.price)
+        elif fm.price == "_price_times_amount":
+            # Э-магазины отдают цену ЗА ЕДИНИЦУ — без умножения на количество
+            # MIN_PRICE-гейт (10M) глушил бы все алерты (как в jsonrpc-адаптере).
+            unit_price = _safe_float(item.get("price"))
+            amount = _safe_float(item.get("amount"))
+            if unit_price is not None and amount:
+                price = unit_price * amount
+            else:
+                price = unit_price
         elif fm.price:
             price = _safe_float(_get_field(item, fm.price))
         else:
