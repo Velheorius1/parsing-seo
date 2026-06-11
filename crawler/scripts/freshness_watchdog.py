@@ -21,7 +21,7 @@ import argparse
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
 import httpx
 
@@ -46,17 +46,50 @@ KNOWN_RETIRED = frozenset({
     "Минстрой (tender.mc.uz)", "E-Birja активные аукционы (xarid)",
 })
 
+# Enabled-источники, у которых 0 строк в БД может быть нормой (малоактивный
+# upstream), — не алертить про отсутствие. Аудит 2026-06-11.
+KNOWN_EMPTY_OK = frozenset({
+    "TG: Фонд предпринимательства",  # канал почти не постит (последнее — 2024)
+})
+
 
 def _supabase():
     from supabase import create_client
     return create_client(settings.supabase_url, settings.supabase_service_role_key)
 
 
+def _enabled_sources_missing_in_db(db_source_names):
+    # type: (Set[str]) -> List[str]
+    """Enabled-источники из sources.yaml, которых НЕТ в БД вообще.
+
+    Дыра, которую это закрывает (аудит 2026-06-11): hayotbirja-shop был enabled,
+    но за всю историю собрал 0 строк (битый field_map) — watchdog молчал, т.к.
+    сравнивает только то, что УЖЕ есть в tenders. Источник без единой строки
+    невидим для freshness-проверки по max(collected_at).
+    """
+    import os
+    from crawler.core.runner import load_sources
+
+    cfg_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "config", "sources.yaml",
+    )
+    try:
+        configs = load_sources(cfg_path)  # отдаёт только enabled
+    except Exception as exc:
+        logger.warning("load_sources failed: %s", str(exc)[:120])
+        return []
+    enabled_names = {c.name for c in configs}
+    missing = enabled_names - db_source_names - KNOWN_RETIRED - KNOWN_EMPTY_OK
+    return sorted(missing)
+
+
 def _silent_sources():
-    # type: () -> List[Dict]
-    """Return sources silent >= SILENCE_DAYS with >= MIN_ROWS history, excluding retired."""
+    # type: () -> Tuple[List[Dict], Set[str]]
+    """Return (sources silent >= SILENCE_DAYS with >= MIN_ROWS, all DB source names)."""
     client = _supabase()
     rows = (client.rpc("source_freshness").execute().data) or []
+    db_names = {(r.get("source") or "") for r in rows}  # type: Set[str]
     now = datetime.now(timezone.utc)
     out = []  # type: List[Dict]
     for r in rows:
@@ -73,7 +106,7 @@ def _silent_sources():
         if days >= SILENCE_DAYS:
             out.append({"source": src, "cnt": int(cnt), "days": days, "last": last[:10]})
     out.sort(key=lambda x: -x["days"])
-    return out
+    return out, db_names
 
 
 async def _send_telegram(text):
@@ -97,21 +130,30 @@ async def _send_telegram(text):
 
 async def main(dry_run=False):
     # type: (bool) -> int
-    silent = _silent_sources()
+    silent, db_names = _silent_sources()
     silent_names = {s["source"] for s in silent}  # type: Set[str]
+    missing = _enabled_sources_missing_in_db(db_names)  # enabled, но 0 строк в БД
+    missing_set = set(missing)
 
     raw_state = session_store.get_setting(STATE_KEY) if not dry_run else None
     prev = set(raw_state.get("silent", [])) if isinstance(raw_state, dict) else set()
+    prev_missing = set(raw_state.get("missing", [])) if isinstance(raw_state, dict) else set()
 
     new_silent = [s for s in silent if s["source"] not in prev]
     revived = sorted(prev - silent_names)
+    new_missing = sorted(missing_set - prev_missing)
+    appeared = sorted(prev_missing - missing_set)  # начали давать строки
 
-    logger.info("Silent>%dd: %d (new: %d, revived: %d)",
-                SILENCE_DAYS, len(silent), len(new_silent), len(revived))
+    logger.info("Silent>%dd: %d (new: %d, revived: %d); enabled-but-empty: %d (new: %d)",
+                SILENCE_DAYS, len(silent), len(new_silent), len(revived),
+                len(missing), len(new_missing))
     for s in silent:
         logger.info("   %s — %d rows, silent %dd (last %s)%s",
                     s["source"], s["cnt"], s["days"], s["last"],
                     "  [NEW]" if s["source"] not in prev else "")
+    for m in missing:
+        logger.info("   [EMPTY] %s — enabled, но в БД 0 строк%s",
+                    m, "  [NEW]" if m in new_missing else "")
 
     if dry_run:
         logger.info("DRY RUN — no Telegram, no state write")
@@ -125,10 +167,20 @@ async def main(dry_run=False):
         lines.append("\n_Проверь фетчер/upstream — источник давал данные, но перестал._")
         await _send_telegram("\n".join(lines))
 
-    if revived:
-        await _send_telegram("\U0001f50a *Источник ожил*: %s" % ", ".join(revived))
+    if new_missing:
+        lines = ["\U0001f573 *Источник enabled, но в БД ни одной строки:*"]
+        for m in new_missing:
+            lines.append("• *%s*" % m)
+        lines.append("\n_Битый field\\_map/селектор/доступ — краулер делает тихие пустые прогоны "
+                     "(кейс hayotbirja-shop: 0 строк за всю историю)._")
+        await _send_telegram("\n".join(lines))
+
+    if revived or appeared:
+        await _send_telegram("\U0001f50a *Источник ожил*: %s" %
+                             ", ".join(revived + appeared))
 
     session_store.set_setting(STATE_KEY, {"silent": sorted(silent_names),
+                                          "missing": sorted(missing_set),
                                           "updated_at": datetime.now(timezone.utc).isoformat()})
     return 0
 
