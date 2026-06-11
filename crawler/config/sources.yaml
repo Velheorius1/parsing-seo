@@ -462,32 +462,36 @@ sources:
 
   # ── HTML scraping sources ──────────────────────────────────────────
 
+  # 2026-06-11: главная procurement-notices.undp.org JS-driven — html-селекторы
+  # давали 0 строк ЗА ВСЮ ИСТОРИЮ источника. Переведён на официальный RSS-фид
+  # по Узбекистану (обновляется каждый час, research 10.06). <item> в RSS 1.0
+  # несёт rdf:about (абсолютная ссылка на notice), <link> в html.parser — void
+  # тег (текст теряется), поэтому link через @rdf:about. id извлекается
+  # адаптером из ссылки (nego_id/notice_id).
   - id: undp
     name: "UNDP Procurement"
     adapter: html
     enabled: true
-    url: "https://procurement-notices.undp.org/"
+    url: "https://procurement-notices.undp.org/rss_feeds/UZB.xml"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
-      Accept: "text/html,application/xhtml+xml"
+      Accept: "application/rss+xml,application/xml,text/xml"
     rate_limit: 0.5
     timeout: 20
     id_prefix: "undp"
-    country_filter: "UZB"
     html_selectors:
-      container: "a.vacanciesTableLink.vacanciesTable__row"
-      title: ".vacanciesTable__cell span:nth-child(1)"
-      organization: ".vacanciesTable__cell span:nth-child(3)"
-      deadline: ".vacanciesTable__cell span:nth-child(5)"
-      link: "@href"
+      container: "item"
+      title: "title"
+      organization: "dc\\:creator"
+      deadline: "description"
+      link: "@rdf:about"
     field_map:
       title: title
-      organization: ""
+      organization: "UNDP"
       currency: ""
       deadline: deadline
       external_id: ""
-      source_url_template: "https://procurement-notices.undp.org/{link}"
     keywords_fields: [title]
 
   - id: ungm
@@ -2494,10 +2498,16 @@ sources:
 
   # ===== EBIRJA.UZ — публичные REST endpoints =====
 
+  # ОТКЛЮЧЁН 2026-06-11: api.ebirja.uz/fond-api/* отдаёт 401 "Full authentication
+  # is required" на ВСЕ external/* эндпоинты (fond-api закрыт авторизацией,
+  # проверено 11.06 — доступ убран намеренно с переходом на нового оператора
+  # xarid.ebirja.uz/ТТСБ ~окт 2025). Источник делал тихие пустые прогоны.
+  # Реанимация: либо E-IMZO авторизация app.ebirja.uz, либо discovery нового
+  # оператора xarid-api.ebirja.uz (роуты не найдены, отвечает 404).
   - id: ebirja-ext-products
     name: "E-Birja товары на продажу"
     adapter: api
-    enabled: true
+    enabled: false
     url: "https://api.ebirja.uz/fond-api/api/external/seller-product/all"
     method: GET
     rate_limit: 2.0
@@ -2529,10 +2539,16 @@ sources:
       max_pages: 20
       page_start: 0
 
+  # ОТКЛЮЧЁН 2026-06-11: api.ebirja.uz/fond-api/* отдаёт 401 "Full authentication
+  # is required" на ВСЕ external/* эндпоинты (fond-api закрыт авторизацией,
+  # проверено 11.06 — доступ убран намеренно с переходом на нового оператора
+  # xarid.ebirja.uz/ТТСБ ~окт 2025). Источник делал тихие пустые прогоны.
+  # Реанимация: либо E-IMZO авторизация app.ebirja.uz, либо discovery нового
+  # оператора xarid-api.ebirja.uz (роуты не найдены, отвечает 404).
   - id: ebirja-ext-contracts
     name: "E-Birja завершённые сделки"
     adapter: api
-    enabled: true
+    enabled: false
     url: "https://api.ebirja.uz/fond-api/api/external/contract/all"
     method: GET
     rate_limit: 2.0
@@ -2671,10 +2687,16 @@ sources:
   # Field_map follows the public fond-api shape (productDetailNameRu, ptNameRu,
   # mainPrice, id) — same Java backend serves public and authed endpoints.
 
+  # ОТКЛЮЧЁН 2026-06-11: api.ebirja.uz/fond-api/* отдаёт 401 "Full authentication
+  # is required" на ВСЕ external/* эндпоинты (fond-api закрыт + источник никогда не давал строк,
+  # проверено 11.06 — доступ убран намеренно с переходом на нового оператора
+  # xarid.ebirja.uz/ТТСБ ~окт 2025). Источник делал тихие пустые прогоны.
+  # Реанимация: либо E-IMZO авторизация app.ebirja.uz, либо discovery нового
+  # оператора xarid-api.ebirja.uz (роуты не найдены, отвечает 404).
   - id: ebirja-auth-release-sale
     name: "E-Birja торговые продукты (авторизованный)"
     adapter: api
-    enabled: true
+    enabled: false
     url: "https://api.ebirja.uz/fond-api/api/release-sale/get-trade-products"
     method: GET
     auth_platform: ebirja
@@ -2699,10 +2721,16 @@ sources:
       max_pages: 20
       page_start: 0
 
+  # ОТКЛЮЧЁН 2026-06-11: api.ebirja.uz/fond-api/* отдаёт 401 "Full authentication
+  # is required" на ВСЕ external/* эндпоинты (fond-api закрыт + источник никогда не давал строк,
+  # проверено 11.06 — доступ убран намеренно с переходом на нового оператора
+  # xarid.ebirja.uz/ТТСБ ~окт 2025). Источник делал тихие пустые прогоны.
+  # Реанимация: либо E-IMZO авторизация app.ebirja.uz, либо discovery нового
+  # оператора xarid-api.ebirja.uz (роуты не найдены, отвечает 404).
   - id: ebirja-auth-seller-products
     name: "E-Birja аукционные товары (авторизованный)"
     adapter: api
-    enabled: true
+    enabled: false
     url: "https://api.ebirja.uz/fond-api/api/auction/seller-product-list"
     method: GET
     auth_platform: ebirja
