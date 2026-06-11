@@ -39,6 +39,14 @@ def main() -> None:
         help="Only run specific source IDs (space-separated)",
     )
     parser.add_argument(
+        "--lite",
+        action="store_true",
+        default=False,
+        help="Fast loop (reduction crawl): fetch+upsert+alerts only; skip "
+             "results/deadlines/healthcheck/zero-result/evaluator/predictor/"
+             "quality-snapshot",
+    )
+    parser.add_argument(
         "--deadlines-only",
         action="store_true",
         default=False,
@@ -123,12 +131,15 @@ def main() -> None:
         logger.info("Deadline reminders sent: %d", sent)
         return
 
+    if args.lite:
+        logger.info("LITE mode — crawl+alerts only, post-crawl analytics skipped")
     logger.info("Starting tender crawler...")
     stats = asyncio.run(
         run(
             config_path=args.config,
             dry_run=dry_run,
             source_ids=args.sources,
+            lite=args.lite,
         )
     )
 
