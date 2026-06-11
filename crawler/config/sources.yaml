@@ -1910,6 +1910,9 @@ sources:
     timeout: 20
     id_prefix: "mobiuz"
     html_selectors:
+      # П8 11.06: href = /ru/purchase/{ГОД}/{ID}/ — «первое число» давало
+      # ext_id=год, все лоты года схлопывались в 1 запись (теряли ~95%).
+      external_id_regex: "(\\d+)/?$"
       container: "div.news-item"
       title: "h2.news-line__name a"
       deadline: "div.news-line__date"
@@ -2231,16 +2234,20 @@ sources:
     rate_limit: 0.5
     timeout: 20
     id_prefix: "goveco"
+    # П8 11.06: одно объявление = tbody из 2-4 tr (tr1 шапка «ОБЬЯВЛЕНИЕ !»,
+    # tr2 реальный тайтл, tr3+ контакты) — container tr нарезал каждое на 3
+    # псевдо-тендера («E-mail:», «Телефон: …» в БД). Detail-страниц нет —
+    # статический шаблон на листинг (поддержан html.py для link-less).
     html_selectors:
-      container: "table tbody tr"
+      container: "table tbody tr:nth-child(2)"
       title: "td"
       deadline: ""
-      link: "td a@href"
+      link: ""
     field_map:
       title: title
       organization: "Минэкономики РУз"
       deadline: deadline
-      source_url_template: "{link}"
+      source_url_template: "https://gov.uz/ru/eco/pages/tenderlar"
     keywords_fields: [title]
 
   # ── New international sources (Phase C) ──────────────────────────
@@ -2274,7 +2281,13 @@ sources:
     name: "GIZ Ausschreibungen"
     adapter: html
     enabled: true  # HTML server-rendered (cosinex platform)
-    url: "https://ausschreibungen.giz.de/Satellite/company/announcements/categoryOverview.do"
+    # П8 11.06: URL без ?method= отдавал HTTP 400 (cosinex Struts требует
+    # dispatch-параметр) → 0 строк за всю историю. Рабочий листинг: showTable
+    # + cpvCode (79000000-4 = Dienstleistungen, включает 798xxxxx печатные
+    # услуги). Селекторы проверены на живом HTML: 20/20 лотов (строки второй
+    # таблицы отсекаются guard'ом пустого title). Пагинация JS-only → только
+    # стр.1 (20 лотов/CPV) — для нашего фильтра достаточно.
+    url: "https://ausschreibungen.giz.de/Satellite/company/announcements/categoryOverview.do?method=showTable&cpvCode=79000000-4"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
@@ -2283,10 +2296,10 @@ sources:
     timeout: 20
     id_prefix: "giz"
     html_selectors:
-      container: "table.list tbody tr, .tender-row"
-      title: "td:nth-child(2) a, .tender-title"
-      deadline: "td:nth-child(4), .tender-deadline"
-      link: "a@href"
+      container: "table.csx-new-table tbody tr"
+      title: "td:nth-child(3)"
+      deadline: "td:nth-child(2)"
+      link: "a[href*=projectForwarding]@href"
     field_map:
       title: title
       organization: "GIZ"

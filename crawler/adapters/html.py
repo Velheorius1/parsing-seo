@@ -232,16 +232,27 @@ class HtmlAdapter(BaseAdapter):
                 )
             else:
                 source_url = urljoin(page_url, link)
+        elif cfg.field_map.source_url_template and "{" not in cfg.field_map.source_url_template:
+            # Link-less источники со статическим шаблоном (uzairports, gov-eco:
+            # карточки без detail-страниц — модалки/таблицы). Раньше шаблон
+            # игнорировался (ветка только под `if link:`) → source_url="" у
+            # всех строк = алерт без ссылки вообще (П8 11.06).
+            source_url = cfg.field_map.source_url_template
 
         # External ID: from link or generate stable hash from content
         ext_id = ""
         if link:
-            # Try to extract ID from link
-            id_match = re.search(r"(\d+)", link)
-            if id_match:
-                ext_id = id_match.group(1)
-            else:
-                ext_id = link.strip("/").split("/")[-1] if "/" in link else link
+            id_regex = (selectors.external_id_regex or "") if selectors else ""
+            if id_regex:
+                m = re.search(id_regex, link)
+                ext_id = m.group(1) if m else ""
+            if not ext_id:
+                # Try to extract ID from link
+                id_match = re.search(r"(\d+)", link)
+                if id_match:
+                    ext_id = id_match.group(1)
+                else:
+                    ext_id = link.strip("/").split("/")[-1] if "/" in link else link
         if not ext_id:
             # Generate stable ID from content to avoid silent data loss on re-crawl
             # (using index would give different tenders the same ID across crawls)
