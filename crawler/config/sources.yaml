@@ -36,6 +36,83 @@ sources:
       page_size: 500
       total_field: "0.total_count"
 
+  # П4 (2026-06-11): заключённые сделки с ЦЕНАМИ ПОБЕДИТЕЛЕЙ — открыт анонимно
+  # (прежний вывод «закрыт» опровергнут аудитом 11.06). 156K+ сделок, +~700/день,
+  # сортировка deal_date DESC. Print-сегмент ~0.2% (~1-2 алерта/день): PRINTUZ
+  # 1.27млрд, DEKOS GROUP 298M (старт 516M = -42%). Окно 500 строк покрывает
+  # межкраульный промежуток при 3 краулах/день. deadline НЕ маппим: deal_date
+  # в прошлом — notifier отсеял бы всё как expired. Date_From/Date_To API
+  # игнорирует. deep-link /lot/{trade_id} verified (display_no = префикс+id).
+  - id: etender-deals
+    name: "ETender Сделки (победители)"
+    adapter: api
+    enabled: true
+    url: "https://apietender.uzex.uz/api/common/DealsList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: {"System_Id": 0}
+    rate_limit: 1.0
+    timeout: 30
+    id_prefix: "etd-deal"
+    field_map:
+      title: category_name
+      organization: customer_name
+      price: deal_cost
+      currency: currency_name
+      deadline: ""
+      external_id: trade_id
+      source_url_template: "https://etender.uzex.uz/lot/{external_id}"
+      extra_info:
+        "Победитель": "{provider_name} (ИНН {provider_inn})"
+        "Цена старт": "{start_cost} {currency_name}"
+        "Участников": "{participants_count}"
+        "Дата сделки": "{deal_date}"
+    keywords_fields: [category_name, customer_name, provider_name]
+    pagination:
+      type: offset
+      param: "From"
+      size_param: "To"
+      page_size: 250
+      max_pages: 2
+      total_field: "0.total_count"
+
+  # П4 (2026-06-11): НЕСОСТОЯВШИЕСЯ торги (без победителя) = тёплые лиды:
+  # заказчику всё ещё нужно, конкуренция была 0-2 участника. 53K архив,
+  # status_id=12. Пример: «Keng formatli nashr» 322M, 2 участника, не разыгран.
+  - id: etender-notdealed
+    name: "ETender Несостоявшиеся (лиды)"
+    adapter: api
+    enabled: true
+    url: "https://apietender.uzex.uz/api/common/NotDealedList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: {"System_Id": 0}
+    rate_limit: 1.0
+    timeout: 30
+    id_prefix: "etd-fail"
+    field_map:
+      title: category_name
+      organization: customer_name
+      price: start_cost
+      currency: ""
+      deadline: ""
+      external_id: trade_id
+      source_url_template: "https://etender.uzex.uz/lot/{external_id}"
+      extra_info:
+        "Статус": "{status_name}"
+        "Участников было": "{participants_count}"
+        "Торг завершён": "{end_date}"
+    keywords_fields: [category_name, customer_name]
+    pagination:
+      type: offset
+      param: "From"
+      size_param: "To"
+      page_size: 250
+      max_pages: 2
+      total_field: "0.total_count"
+
   - id: etender-discussion
     name: "ETender Обсуждения"
     adapter: api
