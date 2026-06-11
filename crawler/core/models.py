@@ -45,6 +45,10 @@ class HtmlSelectors(BaseModel):
     deadline: Optional[str] = None
     link: Optional[str] = None
     next_page: Optional[str] = None
+    # Opt-in regex для извлечения external_id из href (group(1)). Нужен когда
+    # «первое число в ссылке» — не id: mobiuz /purchase/{ГОД}/{ID}/ давал
+    # ext_id=год → все лоты года схлопывались дедупом в одну запись (П8 11.06).
+    external_id_regex: Optional[str] = None
 
 
 class PaginationConfig(BaseModel):
