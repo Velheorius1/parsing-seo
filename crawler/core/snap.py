@@ -18,17 +18,23 @@ logger = logging.getLogger(__name__)
 DETAIL_BASE = "https://parsing-seo.vercel.app/tenders"
 
 # Sources whose deep-link genuinely requires an authenticated session
-# (the public /procedure/{id}/core route resolves to a blank SPA or a
-# wrong id-space card). VERIFIED 2026-06-08: Hayotbirja отбор/встречные and
-# XT-Xarid встречные DO open publicly for active tenders -> removed so the
-# alert links straight to the lot. UZEX Предкв stays (wrong id-space).
+# (the public route resolves to a blank SPA or a wrong id-space card).
+# История верификаций:
+#  - 2026-06-08: Hayotbirja отбор/встречные + XT-Xarid встречные открываются
+#    публично -> удалены. UZEX Предкв: deep-link исправлен на
+#    proposal-request/detail/{id} (публичный) -> в списке не нужен.
+#  - 2026-06-11: "Hayotbirja э-магазин" удалён — источник отключён (PR #8),
+#    замена "XT-Xarid э-магазин" имеет рабочие публичные /procedure/{id}/core
+#    ссылки (НЕ добавлять сюда). Префикс "xt-xarid" заменён точным именем
+#    legacy SPA-источника "xt-xarid.uz": префикс-матчинг случайно зацепил бы
+#    будущие xt-xarid-* источники, чьи ссылки публичны.
 # Keep in sync with web/src/app/tenders/[id]/page.tsx BROKEN_SPA_HOSTS.
 BROKEN_SPA_SOURCES = {
-    "Hayotbirja э-магазин",
     "Xarid Конкурсы",
     "Xarid Прямые закупки",
+    "xt-xarid.uz",
 }
-BROKEN_SPA_PREFIXES = ("Cooperation.uz", "xt-xarid")
+BROKEN_SPA_PREFIXES = ("Cooperation.uz",)
 
 
 def is_broken_spa(source):

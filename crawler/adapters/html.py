@@ -204,16 +204,23 @@ class HtmlAdapter(BaseAdapter):
         # Build source URL
         source_url = ""
         if link:
-            if cfg.field_map.source_url_template:
-                source_url = cfg.field_map.source_url_template.replace(
-                    "{link}", link
-                ).replace(
-                    "{id}", link
-                ).replace(
-                    "{external_id}", link
-                )
-            elif link.startswith("http"):
+            tmpl = cfg.field_map.source_url_template
+            if link.startswith("http"):
+                # Абсолютный href: подстановка в шаблон "host{link}" дала бы
+                # "https://hosthttps://..." — используем href напрямую.
                 source_url = link
+            elif tmpl and tmpl != "{link}":
+                # Относительный href без ведущего "/" ломает шаблон "host{link}":
+                # hamkorbank отдаёт 'press-center/tenders/<slug>/' (резолвится
+                # только через <base href>) → 'hamkorbank.uzpress-center...'.
+                norm = link if link.startswith("/") else "/" + link
+                source_url = tmpl.replace(
+                    "{link}", norm
+                ).replace(
+                    "{id}", norm
+                ).replace(
+                    "{external_id}", norm
+                )
             else:
                 source_url = urljoin(page_url, link)
 
