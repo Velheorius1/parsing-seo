@@ -104,6 +104,46 @@ def _allow(reason: str = "") -> RelevanceResult:
     return RelevanceResult(is_relevant=True, score=None, category=None, reason=None)
 
 
+# Лёгкий фильтр СПАМА для TG-лидов (customer_request). НЕ product-scope-промпт:
+# тот зарезал разговорные заказы («сумка 1250шт» → 0). Этот отсекает только то,
+# что вообще НЕ заказ-на-изготовление, плюс категории вне профиля Winch,
+# подтверждённые Данияром 12.06 (пошив текстиля, резка/наружные конструкции).
+# Поток TG PR Media Group был ~30% мусора: реклама-самопиар (Eco Print ×10,
+# KOMRON PRESS), вакансии (usta/meneger kerak), техника (моноблок, блок питания).
+_LEAD_SPAM_PROMPT = """Это сообщение из Telegram-чата, где люди ищут исполнителей.
+Наша компания — ТИПОГРАФИЯ и УПАКОВОЧНОЕ производство (печать, полиграфия,
+упаковка, печать на мерче/ткани, бейджи, выставочные стенды).
+
+Реши: это ЗАКАЗ, который мы можем выполнить, или ШУМ?
+
+ШУМ (intent=drop) — НЕ присылать:
+- Реклама/самопиар: компания/человек РЕКЛАМИРУЕТ свои услуги («бизнесингизни…»,
+  «премиум сифат», «бизнинг хизматларимиз», прайсы, «sotuvda/sotiladi»)
+- Вакансия/поиск работника или контакта: «usta kerak», «ishchi/master/dizayner/
+  meneger kerak», «ish bor/kerak», «oylik…», «резюме», «номери кимда бор»
+- НЕ-печатная техника/товар: моноблок, компьютер, блок питания, микрофон,
+  адаптер, телефон, станок, мебель, продукты, лекарства как товар
+- Пошив текстиля как ИЗДЕЛИЯ: сшить форму/футболку/кепку/шарф (НЕ путать с
+  ПЕЧАТЬЮ логотипа на готовом текстиле — это НАШЕ)
+- Резка материалов и наружные конструкции: оргстекло, ЛДСП, акрил, лазерная
+  резка, неон, стелла, вывеска, монтаж наружной рекламы
+
+ЗАКАЗ (intent=keep) — присылать:
+- Печать/полиграфия: наклейки, штрихкоды, флаеры, А4/А5/А6, блокноты, каталоги,
+  бланки, визитки, открытки, календари
+- Упаковка: коробки, крафт-пакеты, гофра, картон, зип-пакеты
+- Печать ЛОГО на готовом: футболка/кепка/флаг/бокал/тарелка с логотипом
+  (DTF/сублимация/UV) — товар уже есть, нужна печать
+- Бейджи, ланьярды, стенды выставочные, таблички, мерч (ручки/браслеты с лого)
+- Поиск ПОСТАВЩИКА готового мерча/сумок — это потенциальный клиент, keep
+
+Сообщение:
+{text}
+
+Ответь СТРОГО JSON (только JSON): {{"intent": "keep|drop", "reason": "<до 80 симв>"}}
+/no_think"""
+
+
 def _strip_think_tags(text: str) -> str:
     """Remove Qwen3 <think>...</think> blocks if present."""
     if "<think>" not in text:
@@ -283,6 +323,49 @@ async def _ai_call_one(
             http_status=http_status,
             error=error,
         )
+
+
+async def _ai_lead_is_spam(
+    tender: RawTender,
+    client: httpx.AsyncClient,
+) -> bool:
+    """Lightweight spam gate for TG leads. True = drop (spam/out-of-scope).
+
+    Fail-open: on any network/parse error returns False (keep the lead) — we
+    never silently drop a hot lead because the AI hiccuped.
+    """
+    if not settings.openrouter_api_key:
+        return False
+    model = settings.ai_relevance_model_fast or settings.ai_relevance_model
+    text = (tender.search_text or tender.title or "")[:1000]
+    prompt = _LEAD_SPAM_PROMPT.format(text=text)
+    try:
+        resp = await client.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": "Bearer %s" % settings.openrouter_api_key},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 200,
+                "temperature": 0,
+                "reasoning": {"enabled": False},
+                "response_format": {"type": "json_object"},
+            },
+        )
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+        payload = _extract_json_object(_strip_think_tags(content))
+        if not payload:
+            return False
+        intent = str(payload.get("intent", "")).lower().strip()
+        if intent == "drop":
+            logger.info("[Lead Spam] dropped: %s — %s",
+                        tender.title[:50], str(payload.get("reason", ""))[:60])
+            return True
+        return False
+    except Exception as exc:
+        logger.warning("[Lead Spam] check failed (keep lead): %s", str(exc)[:100])
+        return False
 
 
 async def _ai_check_relevance(
@@ -831,13 +914,19 @@ async def send_alerts(
             async def _check(tender_kw):
                 # type: (Tuple[RawTender, str]) -> Tuple[RawTender, str, RelevanceResult]
                 tender, kw = tender_kw
-                # Customer requests (group leads) are already vetted by the
-                # demand-vs-ad classifier + keyword prefilter. The tender
-                # product-scope prompt misjudges colloquial leads (a bag demand
-                # "сумка 1250шт, кимда бор" scored 0/irrelevant), so skip it for
-                # them — never drop a hot lead. Tenders are still checked.
+                # Customer requests (TG group leads): the heavy product-scope
+                # prompt misjudges colloquial orders ("сумка 1250шт" → 0), so we
+                # don't run it. But fully exempting them flooded alerts with ~30%
+                # noise (12.06 audit: ad self-promo Eco Print ×10, vacancies
+                # "usta kerak", non-print tech). Run the LIGHT spam gate instead:
+                # drops pure spam / out-of-scope (sewing, cutting/signage per
+                # Daniyar 12.06), keeps every real order. Fail-open.
                 if getattr(tender, "message_type", None) == "customer_request":
-                    return tender, kw, _allow("customer_request lead: skip product-scope")
+                    if await _ai_lead_is_spam(tender, ai_client):
+                        return tender, kw, RelevanceResult(
+                            is_relevant=False, score=0,
+                            category="ad", reason="lead spam/out-of-scope")
+                    return tender, kw, _allow("customer_request lead: kept")
                 async with sem:
                     result = await _ai_check_relevance(tender, ai_client)
                 # Mutate tender so any later code (DB update, formatter) sees the score.
