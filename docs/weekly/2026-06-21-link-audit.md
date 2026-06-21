@@ -33,7 +33,7 @@ Mechanics: `_tender_to_row` always writes `source_url` (`crawler/core/db.py:44`)
 | `uzex-shop-paper` | 1016 | (same as above) |
 | `uzex-shop-publish` | 1051 | (same as above) |
 | `uzex-shop-adv` | 1086 | (same as above) |
-| `xarid-direct` | 235 | **TBD** — id=`display_id` (purchase #), no clean e-shop mapping. Try `proposal-request/detail` / direct-purchase route in browser; else add to broken-spa (Vercel fallback). Low print-relevance. |
+| `xarid-direct` | 235 | **No change** — already in `BROKEN_SPA_SOURCES` (crawler/core/snap.py:34), so the wrong-card URL is never shown; alert uses Vercel archive + number-search handoff. Template left as-is. |
 
 Screenshots saved this session (worktree root): `prequest-NEW-shop-detail-77521`, `prequest-PROPOSAL-77521`, `auction-OLD-914`, `eshop-knigi-27183976`, `eshop-NEW-27183976`, `direct-4419497`, `xtxarid-7749217`, `etender-496165`, `cooperation-SL1554184`, `vercel-archive-3712`.
 

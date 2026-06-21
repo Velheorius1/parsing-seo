@@ -978,7 +978,9 @@ sources:
       currency: currency_name
       deadline: ""
       external_id: id
-      source_url_template: "https://xarid.uzex.uz/shop/lot-details/{external_id}"
+      # 2026-06-21: browser-verified. Old xarid.uzex.uz GetLot API returns "no data
+      # found"; new-xarid e-shop route renders the offer (27183976 → "Книги печатные").
+      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{external_id}?elektron=true"
       extra_info:
         "Цена/ед": "{price} {currency_name} за {unit_name}"
         "Кол-во": "{amount} {unit_name}"
@@ -1013,7 +1015,9 @@ sources:
       currency: currency_name
       deadline: ""
       external_id: id
-      source_url_template: "https://xarid.uzex.uz/shop/lot-details/{external_id}"
+      # 2026-06-21: browser-verified. Old xarid.uzex.uz GetLot API returns "no data
+      # found"; new-xarid e-shop route renders the offer (27183976 → "Книги печатные").
+      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{external_id}?elektron=true"
       extra_info:
         "Цена/ед": "{price} {currency_name} за {unit_name}"
         "Кол-во": "{amount} {unit_name}"
@@ -1048,7 +1052,9 @@ sources:
       currency: currency_name
       deadline: ""
       external_id: id
-      source_url_template: "https://xarid.uzex.uz/shop/lot-details/{external_id}"
+      # 2026-06-21: browser-verified. Old xarid.uzex.uz GetLot API returns "no data
+      # found"; new-xarid e-shop route renders the offer (27183976 → "Книги печатные").
+      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{external_id}?elektron=true"
       extra_info:
         "Цена/ед": "{price} {currency_name} за {unit_name}"
         "Кол-во": "{amount} {unit_name}"
@@ -1083,7 +1089,9 @@ sources:
       currency: currency_name
       deadline: ""
       external_id: id
-      source_url_template: "https://xarid.uzex.uz/shop/lot-details/{external_id}"
+      # 2026-06-21: browser-verified. Old xarid.uzex.uz GetLot API returns "no data
+      # found"; new-xarid e-shop route renders the offer (27183976 → "Книги печатные").
+      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{external_id}?elektron=true"
       extra_info:
         "Цена/ед": "{price} {currency_name} за {unit_name}"
         "Кол-во": "{amount} {unit_name}"
@@ -1122,8 +1130,10 @@ sources:
       date_end: endDate
       region: regionName
       external_id: id
-      # 2026-05-21: UZEX migration — universal new-xarid URL.
-      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true"
+      # 2026-06-21: browser-verified. Reverse auctions render on the legacy
+      # xarid.uzex.uz/auction/detail/{id} route (lot + product table). The
+      # /home/shop/detail/{id} migration resolved to a wrong/unrelated card.
+      source_url_template: "https://xarid.uzex.uz/auction/detail/{id}"
     keywords_fields: [categoryName]
 
   - id: uzex-prequest
@@ -1150,9 +1160,12 @@ sources:
       date_start: startDate
       date_end: endDate
       external_id: id
-      # 2026-05-21: see UZEX migration note above. Universal new-xarid URL works
-      # for prequalifications too (verified on SO0068843, SO0068603).
-      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true"
+      # 2026-06-21: browser-verified. Prequest ids live in the proposal-request
+      # space, NOT e-shop. /home/shop/detail/{id} resolved to a DELETED 2021 e-shop
+      # item (wrong card, e.g. 77521 → "Лопата"/Удален). proposal-request/detail/{id}
+      # opens the real lot anonymously (77521 → "Кокс и нефтепродукты", Опубликован).
+      # Same route as xarid-competitions (the only one previously fixed).
+      source_url_template: "https://new-xarid.uzex.uz/home/purchase/proposal-request/detail/{id}"
       extra_info:
         customer_inn: customerInn
         display_id: displayId

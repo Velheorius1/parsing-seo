@@ -647,6 +647,18 @@ def _lookup_tender_uuid(external_id: str, source: str) -> Optional[str]:
 # Detail page base URL
 _DETAIL_PAGE_BASE = "https://parsing-seo.vercel.app/tenders"
 
+# Reverse (counter) auctions — buyer posts demand, suppliers bid the price DOWN.
+# Labeled distinctly in alerts so the bidding dynamic is obvious. Names must match
+# sources.yaml exactly (verified 2026-06-21). Generic "Аукционы" feeds are excluded
+# (direction ambiguous — may be forward/selling).
+_REVERSE_AUCTION_SOURCES = {
+    "UZEX Обратные аукционы",
+    "Hayotbirja встречные аукционы",
+    "XT-Xarid встречные аукционы",
+    "E-Birja встречные аукционы",
+    "E-Birja встречный аукцион (листинг)",
+}
+
 
 def _format_alert(
     tender: RawTender,
@@ -667,6 +679,9 @@ def _format_alert(
         parts.append("%s[ИНФО]" % prefix)
     else:
         parts.append("%s[ТЕНДЕР]" % prefix if prefix else "")
+    # Reverse auction badge — distinct bidding dynamic (price goes down).
+    if tender.source in _REVERSE_AUCTION_SOURCES:
+        parts.append("🔄 *Обратный тендер* (аукцион на понижение)")
     parts.append("*%s*" % _escape_md(tender.title[:200]))
     if tender.organization:
         parts.append("Заказчик: %s" % _escape_md(tender.organization))
