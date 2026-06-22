@@ -23,6 +23,14 @@ logger = logging.getLogger(__name__)
 # Valid category labels — must match parsing_feedback CLI labels.
 _VALID_CATEGORIES = ("client", "ad", "irrelevant")
 
+# Borderline-reject escalation gate (p95 fix, 2026-06-22). The slow Max model is
+# only a second opinion on fast REJECTS, to rescue ~4% false-rejects which are
+# "смежная" (40-69) cases. A confident reject (< 40 = "точно не наш" per the
+# prompt) is a reliable true negative and does NOT need Max — skipping it cuts the
+# slow Max calls that dominate AI p95 (Max ≈ the 15s client timeout). Mirrors the
+# validated cooperation gate (77d9897).
+_MAX_ESCALATE_MIN_SCORE = 40
+
 
 @dataclass
 class RelevanceResult:
@@ -421,8 +429,18 @@ async def _ai_check_relevance(
         # Fast accepts → done. Cheap path covers ~95% of incoming tenders.
         return fast_result
 
-    # Fast rejected → second opinion from Max (catches "печатные… копированию
-    # звуко-видеозаписей" type tenders that a3b false-rejects ~4% of the time).
+    # Confident reject (fast score < 40 = "точно не наш") → trust it, skip the
+    # slow Max call. The Max rescue is for BORDERLINE rejects ("смежная", 40-69),
+    # where false-rejects live — not clear-cut ones. This is the p95 lever.
+    if (fast_result.score or 0) < _MAX_ESCALATE_MIN_SCORE:
+        logger.info(
+            "[AI Filter:fast] REJECTED (confident, skip max) score=%d cat=%s: %s",
+            fast_result.score, fast_result.category, tender.title[:60],
+        )
+        return fast_result
+
+    # Borderline fast reject → second opinion from Max (catches "печатные…
+    # копированию звуко-видеозаписей" tenders that a3b false-rejects ~4% of time).
     max_result = await _ai_call_one(tender, client, max_model, role="max")
     if max_result is None:
         # Max unavailable → trust fast rejection.
