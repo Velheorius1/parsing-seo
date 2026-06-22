@@ -1035,14 +1035,24 @@ async def send_alerts(
             # Look up Supabase UUID for detail page link
             db_id = _lookup_tender_uuid(tender.external_id, tender.source)
             text = _format_alert(tender, kw, extra_sources=extra, alert_seq=seq, db_id=db_id)
-            # Inline keyboard for feedback
-            reply_markup = {
-                "inline_keyboard": [[
+            # Inline keyboard for feedback \u2014 context-aware wording. "\u041a\u043b\u0438\u0435\u043d\u0442" made no
+            # sense on a tender \u2192 feedback dead 2 months (last click 2026-04-15).
+            # Leads keep \u041a\u043b\u0438\u0435\u043d\u0442/\u0420\u0435\u043a\u043b\u0430\u043c\u0430/\u041c\u0438\u043c\u043e; tenders get \u0418\u043d\u0442\u0435\u0440\u0435\u0441\u043d\u043e/\u0420\u0435\u043a\u043b\u0430\u043c\u0430/\u041d\u0435 \u043c\u043e\u0451.
+            # Same callback semantics (ok=keep, ad=spam, skip=FP) \u2192 feedback_bot and
+            # in-flight old alerts unchanged; only the visible label adapts.
+            if tender.message_type == "customer_request":
+                _fb_row = [
                     {"text": "\U0001f464 \u041a\u043b\u0438\u0435\u043d\u0442", "callback_data": "fb:%d:ok" % seq},
                     {"text": "\U0001f4e2 \u0420\u0435\u043a\u043b\u0430\u043c\u0430", "callback_data": "fb:%d:ad" % seq},
                     {"text": "\u274c \u041c\u0438\u043c\u043e", "callback_data": "fb:%d:skip" % seq},
-                ]]
-            }
+                ]
+            else:
+                _fb_row = [
+                    {"text": "\u2705 \u0418\u043d\u0442\u0435\u0440\u0435\u0441\u043d\u043e", "callback_data": "fb:%d:ok" % seq},
+                    {"text": "\U0001f4e2 \u0420\u0435\u043a\u043b\u0430\u043c\u0430", "callback_data": "fb:%d:ad" % seq},
+                    {"text": "\u274c \u041d\u0435 \u043c\u043e\u0451", "callback_data": "fb:%d:skip" % seq},
+                ]
+            reply_markup = {"inline_keyboard": [_fb_row]}
 
             # Attempt to capture our /tenders/{uuid} page if the source is a broken SPA
             photo_url = None

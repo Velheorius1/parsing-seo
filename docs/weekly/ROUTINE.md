@@ -27,8 +27,19 @@
   Открой каждую в Playwright, screenshot, классифицируй valid_lot / wrong_card / no_data / homepage.
   link_integrity = % valid_lot, переведи в 0-10 (=10*доля). Это 25%-й sub-score.
 
+ШАГ 2.5 — Precision (AI-judge, behavior-independent):
+  Фидбек Данияра часто = 0 (он редко кликает) → precision из alert_feedback неизмерим.
+  Поэтому ИЗМЕРЬ precision сам: возьми 10 случайных алертов недели
+  (ssh root@46.62.155.190 "cd /opt/parsing-seo && .venv/bin/python3 -c \"from crawler.core.db import _get_client; c=_get_client();
+    import random; r=c.table('tenders').select('title,organization,search_text,relevance_score').not_.is_('alert_seq','null').order('alert_seq',desc=True).limit(60).execute().data or [];
+    [print(repr((x.get('title'),x.get('organization')))) for x in random.sample(r, min(10,len(r)))]\"")
+  Для каждого реши relevant/not vs product-scope (типография/упаковка/полиграфия/стенды/бейджи IN; баннеры/папки/вакансии/техника OUT — см. crawler/core/notifier.py _RELEVANCE_PROMPT).
+  precision_sub = 10 * (доля relevant). Помечай «measured (AI-judge, n=10)», НЕ прокси.
+  Если alert_feedback за 7д непуст — сверь с кликами Данияра (приоритет реальному фидбеку).
+
 ШАГ 3 — Composite 0-10:
   composite = 0.25*link + 0.25*precision + 0.20*platform + 0.15*recall + 0.15*cost.
+  precision = из ШАГ 2.5 (AI-judge), а не прокси 8.0 из weekly_metrics.
   Сравни с прошлой неделей (последняя строка docs/weekly/LEARNINGS.md). Падение → объясни причину.
 
 ШАГ 4 — /deep-think:
