@@ -347,33 +347,47 @@ async def _ai_lead_is_spam(
     model = settings.ai_relevance_model_fast or settings.ai_relevance_model
     text = (tender.search_text or tender.title or "")[:1000]
     prompt = _LEAD_SPAM_PROMPT.format(text=text)
-    try:
-        resp = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": "Bearer %s" % settings.openrouter_api_key},
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 200,
-                "temperature": 0,
-                "reasoning": {"enabled": False},
-                "response_format": {"type": "json_object"},
-            },
-        )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-        payload = _extract_json_object(_strip_think_tags(content))
-        if not payload:
+    # Retry transient provider errors before failing open. The fail-open default
+    # (keep) protects real leads, but during OpenRouter load spikes it LEAKED spam
+    # unscored — 06-21/22: «KOMRON PRESS» / «Eco Print … PREMIUM SIFAT» / bare
+    # greetings were alerted with score=None (gate errored → kept). The prompt
+    # classifies them correctly (verified); it just needs to actually run.
+    import asyncio as _aio
+    last_err = ""
+    for attempt in range(3):
+        try:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": "Bearer %s" % settings.openrouter_api_key},
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 200,
+                    "temperature": 0,
+                    "reasoning": {"enabled": False},
+                    "response_format": {"type": "json_object"},
+                },
+            )
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"]
+            payload = _extract_json_object(_strip_think_tags(content))
+            if not payload:
+                last_err = "no JSON payload"
+                if attempt < 2:
+                    await _aio.sleep(0.5 * (attempt + 1))
+                continue
+            intent = str(payload.get("intent", "")).lower().strip()
+            if intent == "drop":
+                logger.info("[Lead Spam] dropped: %s — %s",
+                            tender.title[:50], str(payload.get("reason", ""))[:60])
+                return True
             return False
-        intent = str(payload.get("intent", "")).lower().strip()
-        if intent == "drop":
-            logger.info("[Lead Spam] dropped: %s — %s",
-                        tender.title[:50], str(payload.get("reason", ""))[:60])
-            return True
-        return False
-    except Exception as exc:
-        logger.warning("[Lead Spam] check failed (keep lead): %s", str(exc)[:100])
-        return False
+        except Exception as exc:
+            last_err = str(exc)[:100]
+            if attempt < 2:
+                await _aio.sleep(0.5 * (attempt + 1))
+    logger.warning("[Lead Spam] check failed after 3 tries (keep lead): %s", last_err)
+    return False
 
 
 async def _ai_check_relevance(
