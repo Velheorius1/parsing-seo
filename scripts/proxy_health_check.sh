@@ -8,7 +8,7 @@ set -uo pipefail
 ENV_FILE="/opt/parsing-seo/.env"
 ALERT="/opt/second-brain/Projects/dsbot/scripts/dsbot-alert.py"
 LOG="/var/log/proxy-healthcheck.log"
-PROBE_URL="${PROXY_PROBE_URL:-http://httpbin.org/ip}"
+PROBE_URL="${PROXY_PROBE_URL:-https://api.ipify.org}"
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 log() { echo "[$(ts)] $*" >> "$LOG"; }
@@ -26,7 +26,13 @@ PROXY=$(grep "^RESIDENTIAL_PROXY_URL=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr
 [ -n "$PROXY" ] || { alert "proxy hc: RESIDENTIAL_PROXY_URL missing in .env"; exit 1; }
 
 # Probe uses explicit -x proxy; the ALERT path does NOT use the proxy.
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 -x "$PROXY" "$PROBE_URL" 2>/dev/null || echo "000")
+# Probe via proxy. httpbin.org was the target until 2026-06-25 — it returned 503/timeouts
+# constantly (free public service, frequently down) -> false alarms blaming the proxy,
+# AND the |"| echo 000 doubled curl's own "000" into "000000" (mislabeled as unexpected).
+# api.ipify.org is reliable; one retry absorbs transient target blips before alerting.
+_probe() { curl -s -o /dev/null -w "%{http_code}" --max-time 20 -x "$PROXY" "$PROBE_URL" 2>/dev/null || true; }
+HTTP=$(_probe); HTTP=${HTTP:-000}
+if [ "$HTTP" != "200" ] && [ "$HTTP" != "402" ]; then sleep 5; HTTP=$(_probe); HTTP=${HTTP:-000}; fi
 
 case "$HTTP" in
   200)
