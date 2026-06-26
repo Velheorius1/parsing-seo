@@ -9,6 +9,7 @@ ENV_FILE="/opt/parsing-seo/.env"
 ALERT="/opt/second-brain/Projects/dsbot/scripts/dsbot-alert.py"
 LOG="/var/log/proxy-healthcheck.log"
 PROBE_URL="${PROXY_PROBE_URL:-https://api.ipify.org}"
+PROBE_URL2="${PROXY_PROBE_URL2:-https://icanhazip.com}"
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 log() { echo "[$(ts)] $*" >> "$LOG"; }
@@ -30,9 +31,21 @@ PROXY=$(grep "^RESIDENTIAL_PROXY_URL=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr
 # constantly (free public service, frequently down) -> false alarms blaming the proxy,
 # AND the |"| echo 000 doubled curl's own "000" into "000000" (mislabeled as unexpected).
 # api.ipify.org is reliable; one retry absorbs transient target blips before alerting.
-_probe() { curl -s -o /dev/null -w "%{http_code}" --max-time 20 -x "$PROXY" "$PROBE_URL" 2>/dev/null || true; }
-HTTP=$(_probe); HTTP=${HTTP:-000}
-if [ "$HTTP" != "200" ] && [ "$HTTP" != "402" ]; then sleep 5; HTTP=$(_probe); HTTP=${HTTP:-000}; fi
+_probe() { curl -s -o /dev/null -w "%{http_code}" --max-time 20 -x "$PROXY" "$1" 2>/dev/null || true; }
+HTTP=$(_probe "$PROBE_URL"); HTTP=${HTTP:-000}
+if [ "$HTTP" != "200" ] && [ "$HTTP" != "402" ]; then sleep 5; HTTP=$(_probe "$PROBE_URL"); HTTP=${HTTP:-000}; fi
+# Cross-check a SECOND independent target before blaming the proxy. A single free
+# target being down (the httpbin lesson) must NOT trigger a false alarm — only if
+# BOTH ipify AND icanhazip fail via the proxy do we conclude the proxy is down.
+# (402 stays authoritative: it comes from the proxy itself = traffic exhausted.)
+if [ "$HTTP" != "200" ] && [ "$HTTP" != "402" ]; then
+  HTTP2=$(_probe "$PROBE_URL2"); HTTP2=${HTTP2:-000}
+  if [ "$HTTP2" = "200" ]; then
+    log "OK (proxy 200 via fallback $PROBE_URL2; $PROBE_URL gave $HTTP — target blip, not proxy)"
+    exit 0
+  fi
+  [ "$HTTP2" = "402" ] && HTTP=402
+fi
 
 case "$HTTP" in
   200)

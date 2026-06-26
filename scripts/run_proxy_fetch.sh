@@ -9,13 +9,16 @@ export HTTP_PROXY=$RESIDENTIAL_PROXY_URL
 export HTTPS_PROXY=$RESIDENTIAL_PROXY_URL
 
 # Precheck: skip silently if proxy is down. Dedicated cron proxy_health_check.sh sends the alert.
-__probe() { curl -s -o /dev/null -w "%{http_code}" --max-time 15 -x "$RESIDENTIAL_PROXY_URL" https://api.ipify.org 2>/dev/null || true; }
-__pc=$(__probe); __pc=${__pc:-000}
+__probe() { curl -s -o /dev/null -w "%{http_code}" --max-time 15 -x "$RESIDENTIAL_PROXY_URL" "$1" 2>/dev/null || true; }
+__pc=$(__probe https://api.ipify.org); __pc=${__pc:-000}
 # httpbin.org (old target) was down daily -> precheck skipped tender fetch though proxy was fine
-# (20 missed runs by 2026-06-25). Reliable target + one retry fixes the false skips.
-if [ "$__pc" != "200" ]; then sleep 5; __pc=$(__probe); __pc=${__pc:-000}; fi
-if [ "$__pc" != "200" ]; then
-  echo "=== $(date +%Y-%m-%d\ %H:%M:%S) SKIP proxy fetch: proxy HTTP $__pc (down) ===" >> "$LOG"
+# (20 missed runs by 2026-06-25). Reliable target + one retry + a SECOND independent
+# target (icanhazip): only SKIP if BOTH ipify AND icanhazip fail, so one target being
+# down never causes a false skip.
+if [ "$__pc" != "200" ]; then sleep 5; __pc=$(__probe https://api.ipify.org); __pc=${__pc:-000}; fi
+if [ "$__pc" != "200" ]; then __pc2=$(__probe https://icanhazip.com); __pc2=${__pc2:-000}; else __pc2=200; fi
+if [ "$__pc" != "200" ] && [ "$__pc2" != "200" ]; then
+  echo "=== $(date +%Y-%m-%d\ %H:%M:%S) SKIP proxy fetch: proxy HTTP $__pc/$__pc2 (both targets down) ===" >> "$LOG"
   exit 0
 fi
 
