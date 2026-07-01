@@ -843,6 +843,75 @@ def _format_alert(
     return "\n".join(parts)
 
 
+# ── Phase-2 delivery routing (deep-think 2026-07-01) ──────────────────────────
+# High-signal → per-alert PUSH (interrupt earned); everything else → ONE compact
+# ranked DIGEST. Fixes the bimodal-job/unimodal-channel mismatch that drowned the
+# few winnable orders in ~200 equal-weight pushes.
+_PUSH_PRICE_FLOOR = 100_000_000  # 100M UZS — big-ticket always pushes
+
+
+def _is_high_signal(t: RawTender) -> bool:
+    """True → per-alert push; False → digest."""
+    if getattr(t, "message_type", None) == "customer_request":
+        return True  # hot lead: a client asking to buy NOW
+    if t.source in _REVERSE_AUCTION_SOURCES and (t.bid_count or 0) > 0:
+        return True  # live reverse auction with real bidders
+    if t.price and t.price >= _PUSH_PRICE_FLOOR:
+        return True  # big-ticket (>=100M) — worth an interrupt regardless
+    if (t.relevance_score or 0) >= 95 and t.price and t.price >= 30_000_000:
+        return True  # near-certain "наш заказ" AND non-trivial size
+    dt = _parse_deadline(t.deadline)
+    if dt is not None:
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
+        if timedelta(0) <= (dt - datetime.utcnow()) <= timedelta(hours=48):
+            return True  # last-chance (<48h)
+    return False
+
+
+def _digest_score(t: RawTender) -> float:
+    """Digest rank: value(log price) × demand(relevance_score)."""
+    import math
+    value = math.log10((t.price or 0) + 10)  # ~1..11
+    demand = (t.relevance_score if t.relevance_score is not None else 60) / 100.0
+    return value * (0.4 + demand)
+
+
+def _build_digest_text(tenders: List[RawTender]) -> str:
+    from crawler.core.snap import is_broken_spa
+    ranked = sorted(tenders, key=lambda t: -_digest_score(t))
+    n = len(tenders)
+    parts = ["📋 *Дайджест* — %d менее срочных лотов (не требуют мгновенной реакции)" % n, ""]
+    for t in ranked[:10]:
+        price = "{:,.0f} сум".format(t.price) if t.price else "цена н/у"
+        line = "• *%s* — %s" % (_escape_md((t.title or "")[:48]), price)
+        if t.source_url and not is_broken_spa(t.source):
+            line += "\n  %s" % t.source_url
+        parts.append(line)
+    if n > 10:
+        parts.append("\n…и ещё %d — все на https://parsing-seo.vercel.app/tenders" % (n - 10))
+    return "\n".join(parts)
+
+
+async def _send_digest(tenders: List[RawTender]) -> bool:
+    """Send ONE compact ranked digest message. Returns True on HTTP 200."""
+    if not tenders:
+        return False
+    url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(url, json={
+            "chat_id": settings.telegram_alert_chat_id,
+            "text": _build_digest_text(tenders),
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+            "protect_content": True,
+        })
+    ok = resp.status_code == 200
+    logger.info("[Digest] %s — %d items in one message",
+                "sent" if ok else "FAILED %d" % resp.status_code, len(tenders))
+    return ok
+
+
 async def send_alerts(
     new_tenders: List[RawTender],
     dry_run: bool = False,
@@ -1084,6 +1153,12 @@ async def send_alerts(
     if uzex_bypass:
         matching = matching + uzex_bypass
 
+    # ── 3-tier routing: high-signal → per-alert PUSH; the rest → one ranked DIGEST.
+    digest_tenders = [t for t, _kw in matching if not _is_high_signal(t)]
+    matching = [(t, kw) for t, kw in matching if _is_high_signal(t)]
+    if digest_tenders:
+        logger.info("[Route] %d push / %d digest", len(matching), len(digest_tenders))
+
     # Hot leads first: customer_request items (real clients asking to buy NOW)
     # jump the queue — lowest seq + sent before tender noise. Stable sort keeps
     # relative order within each group.
@@ -1091,7 +1166,7 @@ async def send_alerts(
 
     # Reserve sequential alert numbers
     from crawler.core.feedback import get_next_seq, save_alert_seq
-    start_seq = get_next_seq(len(matching))
+    start_seq = get_next_seq(len(matching)) if matching else 0
 
     # Send via Telegram Bot API (no Telethon needed — just HTTP)
     bot_url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
@@ -1188,7 +1263,21 @@ async def send_alerts(
             except Exception as exc:
                 logger.warning("[Alerts] Error sending alert #%d: %s", seq, str(exc))
 
-    logger.info("[Alerts] Sent %d / %d alerts (seq #%d-#%d)", sent, len(matching), start_seq, start_seq + len(matching) - 1)
+    if matching:
+        logger.info("[Alerts] Sent %d / %d alerts (seq #%d-#%d)", sent, len(matching), start_seq, start_seq + len(matching) - 1)
+
+    # Ranked digest for the low-signal tail — separate client, bulkheaded: a digest
+    # failure must NEVER affect the push path above (Newman). Mark digested items
+    # alerted so a same-content re-issue is later suppressed by the dedup window.
+    if digest_tenders:
+        try:
+            if await _send_digest(digest_tenders):
+                _dstart = get_next_seq(len(digest_tenders))
+                for _j, _t in enumerate(digest_tenders):
+                    save_alert_seq(_t.external_id, _t.source, _dstart + _j)
+        except Exception as _exc:
+            logger.warning("[Digest] send failed (push unaffected): %s", str(_exc)[:120])
+
     return sent
 
 
