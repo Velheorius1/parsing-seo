@@ -696,6 +696,30 @@ _REVERSE_AUCTION_SOURCES = {
     "E-Birja встречный аукцион (листинг)",
 }
 
+# Supplier-catalog / off-profile sources dropped from PUSH (deep-think 2026-07-01):
+# e-shops are sell-side (sellers list offers) — no buyer, no demand signal (bid field
+# absent from the API). They were 26%+ of alerts, incl. Winch's OWN lots. Still crawled
+# and stored (visible on Vercel); Phase-2 surfaces the демандные ones via a digest.
+_NO_PUSH_SOURCES = {
+    "XT-Xarid э-магазин",              # pure supplier catalog (twin hayotbirja-shop already off)
+    "UZEX Э-магазин рекламные услуги",  # off-profile (ads placement, not our print)
+}
+
+# Winch's own org/vendor strings — never alert (a self-alert for an already-won lot
+# erodes trust). Normalized substring match. Bare surname EXCLUDED (collision risk);
+# only the full ЧП legal form.
+_OWN_ORG_FRAGMENTS = frozenset({
+    "winch", "винч", "салахутдинов д.у", "salakhutdinov d.u",
+})
+
+
+def _is_own_lot(org: Optional[str]) -> bool:
+    """True if the organization is Winch's own (suppress — it's our posting)."""
+    if not org:
+        return False
+    norm = " ".join(org.casefold().split())
+    return any(frag in norm for frag in _OWN_ORG_FRAGMENTS)
+
 
 def _format_alert(
     tender: RawTender,
@@ -845,6 +869,20 @@ async def send_alerts(
     info_count = len(new_tenders) - len(relevant)
     if info_count:
         logger.info("[Alerts] Skipped %d info/ads (not tender or customer_request)", info_count)
+
+    # Drop supplier-catalog e-shop sources from PUSH (sell-side, no buyer demand).
+    _bpush = len(relevant)
+    relevant = [t for t in relevant if t.source not in _NO_PUSH_SOURCES]
+    _nopush = _bpush - len(relevant)
+    if _nopush:
+        logger.info("[NoPush] Dropped %d e-shop/catalog alerts (supplier-side, not buyer demand)", _nopush)
+
+    # Suppress our own postings (Winch is the vendor on e-shop listings).
+    _own = [t for t in relevant if _is_own_lot(t.organization)]
+    if _own:
+        logger.info("[Self-Lot] Suppressed %d own postings: %s",
+                    len(_own), ", ".join((t.title or "")[:40] for t in _own))
+        relevant = [t for t in relevant if not _is_own_lot(t.organization)]
 
     # Filter out tenders below minimum price (10M UZS)
     MIN_PRICE = 10_000_000

@@ -4,6 +4,7 @@ Groups tenders that appear on multiple platforms into clusters.
 Uses fuzzy matching: normalized organization + title keywords + deadline proximity.
 """
 
+import hashlib
 import logging
 import re
 import uuid
@@ -15,6 +16,11 @@ logger = logging.getLogger(__name__)
 
 # Minimum similarity to consider two tenders as duplicates
 _TITLE_OVERLAP_THRESHOLD = 0.5  # 50% of significant words must match
+
+# Spec-tokens stripped from title identity so "чек лента 80мм" ≡ "чек лента 80г"
+# don't fork into separate logical lots (dedup Hole 2, deep-think 2026-07-01):
+# pure numbers, number+unit, paper formats.
+_SPEC_TOKEN_RE = re.compile(r"^(\d+(мм|см|м|г|кг|шт|мл|л|дона|штук)?|[аa][3-6])$")
 
 
 def _normalize_org(org: str) -> str:
@@ -47,8 +53,8 @@ def _extract_significant_words(title: str) -> Set[str]:
         "закупка", "тендер", "лот", "услуги", "товар", "работы",
         "приобретение", "поставка", "оказание", "выполнение",
     }
-    words = set(re.findall(r"[а-яёa-z0-9]+", title.lower()))
-    return words - stop_words
+    words = set(re.findall(r"[а-яёa-z0-9]+", title.lower())) - stop_words
+    return {w for w in words if not _SPEC_TOKEN_RE.match(w)}
 
 
 def _title_similarity(words_a: Set[str], words_b: Set[str]) -> float:
@@ -164,22 +170,51 @@ def find_groups(tenders: List[RawTender]) -> Dict[str, str]:
     return groups
 
 
+def _source_class(source: Optional[str]) -> str:
+    """Coarse source bucket — namespaces the fail-closed key + picks the spam window."""
+    s = (source or "").lower()
+    if s.startswith("tg:") or "pr media" in s or "запрос" in s:
+        return "tg-ad"
+    if "э-магазин" in s or "uzex" in s or "xarid" in s:
+        return "uzex"
+    if "birja" in s or "бирж" in s or "cooperation" in s:
+        return "birja"
+    return "gov"
+
+
+def _price_bucket(price) -> str:
+    try:
+        return str(int(round(float(price), -6))) if price else "NA"
+    except (TypeError, ValueError):
+        return "NA"
+
+
+def _deadline_day(deadline: Optional[str]) -> str:
+    return _parse_deadline_rough(deadline) or "NA"
+
+
+def _logical_key(source, org, title, price, deadline) -> Tuple[str, str, str]:
+    """Logical-lot identity. Rich key ``(source, org, words)`` when org+words present;
+    otherwise a FAIL-CLOSED content hash (never a per-row id) so empty-org reposts
+    — all TG leads + org-less e-shop lots — collapse instead of re-alerting."""
+    norm_org = _normalize_org(org or "")
+    words = _extract_significant_words(title or "")
+    if norm_org and words:
+        return (source, norm_org, " ".join(sorted(words)))
+    core = " ".join(sorted(words)) if words else " ".join((title or "").lower().split())
+    payload = "%s|%s|%s" % (core, _price_bucket(price), _deadline_day(deadline))
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+    return (_source_class(source), "", digest)
+
+
 def _within_source_key(t: RawTender) -> Tuple[str, str, str]:
-    """Generate fingerprint for same-source dedup.
+    """Fingerprint for same-source dedup (delegates to _logical_key).
 
-    Cooperation.uz publishes one procurement plan as N rows with unique GUIDs
-    but identical (title, organization). Without same-source dedup the alert
-    channel gets 64 copies of "Учебники печатные" from one organization.
-
-    Returns ``(source, normalized_org, sorted_significant_words)`` — empty org
-    or empty title falls back to original external_id semantics (not deduped).
+    Cooperation.uz / TG reposts publish the same logical lot with a fresh id each
+    crawl; the fail-closed content hash collapses them even when org is empty
+    (the 40%-duplicates root cause, deep-think 2026-07-01).
     """
-    org = _normalize_org(t.organization or "")
-    words = _extract_significant_words(t.title or "")
-    if not org or not words:
-        # Fall back to external_id — disables fuzzy dedup for this row
-        return (t.source, "", t.id)
-    return (t.source, org, " ".join(sorted(words)))
+    return _logical_key(t.source, t.organization, t.title, t.price, t.deadline)
 
 
 def dedup_within_source(
@@ -202,10 +237,6 @@ def dedup_within_source(
     dropped = 0
     for t in tenders:
         key = _within_source_key(t)
-        # Empty org/words → fallback unique key — never collapses
-        if key[1] == "" and key[2] == t.id:
-            out.append(t)
-            continue
         if key in seen:
             dropped += 1
             continue
@@ -220,7 +251,7 @@ def dedup_within_source(
     return out, dropped
 
 
-def load_recent_alerted_fingerprints(days: int = 7) -> Set[Tuple[str, str, str]]:
+def load_recent_alerted_fingerprints(days: int = 14) -> Set[Tuple[str, str, str]]:
     """Load (source, normalized_org, sorted_words) fingerprints of tenders that
     were already sent as alerts in the last ``days`` days.
 
@@ -243,7 +274,7 @@ def load_recent_alerted_fingerprints(days: int = 7) -> Set[Tuple[str, str, str]]
         while True:
             page = (
                 client.table("tenders")
-                .select("source,title,organization,external_id")
+                .select("source,title,organization,external_id,price,deadline")
                 .not_.is_("alert_seq", "null")
                 .gte("collected_at", since)
                 .range(offset, offset + page_size - 1)
@@ -251,14 +282,11 @@ def load_recent_alerted_fingerprints(days: int = 7) -> Set[Tuple[str, str, str]]
             )
             rows = page.data or []
             for row in rows:
-                src = row.get("source") or ""
-                title = row.get("title") or ""
-                org = row.get("organization") or ""
-                org_n = _normalize_org(org)
-                words = _extract_significant_words(title)
-                if not org_n or not words:
-                    continue
-                keys.add((src, org_n, " ".join(sorted(words))))
+                # Fail-closed key (same as _within_source_key) — DO NOT skip empty-org
+                # rows: those are the TG leads / e-shop lots that drove the 40% dups.
+                keys.add(_logical_key(
+                    row.get("source") or "", row.get("organization"),
+                    row.get("title"), row.get("price"), row.get("deadline")))
             if len(rows) < page_size:
                 break
             offset += page_size
