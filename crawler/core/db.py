@@ -58,6 +58,8 @@ def _tender_to_row(t: RawTender) -> dict:
         row["result_date"] = t.result_date
     if t.group_id:
         row["group_id"] = t.group_id
+    if t.bid_count is not None:
+        row["bid_count"] = t.bid_count
     # AI relevance fields (migration 017). Only set if AI scored the tender.
     if t.relevance_score is not None:
         row["relevance_score"] = t.relevance_score

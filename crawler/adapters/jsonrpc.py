@@ -275,8 +275,13 @@ class JsonRpcAdapter(BaseAdapter):
         if cfg.rpc_ref and "reduction" in cfg.rpc_ref:
             message_type = "customer_request"  # reverse auction = customer request
 
-        # Bid count from part_count
-        bid_count = item.get("part_count", 0)
+        # Live demand signal: participant/bidder count (real on reduction/RFP,
+        # absent on e-shop catalogs). None when absent — do NOT default to 0.
+        _pc = item.get("part_count")
+        try:
+            bid_count = int(_pc) if _pc not in (None, "") else None
+        except (TypeError, ValueError):
+            bid_count = None
 
         return RawTender(
             id=tender_id,
@@ -292,6 +297,7 @@ class JsonRpcAdapter(BaseAdapter):
             status=status,
             search_text=search_text,
             message_type=message_type,
+            bid_count=bid_count,
         )
 
     def _build_goods_title(self, item):

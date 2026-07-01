@@ -179,6 +179,9 @@ class RawTender(BaseModel):
     winning_price: Optional[float] = None
     result_date: Optional[str] = None
     group_id: Optional[str] = None
+    # Live demand signal: # of participants/bidders (part_count). Populated on
+    # reverse auctions / RFPs (real), absent on e-shop catalogs. deep-think 2026-07-01.
+    bid_count: Optional[int] = None
     # Extra display fields rendered in TG alert (from field_map.extra_info).
     # Key = display label (Russian), Value = resolved text.
     extra_info: Dict[str, str] = Field(default_factory=dict)

@@ -743,6 +743,10 @@ def _format_alert(
     # Reverse auction badge — distinct bidding dynamic (price goes down).
     if tender.source in _REVERSE_AUCTION_SOURCES:
         parts.append("🔄 *Обратный тендер* (аукцион на понижение)")
+    # Live demand signal — real bidders/participants (auctions & RFPs). >0 = someone
+    # actually wants this now (deep-think 2026-07-01); absent on passive e-shop lots.
+    if tender.bid_count and tender.bid_count > 0:
+        parts.append("🔨 *Уже торгуются: %d* — спрос есть" % tender.bid_count)
     parts.append("*%s*" % _escape_md(tender.title[:200]))
     if tender.organization:
         parts.append("Заказчик: %s" % _escape_md(tender.organization))
