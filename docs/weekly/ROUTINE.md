@@ -47,8 +47,17 @@
   Данные: <вставь this_week, deltas, p95-регрессия, dead-источники, link-находки>.
   Дай 2-4 конкретных, проверяемых улучшения с оценкой эффекта."
 
+ШАГ 4.5 — Аудит авто-мьютов (recall-guard для P3):
+  Прочитай активные мьюты:
+  ssh root@46.62.155.190 "cd /opt/parsing-seo && .venv/bin/python3 -c \"from crawler.core.feedback import get_active_mutes; from crawler.auth.session_store import session_store; print(session_store.get_setting('mute_patterns_v1')); print('ACTIVE:', get_active_mutes())\""
+  Для КАЖДОГО авто-заглушённого источника: возьми 3-5 его свежих лотов, AI-суди по product-scope
+  (как ШАГ 2.5). Если хоть один judged RELEVANT → мьют съел реальный лид: **сними мьют**
+  (session_store: добавь pos>=1 этому источнику — один ✅ вето навсегда) и пометь в отчёте.
+  Мьют = только доставка (в дайджест), ingestion не тронут — всегда обратимо.
+
 ШАГ 5 — Отчёт + обучение:
   Запиши docs/weekly/<iso_week>-report.md: WoW-таблица, composite+Δ, топ-находки, идеи /deep-think,
+  + секция «Авто-мьюты» (активные источники, neg/pos, результат recall-аудита ШАГ 4.5),
   REPORT-ONLY список prune-кандидатов (показать, НЕ отключать). Допиши ОДНУ строку в
   docs/weekly/LEARNINGS.md (неделя | score(Δ) | главная находка | что применено | prune-кандидаты).
   Коммить эти доки.
