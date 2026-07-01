@@ -41,14 +41,16 @@ _EVAL_PROMPT = """Ты — аналитик системы мониторинг�
 /no_think"""
 
 
-def _already_evaluated_today():
+def _already_evaluated_this_week():
     # type: () -> bool
-    """Check if evaluation was already sent today."""
+    """Check if the quality summary was already sent THIS ISO week.
+    Weekly cadence (was daily) — Daniyar 2026-06-30: health/status noise → 1×/нед.
+    Real per-source errors still surface via freshness_watchdog (immediate)."""
     try:
         if os.path.exists(_EVAL_MARKER):
             with open(_EVAL_MARKER, "r") as f:
-                last_date = f.read().strip()
-            return last_date == datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                last_key = f.read().strip()
+            return last_key == datetime.now(timezone.utc).strftime("%G-W%V")
     except Exception:
         pass
     return False
@@ -56,10 +58,10 @@ def _already_evaluated_today():
 
 def _mark_evaluated():
     # type: () -> None
-    """Mark today as evaluated."""
+    """Mark this ISO week as evaluated (weekly cadence)."""
     try:
         with open(_EVAL_MARKER, "w") as f:
-            f.write(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+            f.write(datetime.now(timezone.utc).strftime("%G-W%V"))
     except Exception as exc:
         logger.warning("[AI Eval] Failed to write marker: %s", str(exc)[:80])
 
@@ -327,15 +329,15 @@ async def evaluate_crawl_quality(
     dry_run=False,  # type: bool
 ):
     # type: (...) -> None
-    """Evaluate crawl quality and send daily summary to Telegram.
+    """Evaluate crawl quality and send a WEEKLY summary to Telegram.
 
     Queries Supabase for daily truth, classifies sources into ok/idle/error.
-    Only runs once per day (checks /tmp/last_tender_eval.txt).
+    Sends at most once per ISO week (checks /tmp/last_tender_eval.txt).
     """
     if not settings.ai_eval_enabled:
         return
 
-    if _already_evaluated_today():
+    if _already_evaluated_this_week():
         logger.debug("[AI Eval] Already evaluated today, skipping")
         return
 
