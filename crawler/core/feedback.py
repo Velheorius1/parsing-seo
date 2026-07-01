@@ -12,6 +12,55 @@ _few_shot_cache = None  # type: Optional[str]
 _few_shot_cache_ts = 0.0  # type: float
 _FEW_SHOT_TTL = 7200  # 2 hours (matches cron interval)
 
+# ── Auto-mute learning (deep-think 2026-07-01) ───────────────────────────────
+# Feedback-driven noise suppression: when a SOURCE accumulates ❌ with no ✅, its
+# items route to the DIGEST instead of push (Tier-1, reversible). Counters live in
+# crawler_settings. A single ✅ vetoes the mute (recall guard). Delivery-only —
+# muting never stops ingestion, so it is fully reversible.
+_MUTE_STATE_KEY = "mute_patterns_v1"
+_MUTE_NEG_THRESHOLD = 3  # ❌ needed to auto-mute a source
+
+
+def _bump_mute_pattern(source, corrected_label):
+    # type: (Optional[str], str) -> None
+    """Increment source-level mute counters from one feedback click."""
+    if not source:
+        return
+    is_neg = corrected_label in ("ad", "irrelevant")
+    is_pos = corrected_label == "client"
+    if not (is_neg or is_pos):
+        return
+    try:
+        from crawler.auth.session_store import session_store
+        state = session_store.get_setting(_MUTE_STATE_KEY)
+        if not isinstance(state, dict):
+            state = {}
+        srcs = state.setdefault("sources", {})
+        c = srcs.setdefault(source, {"neg": 0, "pos": 0})
+        c["neg"] = int(c.get("neg", 0)) + (1 if is_neg else 0)
+        c["pos"] = int(c.get("pos", 0)) + (1 if is_pos else 0)
+        session_store.set_setting(_MUTE_STATE_KEY, state)
+        muted = c["neg"] >= _MUTE_NEG_THRESHOLD and c["pos"] == 0
+        logger.info("[Mute] %s: neg=%d pos=%d%s", source, c["neg"], c["pos"],
+                    " → MUTED (→digest)" if muted else "")
+    except Exception as exc:
+        logger.warning("[Mute] bump failed: %s", str(exc)[:80])
+
+
+def get_active_mutes():
+    # type: () -> set
+    """Sources auto-muted by feedback (>=N ❌, 0 ✅). A single ✅ vetoes the mute."""
+    try:
+        from crawler.auth.session_store import session_store
+        state = session_store.get_setting(_MUTE_STATE_KEY)
+        if not isinstance(state, dict):
+            return set()
+        srcs = state.get("sources", {}) or {}
+        return {s for s, c in srcs.items()
+                if int(c.get("neg", 0)) >= _MUTE_NEG_THRESHOLD and int(c.get("pos", 0)) == 0}
+    except Exception:
+        return set()
+
 
 def get_next_seq(count=1):
     # type: (int) -> int
@@ -85,6 +134,7 @@ def record_feedback(alert_seq, corrected_label, original_label="demand", message
             "source": source,
         }).execute()
         logger.info("[Feedback] Recorded: #%d -> %s", alert_seq, corrected_label)
+        _bump_mute_pattern(source, corrected_label)
         # Invalidate few-shot cache
         global _few_shot_cache
         _few_shot_cache = None

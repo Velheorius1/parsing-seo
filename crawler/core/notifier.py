@@ -1154,10 +1154,20 @@ async def send_alerts(
         matching = matching + uzex_bypass
 
     # ── 3-tier routing: high-signal → per-alert PUSH; the rest → one ranked DIGEST.
-    digest_tenders = [t for t, _kw in matching if not _is_high_signal(t)]
-    matching = [(t, kw) for t, kw in matching if _is_high_signal(t)]
+    # Feedback auto-mute (Tier-1): a source marked ❌≥N with 0 ✅ routes to digest.
+    from crawler.core.feedback import get_active_mutes
+    _mutes = get_active_mutes()
+
+    def _to_push(t):
+        if getattr(t, "message_type", None) == "customer_request":
+            return True  # hot lead always pushes (overrides a source-mute — recall)
+        return _is_high_signal(t) and t.source not in _mutes
+
+    digest_tenders = [t for t, _kw in matching if not _to_push(t)]
+    matching = [(t, kw) for t, kw in matching if _to_push(t)]
     if digest_tenders:
-        logger.info("[Route] %d push / %d digest", len(matching), len(digest_tenders))
+        logger.info("[Route] %d push / %d digest (%d muted sources)",
+                    len(matching), len(digest_tenders), len(_mutes))
 
     # Hot leads first: customer_request items (real clients asking to buy NOW)
     # jump the queue — lowest seq + sent before tender noise. Stable sort keeps
