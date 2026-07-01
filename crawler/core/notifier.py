@@ -344,49 +344,54 @@ async def _ai_lead_is_spam(
     """
     if not settings.openrouter_api_key:
         return False
-    model = settings.ai_relevance_model_fast or settings.ai_relevance_model
     text = (tender.search_text or tender.title or "")[:1000]
     prompt = _LEAD_SPAM_PROMPT.format(text=text)
-    # Retry transient provider errors before failing open. The fail-open default
-    # (keep) protects real leads, but during OpenRouter load spikes it LEAKED spam
-    # unscored — 06-21/22: «KOMRON PRESS» / «Eco Print … PREMIUM SIFAT» / bare
-    # greetings were alerted with score=None (gate errored → kept). The prompt
-    # classifies them correctly (verified); it just needs to actually run.
+    fast_model = settings.ai_relevance_model_fast or settings.ai_relevance_model
+    pro_model = settings.ai_relevance_model
     import asyncio as _aio
-    last_err = ""
-    for attempt in range(3):
-        try:
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": "Bearer %s" % settings.openrouter_api_key},
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 200,
-                    "temperature": 0,
-                    "reasoning": {"enabled": False},
-                    "response_format": {"type": "json_object"},
-                },
-            )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
-            payload = _extract_json_object(_strip_think_tags(content))
-            if not payload:
-                last_err = "no JSON payload"
-                if attempt < 2:
-                    await _aio.sleep(0.5 * (attempt + 1))
-                continue
-            intent = str(payload.get("intent", "")).lower().strip()
-            if intent == "drop":
-                logger.info("[Lead Spam] dropped: %s — %s",
-                            tender.title[:50], str(payload.get("reason", ""))[:60])
-                return True
-            return False
-        except Exception as exc:
-            last_err = str(exc)[:100]
+
+    async def _intent(model):
+        # type: (str) -> Optional[str]
+        """One model's verdict: 'drop'/'keep', or None on persistent failure.
+        Retries transient provider errors before giving up."""
+        for attempt in range(3):
+            try:
+                resp = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": "Bearer %s" % settings.openrouter_api_key},
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 200,
+                        "temperature": 0,
+                        "reasoning": {"enabled": False},
+                        "response_format": {"type": "json_object"},
+                    },
+                )
+                resp.raise_for_status()
+                payload = _extract_json_object(_strip_think_tags(
+                    resp.json()["choices"][0]["message"]["content"]))
+                if payload:
+                    return str(payload.get("intent", "")).lower().strip()
+            except Exception:
+                pass
             if attempt < 2:
                 await _aio.sleep(0.5 * (attempt + 1))
-    logger.warning("[Lead Spam] check failed after 3 tries (keep lead): %s", last_err)
+        return None
+
+    # Hybrid fast -> pro. The fast model is TEMPORALLY inconsistent on borderline
+    # self-promo («KOMRON PRESS», «Eco Print … PREMIUM SIFAT»): it dropped them in
+    # tests yet KEPT them on the 06-29/30 crawls (provider routing variance — not a
+    # code error: AI err 0%, no fail-open). So a fast non-drop is double-checked by
+    # the stronger pro model (which dropped them 3/3). Mirrors the tender hybrid
+    # (there pro catches fast's false-REJECTS; here pro catches fast's false-KEEPS).
+    # Fail-open (keep) stays the floor — never drop a real lead on an AI hiccup.
+    if await _intent(fast_model) == "drop":
+        logger.info("[Lead Spam] dropped (fast): %s", tender.title[:50])
+        return True
+    if await _intent(pro_model) == "drop":
+        logger.info("[Lead Spam] dropped (pro 2nd-opinion): %s", tender.title[:50])
+        return True
     return False
 
 
