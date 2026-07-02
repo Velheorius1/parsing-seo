@@ -283,7 +283,25 @@ class JsonRpcAdapter(BaseAdapter):
         except (TypeError, ValueError):
             bid_count = None
 
+        # Time-to-close countdown (listing-only field; get_proc lacks it — V0 probe).
+        # Rendered via extra_info so the alert shows «До закрытия: ~N мин» — critical
+        # for reverse auctions with ~1h windows.
+        extra = {}
+        _rt = item.get("remain_time")
+        try:
+            _rt = int(_rt) if _rt not in (None, "") else None
+        except (TypeError, ValueError):
+            _rt = None
+        if _rt is not None and _rt > 0:
+            if _rt < 3600:
+                extra["До закрытия"] = "⏳ ~%d мин" % max(1, _rt // 60)
+            elif _rt < 86400:
+                extra["До закрытия"] = "⏳ ~%d ч" % (_rt // 3600)
+            else:
+                extra["До закрытия"] = "~%d дн" % (_rt // 86400)
+
         return RawTender(
+            extra_info=extra,
             id=tender_id,
             external_id=ext_id_val,
             title=title,
