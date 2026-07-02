@@ -1,8 +1,13 @@
 """Investigator agent (V4, design 2026-07-02) — the ONE true agent in the stack.
 
-Per Anthropic «Building effective agents»: built DIRECTLY on the Anthropic API
-(no framework), bounded agentic loop (max 10 turns, 5-min budget), tools are thin
-wrappers over the deterministic infrastructure (verifier / get_proc / DB).
+Per Anthropic «Building effective agents»: built directly on the chat API
+(no framework), bounded agentic loop (max 10 turns), tools are thin wrappers
+over the deterministic infrastructure (verifier / get_proc / DB).
+
+Runs on OPENROUTER + deepseek-v4-pro (Daniyar 2026-07-02: reuse the existing
+key/model instead of a new Anthropic credential). OpenAI-style tool calling.
+CRITICAL (error-log 06-29): deepseek-v4-* are reasoning models — reasoning MUST
+be disabled or it eats the token budget and returns empty content.
 
 For a contested/high-value lot it autonomously: pulls full platform detail
 (get_proc purchase_positions, GetTrade), cross-checks the same lot across
@@ -15,19 +20,14 @@ Triggers:
   --auto      scan recent pushed alerts: price >= 100M, not yet investigated,
               cap 10/day (counter in crawler_settings) — cron-able.
 
-Budget guards (Anthropic anti-pattern: unbounded loops):
-  max 10 model turns, 10 investigations/day, cost logged per run to
-  crawler_settings 'investigations_v1'. Model: claude-sonnet-5 (per research:
-  Sonnet for judgment; Haiku too weak for procurement docs, Opus overkill).
-
-Requires ANTHROPIC_API_KEY in /opt/parsing-seo/.env — exits gracefully if absent.
+Budget guards (anti-pattern: unbounded loops): max 10 model turns,
+10 investigations/day, token usage logged per run to crawler_settings.
 """
 
 import argparse
 import asyncio
 import json
 import logging
-import os
 import sys
 from datetime import datetime, timezone
 
@@ -39,7 +39,7 @@ from crawler.core.models import RawTender
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("investigator")
 
-MODEL = "claude-sonnet-5"
+MODEL = "deepseek/deepseek-v4-pro"  # via OpenRouter (settings.openrouter_api_key)
 MAX_TURNS = 10
 DAILY_CAP = 10
 STATE_KEY = "investigations_v1"
@@ -56,25 +56,29 @@ SYSTEM = """Ты — тендерный аналитик типографии Wi
 дедлайн, полноту данных. Если данных мало — вердикт «уточнить» с конкретным списком.
 Не выдумывай факты: чего нет в данных — того не утверждай."""
 
+# OpenAI-style function tools (OpenRouter chat/completions format).
+def _fn(name, description, params=None, required=None):
+    return {"type": "function", "function": {
+        "name": name, "description": description,
+        "parameters": {"type": "object", "properties": params or {}, "required": required or []}}}
+
+
 TOOLS = [
-    {"name": "fetch_lot_detail",
-     "description": "Полная деталь лота с площадки (get_proc для birja: позиции закупки, документы, условия; GetTrade для etender).",
-     "input_schema": {"type": "object", "properties": {}, "required": []}},
-    {"name": "check_lot_alive",
-     "description": "Текущий статус лота на площадке: ok (активен) / closed / gone / unverifiable.",
-     "input_schema": {"type": "object", "properties": {}, "required": []}},
-    {"name": "find_cross_platform",
-     "description": "Найти этот же лот на других площадках в нашей БД (по названию+организации).",
-     "input_schema": {"type": "object", "properties": {}, "required": []}},
-    {"name": "submit_verdict",
-     "description": "Финальный вердикт. ОБЯЗАТЕЛЬНО вызвать в конце ровно один раз.",
-     "input_schema": {"type": "object", "properties": {
-         "verdict": {"type": "string", "enum": ["участвовать", "пропустить", "уточнить"]},
-         "why": {"type": "string", "description": "2-4 предложения обоснования"},
-         "deadline_note": {"type": "string", "description": "дедлайн и сколько времени осталось"},
-         "prepare": {"type": "array", "items": {"type": "string"}, "description": "что подготовить для участия (если участвовать/уточнить)"},
-         "risks": {"type": "array", "items": {"type": "string"}, "description": "главные риски (до 3)"}},
-         "required": ["verdict", "why"]}},
+    _fn("fetch_lot_detail",
+        "Полная деталь лота с площадки (get_proc для birja: позиции закупки, документы, условия; GetTrade для etender)."),
+    _fn("check_lot_alive",
+        "Текущий статус лота на площадке: ok (активен) / closed / gone / unverifiable."),
+    _fn("find_cross_platform",
+        "Найти этот же лот на других площадках в нашей БД (по названию+организации)."),
+    _fn("submit_verdict",
+        "Финальный вердикт. ОБЯЗАТЕЛЬНО вызвать в конце ровно один раз.",
+        params={
+            "verdict": {"type": "string", "enum": ["участвовать", "пропустить", "уточнить"]},
+            "why": {"type": "string", "description": "2-4 предложения обоснования"},
+            "deadline_note": {"type": "string", "description": "дедлайн и сколько времени осталось"},
+            "prepare": {"type": "array", "items": {"type": "string"}, "description": "что подготовить для участия"},
+            "risks": {"type": "array", "items": {"type": "string"}, "description": "главные риски (до 3)"}},
+        required=["verdict", "why"]),
 ]
 
 
@@ -142,57 +146,70 @@ def _tool_cross_platform(t, client):
 
 
 async def investigate(tender, db_client):
-    """Bounded agent loop. Returns the verdict dict or None."""
-    try:
-        import anthropic
-    except ImportError:
-        logger.error("anthropic SDK not installed: .venv/bin/pip install anthropic")
-        return None
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    """Bounded agent loop on OpenRouter (OpenAI tool-calling). Returns verdict dict or None."""
+    api_key = settings.openrouter_api_key
     if not api_key:
-        logger.error("ANTHROPIC_API_KEY not set in .env — investigator dormant")
+        logger.error("openrouter_api_key not configured — investigator dormant")
         return None
-    client = anthropic.AsyncAnthropic(api_key=api_key)
 
     ctx = ("Лот: %s\nЗаказчик: %s\nЦена: %s %s\nДедлайн: %s\nИсточник: %s\nURL: %s\nExtra: %s"
            % (tender.title, tender.organization, tender.price, tender.currency,
               tender.deadline, tender.source, tender.source_url,
               json.dumps(tender.extra_info, ensure_ascii=False)))
-    messages = [{"role": "user", "content": "Разбери этот лот и дай вердикт.\n\n" + ctx}]
+    messages = [{"role": "system", "content": SYSTEM},
+                {"role": "user", "content": "Разбери этот лот и дай вердикт.\n\n" + ctx}]
     usage_in = usage_out = 0
 
-    for turn in range(MAX_TURNS):
-        resp = await client.messages.create(
-            model=MODEL, max_tokens=1500, system=SYSTEM, tools=TOOLS, messages=messages)
-        usage_in += resp.usage.input_tokens
-        usage_out += resp.usage.output_tokens
-        tool_uses = [b for b in resp.content if b.type == "tool_use"]
-        if not tool_uses:
-            messages.append({"role": "assistant", "content": resp.content})
-            messages.append({"role": "user", "content": "Вызови submit_verdict с финальным вердиктом."})
-            continue
-        results = []
-        verdict = None
-        for tu in tool_uses:
-            if tu.name == "submit_verdict":
-                verdict = tu.input
-                results.append({"type": "tool_result", "tool_use_id": tu.id, "content": "принято"})
-            elif tu.name == "fetch_lot_detail":
-                results.append({"type": "tool_result", "tool_use_id": tu.id,
-                                "content": await _tool_fetch_detail(tender)})
-            elif tu.name == "check_lot_alive":
-                results.append({"type": "tool_result", "tool_use_id": tu.id,
-                                "content": await _tool_check_alive(tender)})
-            elif tu.name == "find_cross_platform":
-                results.append({"type": "tool_result", "tool_use_id": tu.id,
-                                "content": _tool_cross_platform(tender, db_client)})
-        if verdict is not None:
-            cost = usage_in / 1e6 * 3.0 + usage_out / 1e6 * 15.0  # sonnet-5 list price ceil
-            verdict["_cost_usd"] = round(cost, 3)
-            verdict["_turns"] = turn + 1
-            return verdict
-        messages.append({"role": "assistant", "content": resp.content})
-        messages.append({"role": "user", "content": results})
+    async with httpx.AsyncClient(timeout=60) as client:
+        for turn in range(MAX_TURNS):
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": "Bearer %s" % api_key},
+                json={"model": MODEL, "messages": messages, "tools": TOOLS,
+                      "max_tokens": 1500, "temperature": 0,
+                      # deepseek-v4-* = reasoning model; MUST disable or reasoning
+                      # eats the budget -> empty content (error-log 06-29).
+                      "reasoning": {"enabled": False}})
+            resp.raise_for_status()
+            body = resp.json()
+            u = body.get("usage") or {}
+            usage_in += int(u.get("prompt_tokens") or 0)
+            usage_out += int(u.get("completion_tokens") or 0)
+            msg = (body.get("choices") or [{}])[0].get("message") or {}
+            tool_calls = msg.get("tool_calls") or []
+            if not tool_calls:
+                messages.append({"role": "assistant", "content": msg.get("content") or ""})
+                messages.append({"role": "user", "content": "Вызови submit_verdict с финальным вердиктом."})
+                continue
+            # assistant turn must be echoed back WITH its tool_calls
+            messages.append({"role": "assistant", "content": msg.get("content") or "",
+                             "tool_calls": tool_calls})
+            verdict = None
+            for tc in tool_calls:
+                fn = (tc.get("function") or {}).get("name", "")
+                try:
+                    args = json.loads((tc.get("function") or {}).get("arguments") or "{}")
+                except ValueError:
+                    args = {}
+                if fn == "submit_verdict":
+                    verdict = args
+                    out = "принято"
+                elif fn == "fetch_lot_detail":
+                    out = await _tool_fetch_detail(tender)
+                elif fn == "check_lot_alive":
+                    out = await _tool_check_alive(tender)
+                elif fn == "find_cross_platform":
+                    out = _tool_cross_platform(tender, db_client)
+                else:
+                    out = "unknown tool"
+                messages.append({"role": "tool", "tool_call_id": tc.get("id"), "content": out})
+            if verdict is not None and verdict.get("verdict"):
+                # deepseek-v4-pro via OpenRouter: ~$0.87/M out, ~$0.27/M in (75%-off)
+                cost = usage_in / 1e6 * 0.27 + usage_out / 1e6 * 0.87
+                verdict["_cost_usd"] = round(cost, 4)
+                verdict["_turns"] = turn + 1
+                verdict["_tokens"] = "%d/%d" % (usage_in, usage_out)
+                return verdict
     logger.warning("max turns reached without verdict")
     return None
 
