@@ -81,6 +81,26 @@ def _to_tender(r):
     )
 
 
+_LEGACY_URL_FIXES = [
+    # Old DB rows carry pre-2026-06-21 dead URL patterns (never re-crawled →
+    # upsert never overwrote them). Re-map to the browser-verified routes so an
+    # audit-healed alert never ships a dead link (seen live 2026-07-02).
+    (re.compile(r"https://xarid\.uzex\.uz/prequalification/detail/(\d+)"),
+     r"https://new-xarid.uzex.uz/home/purchase/proposal-request/detail/\1"),
+    (re.compile(r"https://xarid\.uzex\.uz/shop/lot-details/(\d+)"),
+     r"https://new-xarid.uzex.uz/home/shop/detail/\1?elektron=true"),
+]
+
+
+def _fix_legacy_url(t):
+    url = t.source_url or ""
+    for rx_pat, repl in _LEGACY_URL_FIXES:
+        new = rx_pat.sub(repl, url)
+        if new != url:
+            t.source_url = new
+            return
+
+
 def _pull_unalerted(c, today):
     """Recent (14d, index-scan via idx_tenders_source_collected) never-alerted rows;
     deadline>=today filtered client-side — a text-column deadline filter server-side
@@ -153,7 +173,17 @@ async def main(execute, stale_n):
              if rx.search((r.get("title") or "") + " " + (r.get("search_text") or ""))]
     for t in cands:
         t.extra_info["Найден"] = "🔁 ночным аудитом"
+        _fix_legacy_url(t)
     logger.info("[Recall] active never-alerted: %d | strong-keyword candidates: %d", len(rows), len(cands))
+    # Cross-source dedup + suppression vs recently-alerted — the normal crawl gets
+    # this in runner.py, but this direct-to-send_alerts path skipped it, so the
+    # same lot from two platforms landed in one digest twice (seen live 2026-07-02:
+    # lot 82298 as Xarid Конкурсы + UZEX Предквалификации).
+    if cands:
+        from crawler.core.dedup import group_for_alerts, load_recent_alerted_fingerprints
+        recent = load_recent_alerted_fingerprints() if execute else set()
+        cands, _groups = group_for_alerts(cands, cands, recent_alerted_keys=recent)
+        logger.info("[Recall] after cross-source dedup: %d candidates", len(cands))
     healed = 0
     if cands:
         healed = await send_alerts(cands, dry_run=(not execute))
