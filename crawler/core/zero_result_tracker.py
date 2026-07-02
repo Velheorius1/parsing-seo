@@ -215,7 +215,15 @@ async def track_and_alert(outcomes, dry_run=False):
 
     sent = 0
     if not dry_run:
-        for body in alerts_to_send + recoveries_to_send:
+        # «Молчит N циклов» — всегда (поломка сбора, требует действия).
+        # «Снова с данными» (recovery) — раз в неделю (понедельник UTC): не критично,
+        # шумит каждый цикл. По просьбе Данияра (30.06). State сохраняется в любом
+        # случае, чтобы recovery не задваивался.
+        from datetime import datetime as _dt, timezone as _tz
+        bodies = list(alerts_to_send)
+        if _dt.now(_tz.utc).weekday() == 0:
+            bodies += recoveries_to_send
+        for body in bodies:
             if await _send_telegram(body):
                 sent += 1
         _save_state(state)

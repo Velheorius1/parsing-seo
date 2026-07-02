@@ -1313,6 +1313,13 @@ async def send_healthcheck(
     if not errors and new_count == 0:
         return
 
+    # Сводку БЕЗ ошибок слать только раз в неделю (понедельник UTC) — по просьбе
+    # Данияра (30.06): ежедневный crawl-дайджест шумит. Ошибки (реальные поломки
+    # сбора) шлём всегда, сразу — они требуют действия.
+    from datetime import datetime as _dt, timezone as _tz
+    if not errors and _dt.now(_tz.utc).weekday() != 0:
+        return
+
     parts = []  # type: List[str]
     parts.append("Crawl: %d тендеров (%d источников)" % (total, sources_ok))
     if new_count:
