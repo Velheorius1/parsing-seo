@@ -1174,6 +1174,16 @@ async def send_alerts(
     # relative order within each group.
     matching.sort(key=lambda tk: 0 if getattr(tk[0], "message_type", None) == "customer_request" else 1)
 
+    # ── Pre-send live verification (V1, 2026-07-02): re-check each PUSH lot on
+    # its source platform; drop confirmed closed/gone («алерт есть — тендера нет»).
+    # Fail-open inside — uncertainty always sends. Digest items skip this (cost).
+    if matching and not dry_run:
+        try:
+            from crawler.core.verifier import verify_push_batch
+            matching = await verify_push_batch(matching)
+        except Exception as _vexc:
+            logger.warning("[Verify] batch failed open (all sent): %s", str(_vexc)[:100])
+
     # Reserve sequential alert numbers
     from crawler.core.feedback import get_next_seq, save_alert_seq
     start_seq = get_next_seq(len(matching)) if matching else 0
