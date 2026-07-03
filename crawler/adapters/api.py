@@ -848,6 +848,14 @@ class ApiAdapter(BaseAdapter):
             for label, spec in fm.extra_info.items():
                 value = _resolve_extra_info_value(item, spec)
                 if value:
+                    if label == "Опубликовано":
+                        # xarid-api-shop date_ini is US-format MM/DD/YYYY —
+                        # «07/03/2026» read as 7 марта (2026-07-03 incident;
+                        # verified: 07/03 10:59 Tashkent == collected 06:00 UTC
+                        # same day). Render unambiguous DD.MM.YYYY.
+                        m = re.match(r"^(\d{2})/(\d{2})/(\d{4})[ T](\d{2}:\d{2})", value)
+                        if m:
+                            value = "%s.%s.%s %s" % (m.group(2), m.group(1), m.group(3), m.group(4))
                     extra_info[label] = value
 
         return RawTender(

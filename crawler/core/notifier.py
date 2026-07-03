@@ -749,7 +749,11 @@ def _format_alert(
         parts.append("🔨 *Уже торгуются: %d* — спрос есть" % tender.bid_count)
     parts.append("*%s*" % _escape_md(tender.title[:200]))
     if tender.organization:
-        parts.append("Заказчик: %s" % _escape_md(tender.organization))
+        # E-shop sources map organization to producer COUNTRY (УЗБЕКИСТАН/КИТАЙ),
+        # not a buyer — «Заказчик: КИТАЙ» misled (2026-07-03). Label honestly.
+        _org_label = ("Производство" if "э-магазин" in (tender.source or "").lower()
+                      else "Заказчик")
+        parts.append("%s: %s" % (_org_label, _escape_md(tender.organization)))
     if tender.price:
         parts.append("Сумма: %s %s" % ("{:,.0f}".format(tender.price), tender.currency))
     if tender.deadline:
@@ -854,6 +858,12 @@ def _is_high_signal(t: RawTender) -> bool:
     """True → per-alert push; False → digest."""
     if getattr(t, "message_type", None) == "customer_request":
         return True  # hot lead: a client asking to buy NOW
+    if "э-магазин" in (t.source or "").lower():
+        # Supplier-catalog listings NEVER earn a push (Daniyar's locked decision:
+        # e-shop → только по старту аукциона). The big-ticket override leaked
+        # them back (#5005 298M / #5006 100M, 2026-07-03) — a supplier's asking
+        # price is not demand. Digest-only, no overrides.
+        return False
     if t.source in _REVERSE_AUCTION_SOURCES and (t.bid_count or 0) > 0:
         return True  # live reverse auction with real bidders
     if t.price and t.price >= _PUSH_PRICE_FLOOR:
