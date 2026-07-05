@@ -418,7 +418,10 @@ class HealthCheck:
             return
 
         now = datetime.now(timezone.utc)
-        for platform_id in PLATFORMS.keys():
+        # cooperation logs in via the separate /opt/eimzo/coop_login.py (not in
+        # PLATFORMS) — it was invisible here, so its token died 01-05.07 with
+        # ZERO alerts while collection silently stopped. Check it explicitly.
+        for platform_id in list(PLATFORMS.keys()) + ["cooperation"]:
             comp = "token.%s" % platform_id
             try:
                 # Use session_store's internal reader to get stored metadata.
