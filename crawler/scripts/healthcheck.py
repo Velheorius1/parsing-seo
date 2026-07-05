@@ -206,10 +206,37 @@ class HealthCheck:
                 capture_output=True, text=True, timeout=5,
             )
             status = result.stdout.strip()
-            if status == "active":
-                self._add("feedback_bot", OK, "systemd service active")
-            else:
+            if status != "active":
                 self._add("feedback_bot", FAIL, "systemd service: %s" % status)
+                return
+            # Stale-process guard (2026-07-05 incident): the bot ran Apr-19 code
+            # while feedback.py gained the auto-mute learning on Jul-01 — 148 ❌
+            # clicks recorded, ZERO learned. A long-lived process must be newer
+            # than the modules it imports.
+            try:
+                ts = subprocess.run(
+                    ["systemctl", "show", "parsing-feedback-bot",
+                     "-p", "ExecMainStartTimestamp", "--value"],
+                    capture_output=True, text=True, timeout=5,
+                ).stdout.strip()
+                import os as _os
+                from datetime import datetime as _dt
+                started = _dt.strptime(" ".join(ts.split()[1:3]), "%Y-%m-%d %H:%M:%S")
+                code_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+                newest = max(
+                    _os.path.getmtime(_os.path.join(r, f))
+                    for r, _d, fs in _os.walk(_os.path.join(code_dir, "core"))
+                    for f in fs if f.endswith(".py"))
+                newest = max(newest, _os.path.getmtime(
+                    _os.path.join(code_dir, "scripts", "feedback_bot.py")))
+                if newest > started.timestamp() + 60:
+                    self._add("feedback_bot", FAIL,
+                              "STALE CODE: service started %s but crawler code is newer — "
+                              "restart parsing-feedback-bot" % ts[:20])
+                else:
+                    self._add("feedback_bot", OK, "active, code fresh (started %s)" % ts[:20])
+            except Exception:
+                self._add("feedback_bot", OK, "systemd service active (staleness unchecked)")
         except FileNotFoundError:
             self._add("feedback_bot", WARN, "systemctl not found (not on VPS?)")
         except Exception as exc:
