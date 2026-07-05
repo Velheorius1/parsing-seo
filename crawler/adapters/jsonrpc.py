@@ -219,6 +219,12 @@ class JsonRpcAdapter(BaseAdapter):
             return None
 
         organization = _safe_str(_get_field(item, fm.organization, "")) if fm.organization else ""
+        # E-A (2026-07-05): reverse auctions carry no customer in the standard
+        # field_map, but meta.company_name IS the buyer running the auction
+        # (verified: 100% filled, 39 distinct real buyers — railway/bank/uni —,
+        # our own vendor never appears). Surface it so «Заказчик:» stops being blank.
+        if not organization and cfg.rpc_ref and "reduction" in cfg.rpc_ref:
+            organization = _safe_str(_get_field(item, "meta.company_name", ""))
         if fm.price == "_price_times_amount":
             # Э-магазин: price = цена за единицу; totalcost API не отдаёт.
             # Считаем сумму сами, иначе MIN_PRICE-фильтр (10M) глушит все алерты.
