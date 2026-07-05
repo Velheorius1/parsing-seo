@@ -25,6 +25,23 @@ function isBrokenSpa(url: string): boolean {
   return BROKEN_SPA_HOSTS.some((host) => url.includes(host));
 }
 
+// Русские лейблы для «сырых» ключей extra_info кооп-лотов (в порядке показа).
+const EXTRA_LABELS: Record<string, string> = {
+  quantity: 'Кол-во',
+  measure: 'Ед. изм.',
+  min_part: 'Партия от',
+  max_part: 'Партия до',
+  unit_price: 'Цена за ед.',
+  certificate: 'Сертификат',
+  ref_supplier: 'Оферта-эталон (перебиваем его цену)',
+  ref_supplier_tin: 'ИНН эталона',
+  tnved: 'ТНВЭД',
+  offer: 'Оферта №',
+  photo: 'photo',
+};
+// Служебные ключи, не для показа.
+const HIDDEN_EXTRA_KEYS = new Set(['preview_screenshot_url', 'Проверено', 'Найден']);
+
 function formatPrice(price: number | null, currency: string): string {
   if (price === null || price === undefined) return 'Не указана';
   return price.toLocaleString('ru-RU') + ' ' + currency;
@@ -200,6 +217,47 @@ export default function TenderDetailPage() {
               <div className="text-gray-200">{tender.source}</div>
             </div>
           </div>
+
+          {/* Детали лота (enriched extra_info: обогащение кооп-лотов и др.) */}
+          {tender.extraInfo && Object.keys(tender.extraInfo).length > 0 && (
+            <div className="mb-6">
+              <div className="text-gray-500 text-sm mb-2">Детали лота</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 bg-gray-800/40 border border-gray-800 rounded-lg p-4">
+                {Object.entries(EXTRA_LABELS).map(([key, label]) => {
+                  const raw = tender.extraInfo?.[key];
+                  if (raw === undefined || raw === null || raw === '') return null;
+                  if (key === 'photo') {
+                    return (
+                      <a key={key} href={String(raw)} target="_blank" rel="noopener noreferrer"
+                         className="text-amber-400 hover:text-amber-300 underline text-sm">
+                        📷 Фото товара
+                      </a>
+                    );
+                  }
+                  const value = key === 'certificate'
+                    ? 'требуется'
+                    : key === 'unit_price'
+                      ? Number(raw).toLocaleString('ru-RU') + ' сум/' + (tender.extraInfo?.['measure'] || 'ед')
+                      : String(raw);
+                  return (
+                    <div key={key} className="text-sm">
+                      <span className="text-gray-500">{label}: </span>
+                      <span className="text-gray-200">{value}</span>
+                    </div>
+                  );
+                })}
+                {/* Остальные (уже русскоязычные) ключи enrichment'а — как есть */}
+                {Object.entries(tender.extraInfo)
+                  .filter(([k]) => !(k in EXTRA_LABELS) && !HIDDEN_EXTRA_KEYS.has(k))
+                  .map(([k, v]) => (
+                    <div key={k} className="text-sm">
+                      <span className="text-gray-500">{k}: </span>
+                      <span className="text-gray-200">{String(v)}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
 
           {/* Категории */}
           {tender.categories && tender.categories.length > 0 && (

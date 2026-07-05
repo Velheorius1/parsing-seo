@@ -1143,6 +1143,17 @@ def _fetch_offer_detail(product_name, offer_number):
                         photo = (o.get('photos') or '').split('|')[0]
                         result = {'unit_price': o.get('unitPrice'),
                                   'photo': ('https://new.cooperation.uz/ocelot/' + photo) if photo else None}
+                        # Reference supplier — the competitor whose catalog card the
+                        # buyer anchored this lot to. Их цену и надо перебивать
+                        # (Brayl-darslik case 2026-07-05: DIZAYN-PRINT MCHJ).
+                        comp = o.get('company') or {}
+                        cname = comp.get('name')
+                        if isinstance(cname, dict):
+                            cname = cname.get('ru') or cname.get('uz') or ''
+                        if cname:
+                            result['ref_supplier'] = str(cname)[:80]
+                        if comp.get('tin'):
+                            result['ref_supplier_tin'] = str(comp['tin'])
                         break
     except Exception as exc:
         logger.warning('[OfferEnrich] %s: %s', offer_number, str(exc)[:80])
@@ -1229,13 +1240,31 @@ def send_alerts(new_rows, source_label):
             seq = start_seq + i
             parts = []
 
-            # Enrich lot with offer price + photo (e-catalog join via offerNumber)
+            # Enrich lot with offer price + photo + reference supplier (e-catalog
+            # join via offerNumber)
             _lei = row.get('extra_info') or {}
             if row.get('source') == 'Cooperation.uz Лоты' and _lei.get('offer') and not _lei.get('unit_price'):
                 _od = _fetch_offer_detail(row.get('title', ''), _lei['offer'])
                 if _od:
-                    _lei.update(_od)
+                    _lei.update({k: v for k, v in _od.items() if v is not None})
                     row['extra_info'] = _lei
+                # Computed lot total: unit_price × quantity. Without it the lot
+                # showed «Сумма: Не указана» (Brayl darslik = 344M invisible).
+                try:
+                    if not row.get('price') and _lei.get('unit_price') and _lei.get('quantity'):
+                        row['price'] = float(_lei['unit_price']) * float(_lei['quantity'])
+                except (TypeError, ValueError):
+                    pass
+                # PERSIST enrichment — upsert ran BEFORE alerts, so without this
+                # update the Vercel card never sees price/photo/supplier (root
+                # cause of the empty card, 2026-07-05).
+                try:
+                    from supabase import create_client as _cc
+                    _cc(SUPABASE_URL, SUPABASE_KEY).table('tenders').update(
+                        {'extra_info': _lei, 'price': row.get('price')}
+                    ).eq('external_id', row.get('external_id', '')).eq('source', row['source']).execute()
+                except Exception as _pexc:
+                    logger.warning('[OfferEnrich] persist failed: %s', str(_pexc)[:80])
 
             # Header with alert number
             msg_type = row.get('message_type', 'tender')
@@ -1260,8 +1289,17 @@ def send_alerts(new_rows, source_label):
                 parts.append('Сертификат: требуется')
             if _ei.get('unit_price'):
                 parts.append('Цена: %s сум/%s' % ('{:,.0f}'.format(_ei['unit_price']), _ei.get('measure') or 'ед'))
+            if _ei.get('ref_supplier'):
+                # Competitor anchor: the buyer chose THIS supplier's catalog card —
+                # their price is the one to beat.
+                _tin = (' (ИНН %s)' % _ei['ref_supplier_tin']) if _ei.get('ref_supplier_tin') else ''
+                parts.append('Оферта-эталон: %s%s — его цену перебиваем' % (_escape_md(_ei['ref_supplier']), _tin))
             if _ei.get('photo'):
                 parts.append('[📷 Фото](%s)' % _ei['photo'])
+            # Actionable path: cabinet search by lot number (SPA deep-link needs login)
+            _lotnum = str(row.get('external_id', '')).replace('coop-lot-', '')
+            if row.get('source') == 'Cooperation.uz Лоты' and _lotnum:
+                parts.append('Лот `%s` — вход: new.cooperation.uz → Кабинет поставщика → Лоты' % _lotnum)
             parts.append('Источник: %s' % row['source'])
 
             # Detail page URL (accessible without auth)
