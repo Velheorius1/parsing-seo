@@ -47,8 +47,8 @@
 
 ### Найденные ошибки + решения (исполнять по одной, коммит на каждую)
 
-**E-A (🔴 крупнейшая): заказчик обратных аукционов есть в фиде и ВЫБРАСЫВАЕТСЯ.**
-`org=0%` у Hayotbirja встречных / XT-Xarid реверса, но листинг несёт `meta.company_name` = имя ЗАКАЗЧИКА (проверено live: АО «Toshkent yo'lovchi vagonlarini qurish…»). Решение: в `crawler/adapters/jsonrpc.py` при построении RawTender для reduction-источников брать organization из `meta.company_name` (fallback пусто). Эффект: «Заказчик:» появляется во ВСЕХ реверс-алертах — прямой ответ на «заказчик непонятен». ~30 мин.
+**E-A ✅ СДЕЛАНО (1f511b0, 05.07): заказчик обратных аукционов теперь в алерте.**
+`org=0%` был у Hayotbirja/XT-Xarid реверса; листинг несёт `meta.company_name` = ЗАКАЗЧИК (проверено: 100% заполнен на обеих площадках, 39 разных реальных покупателей, наш vendor не всплывает). jsonrpc-адаптер теперь берёт organization из `meta.company_name` для reduction-ref. Live: 145/145 реверсов с «Заказчик: АО TOSHKENT YO'LOVCHI...». Регрессия 7/7.
 
 **E-B: 119 алерченных строк с мёртвыми легаси-URL** (95× `xarid.uzex.uz/shop/lot-details/`, 24× `…/prequalification/detail/`) — живут в старых алертах и карточках Vercel. Решение: одноразовая миграция UPDATE по regex (переиспользовать `_fix_legacy_url` из recall_audit.py; сначала SELECT-подсчёт всех строк вкл. неалерченные, бэкап списком id, потом UPDATE). Свежие алерты уже с новыми URL (проверено: new-xarid shop detail = 200). ~1 час, Tier-3 подтверждение на массовый UPDATE.
 
