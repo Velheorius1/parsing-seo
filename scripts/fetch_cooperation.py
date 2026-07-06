@@ -857,6 +857,11 @@ def fetch_and_transform_auction_contracts(max_pages=10, page_size=500):
         offer_count = item.get('offerCount')
         if offer_count is not None:
             extra_info['Кол-во оферт'] = str(offer_count)
+        # Persist the source lotNumber — it's parsed but was thrown away, breaking
+        # the offer→lot→contract chain (gold-map 2026-07-05). Keeping it lets the
+        # weekly routine join a won contract back to the lot we alerted.
+        if lot_no:
+            extra_info['Лот'] = lot_no
         if start_price and contract_amount and start_price > 0:
             try:
                 discount_pct = round(100 * (1 - float(contract_amount) / float(start_price)), 1)
@@ -1313,12 +1318,18 @@ def send_alerts(new_rows, source_label):
 
             parts.append('#%s' % kw.replace(' ', '_'))
 
-            # Inline keyboard for feedback
+            # Inline keyboard for feedback. Context-aware labels matching notifier.py
+            # (E-G, 2026-07-05): tenders get «Интересно/Не моё», leads keep «Клиент/Мимо».
+            # Same fb:seq:ok/ad/skip callbacks — only wording differs.
+            if row.get("message_type") == "customer_request":
+                _b_ok, _b_skip = "\U0001f464 Клиент", "\u274c Мимо"
+            else:
+                _b_ok, _b_skip = "\u2705 Интересно", "\u274c Не моё"
             reply_markup = {
                 "inline_keyboard": [[
-                    {"text": "\U0001f464 Клиент", "callback_data": "fb:%d:ok" % seq},
+                    {"text": _b_ok, "callback_data": "fb:%d:ok" % seq},
                     {"text": "\U0001f4e2 Реклама", "callback_data": "fb:%d:ad" % seq},
-                    {"text": "\u274c Мимо", "callback_data": "fb:%d:skip" % seq},
+                    {"text": _b_skip, "callback_data": "fb:%d:skip" % seq},
                 ]]
             }
 
