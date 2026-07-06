@@ -243,7 +243,13 @@ def to_tender_row(item, source_name, id_prefix):
         'date_end': item.get('endDate', '') or '',
         'region': item.get('regionName', '') or '',
         'source': source_name,
-        'source_url': 'https://xarid.uzex.uz/auction/detail/%s' % ext_id if id_prefix == 'uzex-auc' else 'https://xarid.uzex.uz/prequalification/detail/%s' % ext_id,
+        # 2026-07-06 (weekly routine): prequest ids live in the new-xarid
+        # proposal-request space. Old xarid.uzex.uz/prequalification/detail/{id}
+        # redirects to homepage (browser-verified broken); new-xarid
+        # proposal-request/detail/{id} opens the real lot anonymously
+        # (83758 -> "Услуги профессиональные, научные и технические").
+        # Mirrors the sources.yaml uzex-prequest fix that this script bypassed.
+        'source_url': 'https://xarid.uzex.uz/auction/detail/%s' % ext_id if id_prefix == 'uzex-auc' else 'https://new-xarid.uzex.uz/home/purchase/proposal-request/detail/%s' % ext_id,
         'status': 'active',
         'search_text': ' '.join(filter(None, [
             item.get('categoryName', ''),
