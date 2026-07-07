@@ -550,6 +550,18 @@ def _get_keywords() -> List[str]:
     return [k.strip().lower() for k in raw.split(",") if k.strip()]
 
 
+def _load_tnved_scope() -> List[str]:
+    """Promoted ТНВЭД code prefixes (via shadow_search --promote). Empty by default."""
+    try:
+        from crawler.core.db import _get_client
+        row = (_get_client().table("crawler_settings").select("value")
+               .eq("key", "tnved_scope").limit(1).execute().data or [])
+        raw = (row[0].get("value") or "") if row else ""
+        return [p.strip() for p in raw.split(",") if p.strip()]
+    except Exception:
+        return []
+
+
 def _stem(word: str) -> str:
     """Crude Russian stemming — trim to root for matching.
 
@@ -874,8 +886,14 @@ def _is_high_signal(t: RawTender) -> bool:
     if dt is not None:
         if dt.tzinfo is not None:
             dt = dt.replace(tzinfo=None)
-        if timedelta(0) <= (dt - datetime.utcnow()) <= timedelta(hours=48):
-            return True  # last-chance (<48h)
+        # _parse_deadline floors to the DATE (drops time-of-day), so a lot closing
+        # later today parsed to 00:00 was ALREADY in the past → the old
+        # `(dt - now) >= 0` check silently sent urgent lots to the digest instead
+        # of push (real bug, caught 2026-07-06). Compare by date: closes today or
+        # tomorrow = last-chance = push.
+        days_left = (dt.date() - datetime.utcnow().date()).days
+        if 0 <= days_left <= 1:
+            return True  # last-chance (closes today/tomorrow)
     return False
 
 
@@ -1003,10 +1021,20 @@ async def send_alerts(
         logger.info("[Alerts] Skipped %d stale tenders (deadline >1 year past)", stale_count)
     active = fresh
 
+    # TNVED scope consult (shadow-promoted, language-agnostic recall layer):
+    # a lot whose ТНВЭД prefix is in the promoted scope matches even with zero
+    # keyword hits — catches uz-titled lots ru keywords can't see. Empty until a
+    # shadow candidate is promoted, so this is a safe no-op today.
+    _tnved_scope = _load_tnved_scope()
+
     # Filter matching tenders by keywords
     matching = []  # type: List[Tuple[RawTender, str]]
     for t in active:
         kw = _find_matching_keyword(t, keywords)
+        if not kw and _tnved_scope:
+            _tn = str((t.extra_info or {}).get("tnved") or (t.extra_info or {}).get("code") or "")
+            if _tn and any(_tn.startswith(p) for p in _tnved_scope):
+                kw = "тнвэд:%s" % _tn[:4]
         if kw:
             matching.append((t, kw))
 

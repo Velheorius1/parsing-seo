@@ -66,11 +66,11 @@ def test_own_lot_suppressed():
 
 
 def test_high_signal_routing():
-    far = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
-    soon = (datetime.utcnow() + timedelta(hours=20)).strftime("%Y-%m-%dT%H:%M:%S")
+    far = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
+    soon = (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%d")  # closes tomorrow (deterministic)
     assert _is_high_signal(_mk(message_type="customer_request"))                 # hot lead → push
     assert _is_high_signal(_mk(price=200_000_000, deadline=far, source="X"))     # big-ticket → push
-    assert _is_high_signal(_mk(deadline=soon, source="X"))                       # <48h → push
+    assert _is_high_signal(_mk(deadline=soon, source="X"))                       # closes tomorrow → push
     # relevant but not urgent/huge → digest (the over-push we tightened away)
     assert not _is_high_signal(_mk(relevance_score=88, price=20_000_000, deadline=far, source="X"))
 
