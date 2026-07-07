@@ -16,6 +16,26 @@ from supabase import create_client
 
 TAXONOMY = ["relevant-rejected", "ad-as-client", "irrelevant-niche", "wrong-score", "trivial"]
 
+# Controlled signal_slug vocabulary (E-F fix, 2026-07-06). The free-form slug made
+# every correction a UNIQUE signal_key → support stuck at 1 → nothing ever promoted
+# (201 clicks, 0 active principles). A closed list groups similar corrections so
+# support accumulates and promotion works. Derived from Daniyar's real click themes.
+SIGNAL_SLUGS = [
+    "self-promo",          # реклама/самопиар своих услуг
+    "vacancy",             # поиск работника/исполнителя
+    "non-print-goods",     # техника/товары/мебель — не полиграфия
+    "textile-sewing",      # пошив изделий (не печать логотипа)
+    "cutting-outdoor",     # резка/наружка/конструкции
+    "greeting-offtopic",   # приветствие/лозунг/оффтоп
+    "medicine-food",       # лекарства/продукты как товар
+    "construction",        # стройматериалы/строительные работы
+    "services-nonprint",   # услуги вне печати (IT/СММ/ивенты/дизайн-без-печати)
+    "print-rejected",      # наш полиграф-заказ ошибочно зарезан
+    "packaging-rejected",  # упаковка ошибочно зарезана
+    "score-borderline",    # балл на границе ниши
+    "other",
+]
+
 _DISTIL_PROMPT = """Ты дистиллируешь ОДНУ человеческую коррекцию классификатора полиграф-тендеров в ОБОБЩЁННЫЙ принцип.
 
 Коррекция:
@@ -26,7 +46,9 @@ _DISTIL_PROMPT = """Ты дистиллируешь ОДНУ человечес�
 Таксономия (выбери ОДНУ): relevant-rejected (наш заказ зарезан), ad-as-client (реклама принята за заказ), irrelevant-niche (вне ниши принято за наше), wrong-score (близко но балл кривой), trivial (разовая мелочь — не возводить в принцип).
 
 Сформулируй ПРИНЦИП — обобщённый признак ошибки, КАК ДУМАТЬ (не «что блокировать»), БЕЗ имён собственных (компаний/каналов/доменов). Конкретика — только в example.
-signal_slug — короткий латиницей из признака (lower, дефисы), напр. "izdatelskie-uslugi".
+signal_slug — ВЫБЕРИ РОВНО ОДИН из списка (не придумывай свой): self-promo, vacancy,
+non-print-goods, textile-sewing, cutting-outdoor, greeting-offtopic, medicine-food,
+construction, services-nonprint, print-rejected, packaging-rejected, score-borderline, other.
 
 СТРОГО JSON: {"taxonomy":"...","principle":"...","example":"(пример: ...)","signal_slug":"..."}
 Если trivial — taxonomy:"trivial", остальное пустое."""
@@ -79,7 +101,10 @@ def main(days, bootstrap, send):
             # proper-name linter failed -> systemic, send to proposals not playbook
             proposals.append("[%s] %s" % (d["taxonomy"], (c["message_text"] or "")[:60]))
             skipped += 1; continue
-        signal_key = "%s:%s" % (d["taxonomy"], (d.get("signal_slug") or "x").strip().lower())
+        slug = (d.get("signal_slug") or "other").strip().lower()
+        if slug not in SIGNAL_SLUGS:
+            slug = "other"  # snap free-form back to the controlled vocab
+        signal_key = "%s:%s" % (d["taxonomy"], slug)
         ex = (client.table("classifier_playbook").select("id,support_count,status")
               .eq("signal_key", signal_key).limit(1).execute().data)
         if ex:
