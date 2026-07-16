@@ -53,23 +53,75 @@ construction, services-nonprint, print-rejected, packaging-rejected, score-borde
 СТРОГО JSON: {"taxonomy":"...","principle":"...","example":"(пример: ...)","signal_slug":"..."}
 Если trivial — taxonomy:"trivial", остальное пустое."""
 
+# Readable phrase for the system verdict token stored in original_label (Hole A fix).
+_VERDICT_RU = {
+    "client": "релевантный (наш заказ)",
+    "alerted": "релевантный (показан)",
+    "weak": "слабо-релевантный (низкий балл)",
+    "ad": "реклама", "irrelevant": "вне ниши",
+}
+
+# Recall-guard vocabulary: when the system UNDER-rated a lot the human confirmed as ours.
+_PROTECT_SLUGS = ["print-underrated", "packaging-underrated", "niche-term-missed", "format-underrated", "other"]
+
+_DISTIL_PROMPT_PROTECT = """Система НЕДООЦЕНИЛА реальный полиграф-заказ (recall-промах): показала слабо/как чужое, а человек подтвердил — ЭТО НАШ.
+
+Текст тендера: "%s"
+Система оценила: %s
+Человек: НАШ заказ (client)
+
+Сформулируй ЗАЩИТНЫЙ ПРИНЦИП — обобщённый признак, ПО КОТОРОМУ такой лот НАДО ловить (что система упускает), КАК ДУМАТЬ, БЕЗ имён собственных. Конкретика — только в example.
+signal_slug — ВЫБЕРИ РОВНО ОДИН: print-underrated, packaging-underrated, niche-term-missed, format-underrated, other.
+
+СТРОГО JSON: {"taxonomy":"relevant-rejected","principle":"...","example":"(пример: ...)","signal_slug":"..."}"""
+
 _PROPER_NAME = re.compile(r"[A-ZА-ЯЁ][a-zа-яё]{2,}\s+[A-ZА-ЯЁ]|\.(uz|ru|com)\b|«[^»]*[A-ZА-ЯЁ]{2,}", re.U)
 
 def _client():
     return create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+def _classify(verdict, human):
+    # type: (str, str) -> str
+    """Direction of the learning signal from ONE feedback click, or "" to skip.
+
+    alert_feedback holds only SHOWN items (original_label now carries the system
+    VERDICT, not message_type — Hole A fix 2026-07-16), so:
+      human ad/irrelevant                        -> 'reject'  (false positive: shown, shouldn't be)
+      human client + weak/ad/irrelevant verdict  -> 'protect' (recall guard: system underrated it)
+      human client + relevant verdict            -> agreement -> skip (no signal, saves an LLM call)
+    A false NEGATIVE proper (a tender never shown) cannot appear here by construction —
+    that gap is covered by recall_audit (V3), not by clicks.
+    """
+    v = (verdict or "").strip().lower()
+    h = (human or "").strip().lower()
+    if h in ("ad", "irrelevant"):
+        return "reject"
+    if h == "client" and v in ("ad", "irrelevant", "weak"):
+        return "protect"
+    return ""
 
 def fetch_corrections(client, days):
     from datetime import datetime, timedelta, timezone
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     r = (client.table("alert_feedback").select("message_text,original_label,corrected_label,created_at")
          .not_.is_("message_text", "null").gte("created_at", since).execute())
-    rows = r.data or []
-    # only real corrections (original != corrected); skip sentinel
-    return [x for x in rows if (x.get("original_label") or "") != (x.get("corrected_label") or "")
-            and x.get("message_text")]
+    out = []
+    for x in (r.data or []):
+        if not x.get("message_text"):
+            continue
+        direction = _classify(x.get("original_label"), x.get("corrected_label"))
+        if not direction:
+            continue  # agreement — nothing to learn from a confirmation
+        x["direction"] = direction
+        out.append(x)
+    return out
 
-def distil(text, orig, corr):
-    prompt = _DISTIL_PROMPT % (text[:300], orig, corr)
+def distil(text, verdict, human, direction):
+    verdict_ru = _VERDICT_RU.get((verdict or "").strip().lower(), verdict or "?")
+    if direction == "protect":
+        prompt = _DISTIL_PROMPT_PROTECT % (text[:300], verdict_ru)
+    else:
+        prompt = _DISTIL_PROMPT % (text[:300], verdict_ru, human)
     try:
         resp = httpx.post("https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": "Bearer %s" % settings.openrouter_api_key},
@@ -88,21 +140,29 @@ def main(days, bootstrap, send):
     client = _client()
     corr = fetch_corrections(client, days)
     print("corrections in %dd: %d" % (days, len(corr)))
+    n_reject = sum(1 for c in corr if c.get("direction") == "reject")
+    n_protect = sum(1 for c in corr if c.get("direction") == "protect")
+    print("  directions: reject(FP)=%d protect(recall)=%d" % (n_reject, n_protect))
     inserted = updated = skipped = promoted = 0
     proposals = []
     for c in corr:
-        d = distil(c["message_text"], c.get("original_label") or "?", c["corrected_label"])
+        direction = c.get("direction") or "reject"
+        d = distil(c["message_text"], c.get("original_label") or "?", c["corrected_label"], direction)
         if not d or d.get("taxonomy") not in TAXONOMY:
             skipped += 1; continue
         if d["taxonomy"] == "trivial":
             skipped += 1; continue
+        # protect = recall guard: always a relevant-rejected principle, regardless of what the model tagged
+        if direction == "protect":
+            d["taxonomy"] = "relevant-rejected"
         principle = (d.get("principle") or "").strip()
         if not principle or _PROPER_NAME.search(principle):
             # proper-name linter failed -> systemic, send to proposals not playbook
             proposals.append("[%s] %s" % (d["taxonomy"], (c["message_text"] or "")[:60]))
             skipped += 1; continue
+        allowed = _PROTECT_SLUGS if direction == "protect" else SIGNAL_SLUGS
         slug = (d.get("signal_slug") or "other").strip().lower()
-        if slug not in SIGNAL_SLUGS:
+        if slug not in allowed:
             slug = "other"  # snap free-form back to the controlled vocab
         signal_key = "%s:%s" % (d["taxonomy"], slug)
         ex = (client.table("classifier_playbook").select("id,support_count,status")

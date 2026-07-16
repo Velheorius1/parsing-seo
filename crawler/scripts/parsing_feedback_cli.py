@@ -43,6 +43,7 @@ def main():
         sys.exit(1)
 
     from crawler.config.settings import settings
+    from crawler.core.feedback import _system_verdict
     from supabase import create_client
     client = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
@@ -50,11 +51,13 @@ def main():
     tender_id = None
     source = None
     message_text = None
-    original_label = "demand"
+    # Store the system VERDICT (not message_type) so the playbook can distinguish an
+    # agreement from a real correction. 'alerted' = shown but no AI verdict on the row.
+    original_label = "alerted"
     try:
         r = (
             client.table("tenders")
-            .select("external_id,source,title,message_type")
+            .select("external_id,source,title,relevance_category,relevance_score")
             .eq("alert_seq", alert_seq)
             .limit(1)
             .execute()
@@ -63,8 +66,10 @@ def main():
             tender_id = r.data[0]["external_id"]
             source = r.data[0]["source"]
             message_text = r.data[0]["title"]
-            original_label = r.data[0].get("message_type", original_label)
-            print("Tender: %s (%s)" % (message_text[:60] if message_text else "?", source or "?"))
+            original_label = _system_verdict(
+                r.data[0].get("relevance_category"), r.data[0].get("relevance_score"))
+            print("Tender: %s (%s) [verdict=%s]" % (
+                message_text[:60] if message_text else "?", source or "?", original_label))
         else:
             print("Warning: tender #%d not found in DB" % alert_seq)
     except Exception as exc:

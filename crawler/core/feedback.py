@@ -7,6 +7,26 @@ from crawler.core.db import _get_client
 
 logger = logging.getLogger(__name__)
 
+
+def _system_verdict(relevance_category, relevance_score):
+    # type: (Optional[str], Optional[int]) -> str
+    """Compress the system's stored relevance decision into ONE token so a later
+    feedback click can be classed honestly as agreement / false-positive / recall-guard.
+
+    Everything in alert_feedback was ALERTED (system deemed it worth showing), so a
+    missing verdict defaults to 'alerted' (relevant), never 'unknown'. Score band 70
+    ≈ midpoint between the observed avg for category='client' (90) and 'irrelevant' (45).
+    """
+    cat = (relevance_category or "").strip().lower()
+    if cat in ("client", "ad", "irrelevant"):
+        return cat
+    if relevance_score is not None:
+        try:
+            return "client" if int(relevance_score) >= 70 else "weak"
+        except (TypeError, ValueError):
+            pass
+    return "alerted"
+
 # Cache few-shot examples for the duration of one crawl run
 _few_shot_cache = None  # type: Optional[str]
 _few_shot_cache_ts = 0.0  # type: float
@@ -115,13 +135,17 @@ def record_feedback(alert_seq, corrected_label, original_label="demand", message
         if not message_text:
             try:
                 r = client.table("tenders").select(
-                    "external_id,source,title,message_type"
+                    "external_id,source,title,relevance_category,relevance_score"
                 ).eq("alert_seq", alert_seq).limit(1).execute()
                 if r.data:
-                    tender_id = r.data[0]["external_id"]
-                    source = source or r.data[0]["source"]
-                    message_text = message_text or r.data[0]["title"]
-                    original_label = r.data[0].get("message_type", original_label)
+                    row = r.data[0]
+                    tender_id = row["external_id"]
+                    source = source or row["source"]
+                    message_text = message_text or row["title"]
+                    # Store the real system VERDICT (not message_type) so the playbook
+                    # can tell an agreement from a correction. Hole A fix (2026-07-16).
+                    original_label = _system_verdict(
+                        row.get("relevance_category"), row.get("relevance_score"))
             except Exception:
                 pass
 
@@ -271,13 +295,18 @@ def get_feedback_stats(days=7):
             return {"total": 0, "false_positives": 0, "false_negatives": 0}
 
         total = len(result.data)
+        # alert_feedback holds only ALERTED (shown) items, so the two error kinds are:
+        #   human=ad/irrelevant                        → false positive (shown, shouldn't have been)
+        #   human=client + weak/ad/irrelevant verdict  → false negative (system underrated it)
+        # (The old check keyed on original_label='ad'/'skipped', which message_type never
+        #  produced → false_negatives were structurally always 0. Hole A fix 2026-07-16.)
         false_pos = sum(
-            1 for r in result.data
-            if r["original_label"] in ("demand", "customer_request") and r["corrected_label"] == "ad"
+            1 for r in result.data if r["corrected_label"] in ("ad", "irrelevant")
         )
         false_neg = sum(
             1 for r in result.data
-            if r["original_label"] in ("ad", "skipped") and r["corrected_label"] == "client"
+            if r["corrected_label"] == "client"
+            and (r.get("original_label") or "") in ("ad", "irrelevant", "weak")
         )
         return {
             "total": total,
