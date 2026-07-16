@@ -42,14 +42,16 @@ _MUTE_NEG_THRESHOLD = 3  # ❌ needed to auto-mute a source
 
 
 def _bump_mute_pattern(source, corrected_label):
-    # type: (Optional[str], str) -> None
-    """Increment source-level mute counters from one feedback click."""
+    # type: (Optional[str], str) -> Optional[dict]
+    """Increment source-level mute counters from one feedback click.
+    Returns {muted, neg, pos, threshold} so the caller can show an immediate effect,
+    or None on no-op / failure."""
     if not source:
-        return
+        return None
     is_neg = corrected_label in ("ad", "irrelevant")
     is_pos = corrected_label == "client"
     if not (is_neg or is_pos):
-        return
+        return None
     try:
         from crawler.auth.session_store import session_store
         state = session_store.get_setting(_MUTE_STATE_KEY)
@@ -63,8 +65,10 @@ def _bump_mute_pattern(source, corrected_label):
         muted = c["neg"] >= _MUTE_NEG_THRESHOLD and c["pos"] == 0
         logger.info("[Mute] %s: neg=%d pos=%d%s", source, c["neg"], c["pos"],
                     " → MUTED (→digest)" if muted else "")
+        return {"muted": muted, "neg": c["neg"], "pos": c["pos"], "threshold": _MUTE_NEG_THRESHOLD}
     except Exception as exc:
         logger.warning("[Mute] bump failed: %s", str(exc)[:80])
+        return None
 
 
 def get_active_mutes():
@@ -158,11 +162,12 @@ def record_feedback(alert_seq, corrected_label, original_label="demand", message
             "source": source,
         }).execute()
         logger.info("[Feedback] Recorded: #%d -> %s", alert_seq, corrected_label)
-        _bump_mute_pattern(source, corrected_label)
+        mute = _bump_mute_pattern(source, corrected_label)
         # Invalidate few-shot cache
         global _few_shot_cache
         _few_shot_cache = None
-        return True
+        # Dict (truthy) so callers can show the immediate mute effect; still truthy like the old bool.
+        return {"ok": True, "source": source, "mute": mute}
     except Exception as exc:
         logger.warning("[Feedback] Failed to record feedback: %s", str(exc))
         return False
