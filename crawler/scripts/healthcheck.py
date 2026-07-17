@@ -408,23 +408,83 @@ class HealthCheck:
 
     def check_docker(self):
         # type: () -> None
-        """Check if key Docker containers are running."""
+        """FAIL if a decommissioned duplicate crawler is running, or if any running
+        container ships crawler code older than prod.
+
+        INVERTED 2026-07-17 — this check used to EXPECT 'tender-crawler' running and warn
+        when it was MISSING. Exactly backwards: that container WAS the bug. It ran a full
+        crawl every 2h and alerted with an image built 2026-06-07, i.e. code predating
+        auto-mute, 3-tier routing, e-shop demote and the V1 verifier. Because it crawled
+        more often than the cron crawler it alerted FIRST, the tender stopped being "new",
+        and the fixed path never routed it — weeks-old mutes still pushed ~100%. Its code
+        is baked into the image, so the */5 git auto-deploy could never fix it. Stopped
+        2026-07-17. See docs/findings/2026-07-17-duplicate-stale-docker-crawler.md
+
+        The generic staleness guard below is the real lesson: ANY container shipping frozen
+        crawler code silently undoes deployed fixes while the main path's logs stay clean.
+        The systemd stale-guard (check_feedback_bot) never saw this — it only covers units.
+        """
+        # Containers retired by an incident: their presence is a failure, not health.
+        decommissioned = {"tender-crawler"}
         try:
             result = subprocess.run(
                 ["docker", "ps", "--format", "{{.Names}}"],
                 capture_output=True, text=True, timeout=10,
             )
-            running = set(result.stdout.strip().split('\n')) if result.stdout.strip() else set()
-            expected = {"tender-crawler"}
-            missing = expected - running
-            if not missing:
-                self._add("docker", OK, "All containers running: %s" % ", ".join(sorted(expected)))
-            else:
-                self._add("docker", WARN, "Missing containers: %s" % ", ".join(sorted(missing)))
+            running = set(result.stdout.split())
         except FileNotFoundError:
             self._add("docker", WARN, "docker not found")
+            return
         except Exception as exc:
             self._add("docker", WARN, "Docker check failed: %s" % str(exc)[:60])
+            return
+
+        rogue = sorted(decommissioned & running)
+        if rogue:
+            self._add("docker", FAIL,
+                      "DECOMMISSIONED crawler is running again: %s — it alerts with frozen "
+                      "image code and silently undoes mute/routing/verifier. Stop it: "
+                      "docker update --restart=no %s && docker stop %s"
+                      % (", ".join(rogue), rogue[0], rogue[0]))
+            return
+
+        stale = self._stale_crawler_containers(running)
+        if stale:
+            self._add("docker", FAIL,
+                      "Container(s) ship crawler code older than prod: %s — a frozen image "
+                      "bypasses git auto-deploy and re-undoes deployed fixes. Rebuild or stop."
+                      % ", ".join(stale))
+        else:
+            self._add("docker", OK,
+                      "no decommissioned/stale crawler containers (%d running)" % len(running))
+
+    def _stale_crawler_containers(self, running):
+        # type: (set) -> list
+        """Running containers whose baked crawler code is >1 day older than prod's.
+        Non-crawler containers are skipped silently (the stat just fails). Fail-open."""
+        import os as _os
+        out = []  # type: list
+        try:
+            code_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            prod_newest = max(
+                _os.path.getmtime(_os.path.join(r, f))
+                for r, _d, fs in _os.walk(_os.path.join(code_dir, "core"))
+                for f in fs if f.endswith(".py"))
+        except Exception:
+            return out  # can't establish a baseline → don't guess
+        for name in sorted(running):
+            try:
+                r = subprocess.run(
+                    ["docker", "exec", name, "stat", "-c", "%Y", "/app/crawler/core/notifier.py"],
+                    capture_output=True, text=True, timeout=8,
+                )
+                if r.returncode != 0 or not r.stdout.strip():
+                    continue  # not a crawler container
+                if float(r.stdout.strip()) < prod_newest - 86400:
+                    out.append(name)
+            except Exception:
+                continue
+        return out
 
     # ── Check 13: Tokens ──
 
