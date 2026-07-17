@@ -1203,9 +1203,12 @@ async def send_alerts(
 
     digest_tenders = [t for t, _kw in matching if not _to_push(t)]
     matching = [(t, kw) for t, kw in matching if _to_push(t)]
-    if digest_tenders:
-        logger.info("[Route] %d push / %d digest (%d muted sources)",
-                    len(matching), len(digest_tenders), len(_mutes))
+    # Always log routing (even 0 digest): a crawl that pushes everything with "0 muted
+    # sources" is the silent mute-read failure that leaked muted sources to push — now visible.
+    logger.info("[Route] %d push / %d digest (%d muted sources)",
+                len(matching), len(digest_tenders), len(_mutes))
+    if not _mutes:
+        logger.warning("[Route] mute set EMPTY — every muted source pushes this crawl (DB read likely failed)")
 
     # Hot leads first: customer_request items (real clients asking to buy NOW)
     # jump the queue — lowest seq + sent before tender noise. Stable sort keeps
