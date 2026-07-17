@@ -1,6 +1,9 @@
 """Feedback learning system — records user corrections and provides few-shot examples."""
 
+import json
 import logging
+import os
+import time
 from typing import List, Optional
 
 from crawler.core.db import _get_client
@@ -39,6 +42,10 @@ _FEW_SHOT_TTL = 7200  # 2 hours (matches cron interval)
 # muting never stops ingestion, so it is fully reversible.
 _MUTE_STATE_KEY = "mute_patterns_v1"
 _MUTE_NEG_THRESHOLD = 3  # ❌ needed to auto-mute a source
+# Last-known-good mute set, persisted so a transient DB read failure at routing time
+# doesn't collapse the mute set to empty (which pushes every muted source). Survives
+# across cron crawl processes. See get_active_mutes.
+_MUTE_CACHE_FILE = "/opt/parsing-seo/logs/active_mutes_cache.json"
 
 
 def _bump_mute_pattern(source, corrected_label):
@@ -71,19 +78,59 @@ def _bump_mute_pattern(source, corrected_label):
         return None
 
 
-def get_active_mutes():
-    # type: () -> set
-    """Sources auto-muted by feedback (>=N ❌, 0 ✅). A single ✅ vetoes the mute."""
+def _save_mute_cache(muted):
+    # type: (set) -> None
+    """Persist the last-known-good mute set to disk (best-effort)."""
     try:
-        from crawler.auth.session_store import session_store
-        state = session_store.get_setting(_MUTE_STATE_KEY)
-        if not isinstance(state, dict):
-            return set()
-        srcs = state.get("sources", {}) or {}
-        return {s for s, c in srcs.items()
-                if int(c.get("neg", 0)) >= _MUTE_NEG_THRESHOLD and int(c.get("pos", 0)) == 0}
+        os.makedirs(os.path.dirname(_MUTE_CACHE_FILE), exist_ok=True)
+        with open(_MUTE_CACHE_FILE, "w") as f:
+            json.dump(sorted(muted), f, ensure_ascii=False)
+    except Exception as exc:
+        logger.debug("[Mute] cache save failed: %s", str(exc)[:80])
+
+
+def _load_mute_cache():
+    # type: () -> set
+    try:
+        with open(_MUTE_CACHE_FILE) as f:
+            data = json.load(f)
+        return set(data) if isinstance(data, list) else set()
     except Exception:
         return set()
+
+
+def get_active_mutes():
+    # type: () -> set
+    """Sources auto-muted by feedback (>=N ❌, 0 ✅). A single ✅ vetoes the mute.
+
+    RESILIENT (2026-07-16 fix). The old body did `except Exception: return set()` — a
+    SILENT fail-open. On any transient Supabase read error (statement timeout 57014, seen
+    in prod under crawl load) it returned {}, so that crawl muted NOTHING and every muted
+    source got pushed individually. The failure logged nothing and [Route] only logged when
+    a digest existed, so it was invisible: weeks-old mutes (Мин сельхоз 25❌/0✅ since 06-25)
+    still pushed ~100% of the time. Now: retry the read, and on total failure fall back to
+    the disk-persisted last-known-good set — NEVER empty. Serving a minutes-stale mute set
+    is safe (un-mute happens only via a rare ✅ click) and far better than muting nothing.
+    """
+    from crawler.auth.session_store import session_store
+    last_err = None
+    for attempt in range(3):
+        try:
+            state = session_store.get_setting(_MUTE_STATE_KEY)
+            if isinstance(state, dict):
+                srcs = state.get("sources", {}) or {}
+                muted = {s for s, c in srcs.items()
+                         if int(c.get("neg", 0)) >= _MUTE_NEG_THRESHOLD and int(c.get("pos", 0)) == 0}
+                _save_mute_cache(muted)
+                return muted
+            last_err = "get_setting returned non-dict (None/parse-fail/unreachable)"
+        except Exception as exc:
+            last_err = str(exc)[:100]
+        time.sleep(0.4 * (attempt + 1))
+    cached = _load_mute_cache()
+    logger.warning("[Mute] read FAILED after retries (%s) — using %d cached muted sources (NOT empty)",
+                   last_err, len(cached))
+    return cached
 
 
 def get_next_seq(count=1):
