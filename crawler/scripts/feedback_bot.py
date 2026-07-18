@@ -126,16 +126,22 @@ def process_callback(update):
         return
 
     # Record feedback
-    success = record_feedback(
+    result = record_feedback(
         alert_seq=seq,
         corrected_label=label_info["corrected"],
     )
 
-    if success:
-        answer_callback(
-            callback_id,
-            "\u0417\u0430\u043f\u0438\u0441\u0430\u043d\u043e: #%03d \u2192 %s" % (seq, label_info["text"]),
-        )
+    if result:
+        # Immediate visible effect: acknowledge + show what the click just did to the
+        # source mute counter (feedback without a visible effect dies \u2014 proven).
+        ack = "\u0417\u0430\u043f\u0438\u0441\u0430\u043d\u043e: #%03d \u2192 %s" % (seq, label_info["text"])
+        mute = result.get("mute") if isinstance(result, dict) else None
+        if mute and label_info["corrected"] in ("ad", "irrelevant"):
+            if mute.get("muted"):
+                ack += " \u00b7 \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a \u043f\u0440\u0438\u0433\u043b\u0443\u0448\u0451\u043d \u2192 \u0434\u0430\u0439\u0434\u0436\u0435\u0441\u0442"
+            elif mute.get("neg"):
+                ack += " \u00b7 \u0436\u0430\u043b\u043e\u0431: %d/%d" % (mute["neg"], mute.get("threshold", 3))
+        answer_callback(callback_id, ack)
         # Update message buttons to show label
         msg = cq.get("message", {})
         chat_id = msg.get("chat", {}).get("id")
