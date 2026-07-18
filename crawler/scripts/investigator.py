@@ -90,7 +90,9 @@ def _row_to_tender(r):
         deadline=r.get("deadline"), source=r.get("source") or "",
         source_url=r.get("source_url") or "", search_text=r.get("search_text") or "",
         message_type=r.get("message_type") or "tender",
-        extra_info=r.get("extra_info") if isinstance(r.get("extra_info"), dict) else {},
+        # DB jsonb keeps native types (int quantity/unit_price), RawTender wants Dict[str, str]
+        extra_info={str(k): ("" if v is None else str(v)) for k, v in r.get("extra_info").items()}
+        if isinstance(r.get("extra_info"), dict) else {},
     )
 
 
