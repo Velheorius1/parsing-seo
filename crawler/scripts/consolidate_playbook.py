@@ -60,6 +60,7 @@ def _norm_slug(slug):
 
 def _client():
     from supabase import create_client
+    from crawler.config.settings import settings
     return create_client(settings.supabase_url, settings.supabase_service_role_key)
 
 
