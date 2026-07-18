@@ -108,14 +108,19 @@ async def run(
     tasks = [_fetch_source(a) for a in parallel_adapters]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Fetch Telegram sequentially (shared SQLite session file) with timeout
+    # Fetch Telegram sequentially (shared SQLite session file) with timeout.
+    # 300s is a BACKSTOP only: the adapter self-limits via its 90s fetch budget and
+    # returns partial results (cursor advances). A wait_for cancellation here loses
+    # the whole channel result AND its cursor save — livelock on backlog (2026-07-18)
+    # — so the backstop must stay comfortably above the adapter budget + one slow
+    # in-flight AI call, never at the same order as the budget itself.
     tg_results = []  # type: List[object]
     for tg_adapter in telegram_adapters:
         try:
-            tg_results.append(await asyncio.wait_for(tg_adapter.fetch(), timeout=120))
+            tg_results.append(await asyncio.wait_for(tg_adapter.fetch(), timeout=300))
         except asyncio.TimeoutError:
-            logger.error("[%s] Telegram fetch timed out (120s)", tg_adapter.config.id)
-            tg_results.append(TimeoutError("Telegram fetch exceeded 120s"))
+            logger.error("[%s] Telegram fetch timed out (300s)", tg_adapter.config.id)
+            tg_results.append(TimeoutError("Telegram fetch exceeded 300s"))
         except Exception as exc:
             tg_results.append(exc)
 

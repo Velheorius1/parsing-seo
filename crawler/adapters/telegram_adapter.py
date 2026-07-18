@@ -2,6 +2,7 @@
 
 import logging
 import re
+import time as _time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -382,6 +383,17 @@ class TelegramAdapter(BaseAdapter):
         # Load last_message_id for incremental collection
         last_id = self._load_last_message_id()
 
+        # Per-channel time budget. _parse_message runs AI calls (~3-6s each) inline, so
+        # fetch time is proportional to backlog size. Without a budget, a multi-day backlog
+        # blows the runner's wait_for — the coroutine is CANCELLED mid-loop, the cursor
+        # save below never runs, all tenders are discarded, and the next run repeats the
+        # same backlog: a livelock that burns OpenRouter spend and persists nothing
+        # (2026-07-18: 3 runs x ~60 min of AI calls, 0 saved). Budget-break instead keeps
+        # partial results: incremental mode iterates oldest->newest (reverse=True), so
+        # max_seen_id = last PROCESSED message and the next run resumes exactly after it.
+        budget_s = 90
+        t0 = _time.monotonic()
+
         try:
             await client.connect()
 
@@ -422,6 +434,14 @@ class TelegramAdapter(BaseAdapter):
             max_seen_id = last_id
 
             async for message in client.iter_messages(channel, **iter_kwargs):
+                if _time.monotonic() - t0 > budget_s:
+                    logger.warning(
+                        "[%s] fetch budget %ds exhausted — returning %d tenders, "
+                        "cursor at %d, backlog resumes next run",
+                        self.config.name, budget_s, len(tenders), max_seen_id,
+                    )
+                    break
+
                 # Track highest message ID for next incremental run
                 if message.id > max_seen_id:
                     max_seen_id = message.id
