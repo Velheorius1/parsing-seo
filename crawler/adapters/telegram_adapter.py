@@ -414,6 +414,38 @@ class TelegramAdapter(BaseAdapter):
                 if channel and not channel.startswith("@"):
                     channel = "@" + channel
 
+            # Stale-cursor guard. The age cutoff below only fires on a first run
+            # (last_id == 0). Incremental mode has NO age filter, so a cursor frozen
+            # for weeks floods old alerts on resume: tg-pruzb's cursor sat at Jun-16
+            # for a month (2026-07-18) — draining it would AI-process and PUSH ~20k
+            # month-old customer requests already alerted earlier. If the cursor's own
+            # message predates the freshness window, fast-forward it to the first
+            # message at the cutoff date (one API call, no skimming). Never moves the
+            # cursor backward, so a fresh cursor is untouched.
+            if last_id > 0:
+                try:
+                    anchor = await client.get_messages(channel, ids=last_id)
+                    a_date = anchor.date if anchor else None
+                    if a_date is not None and a_date.tzinfo is None:
+                        a_date = a_date.replace(tzinfo=timezone.utc)
+                    if a_date is not None and a_date < cutoff:
+                        async for fm in client.iter_messages(
+                            channel, offset_date=cutoff, limit=1, reverse=True
+                        ):
+                            if fm.id - 1 > last_id:
+                                logger.warning(
+                                    "[%s] stale cursor (%s < %dd cutoff) — "
+                                    "fast-forward %d -> %d, skipping old backlog",
+                                    self.config.name, a_date.date(),
+                                    MAX_AGE_DAYS, last_id, fm.id,
+                                )
+                                last_id = fm.id - 1
+                except Exception as exc:
+                    logger.warning(
+                        "[%s] stale-cursor check failed: %s",
+                        self.config.name, str(exc)[:80],
+                    )
+
             # Incremental: if we have last_id, only get newer messages
             # Otherwise fall back to limit-based collection
             iter_kwargs = {}  # type: dict
