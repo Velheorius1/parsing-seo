@@ -58,38 +58,59 @@ def _fetch_active_deadline_tenders(client):
     slightly-stale data instead of being silently skipped."""
     from crawler.core.db import query_with_retry
 
-    def _q():
-        # Relevance gate = alert_seq (we alerted on it → Daniyar saw & cares). The old
-        # matched_keywords gate was empty on all 540k rows (never populated) — it both
-        # silenced the feature entirely AND forced a full scan of ~487k active-with-
-        # deadline rows, which is what triggered 57014. alert_seq is indexed & tiny.
-        return (client.table("tenders").select(_DEADLINE_SELECT)
-                .eq("status", "active").not_.is_("deadline", "null")
-                .not_.is_("alert_seq", "null").execute())
-
-    try:
-        resp = query_with_retry(_q, label="deadline tenders")
-        rows = resp.data or []
-        _save_deadline_cache(rows)
-        return rows
-    except Exception as exc:
-        cached = _load_deadline_cache()
-        logger.error("[Deadlines] query failed after retries (%s) — using %d cached rows (NOT skipping)",
-                     str(exc)[:80], len(cached))
-        return cached
+    # Relevance gate = alert_seq (we alerted on it → Daniyar saw & cares). The old
+    # matched_keywords gate was empty on all 540k rows (never populated) — it both
+    # silenced the feature entirely AND forced a full scan of ~487k active-with-deadline
+    # rows, which is what triggered 57014. alert_seq is indexed & tiny (~2k rows).
+    # MUST paginate: PostgREST caps at 1000/response and the upcoming ISO deadlines sit
+    # past row 1000, so a single .execute() returned them empty (dry-run showed 0).
+    rows = []  # type: list
+    offset = 0
+    while True:
+        def _q(o=offset):
+            return (client.table("tenders").select(_DEADLINE_SELECT)
+                    .eq("status", "active").not_.is_("deadline", "null")
+                    .not_.is_("alert_seq", "null").range(o, o + 999).execute())
+        try:
+            resp = query_with_retry(_q, label="deadline tenders p%d" % offset)
+        except Exception as exc:
+            if rows:
+                logger.warning("[Deadlines] page %d failed (%s) — using %d rows so far",
+                               offset, str(exc)[:60], len(rows))
+                break
+            cached = _load_deadline_cache()
+            logger.error("[Deadlines] query failed after retries (%s) — using %d cached rows (NOT skipping)",
+                         str(exc)[:80], len(cached))
+            return cached
+        page = resp.data or []
+        rows.extend(page)
+        if len(page) < 1000:
+            break
+        offset += 1000
+        if offset > 20000:  # safety cap (alerted-active-with-deadline is ~2k)
+            logger.warning("[Deadlines] pagination hit 20k cap")
+            break
+    _save_deadline_cache(rows)
+    return rows
 
 
 def _parse_deadline(deadline_str: Optional[str]) -> Optional[datetime]:
-    """Parse deadline string into datetime."""
+    """Parse deadline string into datetime.
+
+    Some sources store free text like "Опубликовано: 28/04/2026 ... Истекает: 13/05/2026"
+    where the FIRST date is the publish date, not the deadline. When an expiry label is
+    present, parse only the tail after it so we don't remind on the publish date."""
     if not deadline_str:
         return None
+    m_label = re.search(r"(?:Истека[а-я]*|Дедлайн|[Сс]рок)\D*(\d.*)$", deadline_str)
+    search_str = m_label.group(1) if m_label else deadline_str
     patterns = [
         (r"(\d{4})-(\d{2})-(\d{2})", "%Y-%m-%d"),
         (r"(\d{2})\.(\d{2})\.(\d{4})", "%d.%m.%Y"),
         (r"(\d{2})/(\d{2})/(\d{4})", "%d/%m/%Y"),
     ]
     for pattern, fmt in patterns:
-        m = re.search(pattern, deadline_str)
+        m = re.search(pattern, search_str)
         if m:
             try:
                 return datetime.strptime(m.group(0), fmt)
