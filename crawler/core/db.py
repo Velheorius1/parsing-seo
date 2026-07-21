@@ -25,6 +25,32 @@ def _get_client():  # type: ignore[no-untyped-def]
     return _client
 
 
+def query_with_retry(fn, attempts=3, label="query"):
+    # type: (callable, int, str) -> object
+    """Run a blocking Supabase call, retrying transient failures before giving up.
+
+    Same shape as feedback.get_active_mutes (2026-07-16): PostgREST returns statement
+    timeout 57014 under crawl load — a single-shot query then fails the whole caller
+    (missed deadline reminders, false healthcheck FAIL). Retry with the same
+    0.4*(n+1) backoff; re-raise the last error after `attempts` so each caller picks
+    its own fallback (stale cache / WARN). Synchronous like the mute retry — the
+    Supabase `.execute()` it wraps already blocks, so a rare retry sleep changes
+    nothing about the concurrency model even on the async deadline path.
+    """
+    import time
+    last_err = None
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except Exception as exc:
+            last_err = exc
+            logger.warning("[DB] %s failed (attempt %d/%d): %s",
+                           label, attempt + 1, attempts, str(exc)[:100])
+            if attempt < attempts - 1:
+                time.sleep(0.4 * (attempt + 1))
+    raise last_err
+
+
 def _tender_to_row(t: RawTender) -> dict:
     """Convert RawTender to a dict matching the Supabase tenders table schema."""
     row = {

@@ -159,6 +159,7 @@ class HealthCheck:
     def check_sources(self):
         # type: () -> None
         """Check which sources have data and which are dead."""
+        from crawler.core.db import query_with_retry
         try:
             client = self._get_client()
             # Get sources with recent data (last 7 days)
@@ -167,7 +168,10 @@ class HealthCheck:
             source_counts = {}  # type: dict
             offset = 0
             while True:
-                result = client.table("tenders").select("source").gte("collected_at", week_ago).range(offset, offset + 999).execute()
+                result = query_with_retry(
+                    lambda o=offset: client.table("tenders").select("source")
+                    .gte("collected_at", week_ago).range(o, o + 999).execute(),
+                    label="healthcheck sources page")
                 if not result.data:
                     break
                 for row in result.data:
@@ -193,7 +197,10 @@ class HealthCheck:
                 self._add("sources.low", WARN, "%d sources with <5 records: %s" % (
                     len(low_sources), ", ".join(low_sources[:5])))
         except Exception as exc:
-            self._add("sources", FAIL, "Source check failed: %s" % str(exc)[:80])
+            # A transient statement timeout (57014) is NOT an outage — query_with_retry
+            # already gave each page 3 tries. Don't page Daniyar with a false FAIL (seen
+            # 2026-07-21); WARN so a sustained problem still surfaces without crying wolf.
+            self._add("sources", WARN, "Source check unavailable (transient?): %s" % str(exc)[:80])
 
     # ── Check 4: Feedback Bot ──
 

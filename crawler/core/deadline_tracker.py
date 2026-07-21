@@ -15,6 +15,62 @@ from crawler.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+# Last-known-good snapshot of active tenders with deadlines, so a transient DB timeout
+# (57014 under crawl load) doesn't skip ALL reminders for a run. Safe to serve stale:
+# deadlines are absolute dates (re-filtered by the current window every run) and the
+# deadline_reminders table dedups sends, so a stale row can never double-remind.
+_DEADLINE_CACHE_FILE = "/opt/parsing-seo/logs/deadline_active_cache.json"
+_DEADLINE_SELECT = "id,title,organization,price,currency,deadline,source,source_url,matched_keywords"
+
+
+def _save_deadline_cache(rows):
+    # type: (list) -> None
+    import json
+    import os
+    try:
+        os.makedirs(os.path.dirname(_DEADLINE_CACHE_FILE), exist_ok=True)
+        with open(_DEADLINE_CACHE_FILE, "w") as f:
+            json.dump(rows, f, ensure_ascii=False)
+    except Exception as exc:
+        logger.debug("[Deadlines] cache save failed: %s", str(exc)[:80])
+
+
+def _load_deadline_cache():
+    # type: () -> list
+    import json
+    try:
+        with open(_DEADLINE_CACHE_FILE) as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _fetch_active_deadline_tenders(client):
+    # type: (object) -> list
+    """All active, keyword-matched tenders that carry a deadline. Fetched ONCE per run
+    (the old code re-ran this identical query per reminder window = 2x the load that
+    triggered 57014). Retries the transient timeout via query_with_retry; on total
+    failure falls back to the last-known-good snapshot so reminders still fire from
+    slightly-stale data instead of being silently skipped."""
+    from crawler.core.db import query_with_retry
+
+    def _q():
+        return (client.table("tenders").select(_DEADLINE_SELECT)
+                .eq("status", "active").not_.is_("deadline", "null")
+                .not_.eq("matched_keywords", "{}").execute())
+
+    try:
+        resp = query_with_retry(_q, label="deadline tenders")
+        rows = resp.data or []
+        _save_deadline_cache(rows)
+        return rows
+    except Exception as exc:
+        cached = _load_deadline_cache()
+        logger.error("[Deadlines] query failed after retries (%s) — using %d cached rows (NOT skipping)",
+                     str(exc)[:80], len(cached))
+        return cached
+
 
 def _parse_deadline(deadline_str: Optional[str]) -> Optional[datetime]:
     """Parse deadline string into datetime."""
@@ -82,32 +138,22 @@ async def check_deadlines(dry_run: bool = False) -> int:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     sent = 0
 
+    # Fetch the active-with-deadline set ONCE (was re-queried per window = double the
+    # load that caused 57014). Resilient: retries + stale-cache fallback.
+    active_tenders = _fetch_active_deadline_tenders(client)
+    if not active_tenders:
+        logger.debug("[Deadlines] no active tenders with deadlines")
+        return 0
+
     for reminder_type, days_ahead in [("3_days", 3), ("1_day", 1)]:
         # Find active tenders with deadline in `days_ahead` days (±12 hours window)
         target_date = now + timedelta(days=days_ahead)
         window_start = target_date - timedelta(hours=12)
         window_end = target_date + timedelta(hours=12)
 
-        # Get active tenders that matched our keywords (not all tenders!)
-        try:
-            resp = (
-                client.table("tenders")
-                .select("id,title,organization,price,currency,deadline,source,source_url,matched_keywords")
-                .eq("status", "active")
-                .not_.is_("deadline", "null")
-                .not_.eq("matched_keywords", "{}")
-                .execute()
-            )
-        except Exception as exc:
-            logger.error("[Deadlines] Failed to query tenders: %s", str(exc)[:80])
-            continue
-
-        if not resp.data:
-            continue
-
         # Filter by deadline date (parse and check range)
         candidates = []  # type: List[dict]
-        for tender in resp.data:
+        for tender in active_tenders:
             dt = _parse_deadline(tender.get("deadline"))
             if dt and window_start <= dt <= window_end:
                 candidates.append(tender)
