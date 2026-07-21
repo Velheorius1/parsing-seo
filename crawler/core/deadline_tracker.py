@@ -20,7 +20,10 @@ logger = logging.getLogger(__name__)
 # deadlines are absolute dates (re-filtered by the current window every run) and the
 # deadline_reminders table dedups sends, so a stale row can never double-remind.
 _DEADLINE_CACHE_FILE = "/opt/parsing-seo/logs/deadline_active_cache.json"
-_DEADLINE_SELECT = "id,title,organization,price,currency,deadline,source,source_url,matched_keywords"
+_DEADLINE_SELECT = "id,title,organization,price,currency,deadline,source,source_url"
+# >this many reminders in one window → send ONE grouped digest instead of N pushes.
+# Prevents a burst (feature revival backlog, or a Monday pile-up) from blasting the chat.
+_DIGEST_THRESHOLD = 6
 
 
 def _save_deadline_cache(rows):
@@ -56,9 +59,13 @@ def _fetch_active_deadline_tenders(client):
     from crawler.core.db import query_with_retry
 
     def _q():
+        # Relevance gate = alert_seq (we alerted on it → Daniyar saw & cares). The old
+        # matched_keywords gate was empty on all 540k rows (never populated) — it both
+        # silenced the feature entirely AND forced a full scan of ~487k active-with-
+        # deadline rows, which is what triggered 57014. alert_seq is indexed & tiny.
         return (client.table("tenders").select(_DEADLINE_SELECT)
                 .eq("status", "active").not_.is_("deadline", "null")
-                .not_.eq("matched_keywords", "{}").execute())
+                .not_.is_("alert_seq", "null").execute())
 
     try:
         resp = query_with_retry(_q, label="deadline tenders")
@@ -116,6 +123,25 @@ def _format_reminder(tender: dict, reminder_type: str) -> str:
     url = tender.get("source_url")
     if url:
         parts.append(url)
+    return "\n".join(parts)
+
+
+def _format_digest(tenders: List[dict], reminder_type: str) -> str:
+    """One grouped message for a burst of same-window reminders, so a pile-up (feature
+    revival backlog, or a Monday cluster) never blasts N separate pushes. Caps the list
+    to stay under Telegram's 4096-char limit; all are still recorded as sent."""
+    emoji = "⏰" if reminder_type == "1_day" else "📅"
+    days_text = "ЗАВТРА" if reminder_type == "1_day" else "через 3 дня"
+    parts = ["%s *Дедлайн %s — %d тендеров:*" % (emoji, days_text, len(tenders)), ""]
+    shown = tenders[:25]
+    for t in shown:
+        title = (t.get("title") or "")[:80]
+        for ch in ("*", "_", "`", "["):
+            title = title.replace(ch, "")
+        url = t.get("source_url")
+        parts.append("• %s%s" % (title, ("\n  " + url) if url else ""))
+    if len(tenders) > len(shown):
+        parts.append("…и ещё %d" % (len(tenders) - len(shown)))
     return "\n".join(parts)
 
 
@@ -201,36 +227,51 @@ async def check_deadlines(dry_run: bool = False) -> int:
         # Send reminders
         bot_url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
 
+        def _record(tender_ids):
+            for tid in tender_ids:
+                try:
+                    client.table("deadline_reminders").insert({
+                        "tender_id": tid, "reminder_type": reminder_type}).execute()
+                except Exception as exc:
+                    logger.warning("[Deadlines] Failed to record reminder: %s", str(exc)[:80])
+
         async with httpx.AsyncClient(timeout=10) as http_client:
-            for tender in to_remind:
-                text = _format_reminder(tender, reminder_type)
+            if len(to_remind) > _DIGEST_THRESHOLD:
+                # Burst → one grouped digest (never blast N pushes).
+                text = _format_digest(to_remind, reminder_type)
                 try:
                     resp_tg = await http_client.post(bot_url, json={
                         "chat_id": settings.telegram_alert_chat_id,
-                        "text": text,
-                        "parse_mode": "Markdown",
+                        "text": text, "parse_mode": "Markdown",
                         "disable_web_page_preview": True,
                     })
                     if resp_tg.status_code == 200:
-                        # Record that we sent this reminder
-                        try:
-                            client.table("deadline_reminders").insert({
-                                "tender_id": tender["id"],
-                                "reminder_type": reminder_type,
-                            }).execute()
-                        except Exception as exc:
-                            logger.warning(
-                                "[Deadlines] Failed to record reminder: %s",
-                                str(exc)[:80],
-                            )
-                        sent += 1
+                        _record([t["id"] for t in to_remind])
+                        sent += len(to_remind)
+                        logger.info("[Deadlines] Sent digest of %d %s reminders",
+                                    len(to_remind), reminder_type)
                     else:
-                        logger.warning(
-                            "[Deadlines] Telegram send failed: %d %s",
-                            resp_tg.status_code, resp_tg.text[:100],
-                        )
+                        logger.warning("[Deadlines] Digest send failed: %d %s",
+                                       resp_tg.status_code, resp_tg.text[:100])
                 except Exception as exc:
-                    logger.warning("[Deadlines] Send error: %s", str(exc)[:80])
+                    logger.warning("[Deadlines] Digest send error: %s", str(exc)[:80])
+            else:
+                for tender in to_remind:
+                    text = _format_reminder(tender, reminder_type)
+                    try:
+                        resp_tg = await http_client.post(bot_url, json={
+                            "chat_id": settings.telegram_alert_chat_id,
+                            "text": text, "parse_mode": "Markdown",
+                            "disable_web_page_preview": True,
+                        })
+                        if resp_tg.status_code == 200:
+                            _record([tender["id"]])
+                            sent += 1
+                        else:
+                            logger.warning("[Deadlines] Telegram send failed: %d %s",
+                                           resp_tg.status_code, resp_tg.text[:100])
+                    except Exception as exc:
+                        logger.warning("[Deadlines] Send error: %s", str(exc)[:80])
 
     if sent:
         logger.info("[Deadlines] Sent %d deadline reminders", sent)
