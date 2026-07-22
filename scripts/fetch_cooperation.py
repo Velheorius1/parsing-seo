@@ -24,8 +24,16 @@ import logging
 import os
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
+
+# Repo-root bootstrap: this file runs as a SCRIPT (sys.path[0] = scripts/), so the
+# shared-pipeline import (`crawler.core.notifier` in send_alerts_unified) would fail
+# without the repo root on the path. Must precede any `crawler.*` import.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 try:
     from dotenv import load_dotenv
@@ -55,6 +63,10 @@ OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 AI_MODEL = os.getenv('AI_RELEVANCE_MODEL', 'qwen/qwen3.6-max-preview')
 COMPETITOR_KEYWORDS = os.getenv('COMPETITOR_KEYWORDS', '')  # comma-separated company names
 LEAD_GEN_ENABLED = os.getenv('LEAD_GEN_ENABLED', 'true').lower() in ('true', '1', 'yes')
+# Kill-switch for the coop→notifier unification (2026-07-22): set COOP_LEGACY_SEND=1
+# (in run_proxy_fetch.sh, via git — NOT hand-edited on VPS) to route tender alerts
+# through the legacy in-file sender instead of the shared notifier pipeline.
+COOP_LEGACY_SEND = os.getenv('COOP_LEGACY_SEND', '').lower() in ('1', 'true', 'yes')
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
@@ -1166,6 +1178,122 @@ def _fetch_offer_detail(product_name, offer_number):
     return result
 
 
+def _enrich_lot_row(row):
+    # type: (Dict[str, Any]) -> None
+    """Enrich a 'Cooperation.uz Лоты' row in place: offer price + photo + reference
+    supplier via e-catalog offerNumber join, computed total (unit_price × quantity),
+    and DB persist (upsert ran BEFORE alerts — without the persist the Vercel card
+    never sees price/photo, the 2026-07-05 empty-card root cause). No-op for other
+    sources / already-enriched rows. Extracted from the legacy send loop (2026-07-22)
+    so both legacy and unified paths share it."""
+    _lei = row.get('extra_info') or {}
+    if row.get('source') != 'Cooperation.uz Лоты' or not _lei.get('offer') or _lei.get('unit_price'):
+        return
+    _od = _fetch_offer_detail(row.get('title', ''), _lei['offer'])
+    if _od:
+        _lei.update({k: v for k, v in _od.items() if v is not None})
+        row['extra_info'] = _lei
+    try:
+        if not row.get('price') and _lei.get('unit_price') and _lei.get('quantity'):
+            row['price'] = float(_lei['unit_price']) * float(_lei['quantity'])
+    except (TypeError, ValueError):
+        pass
+    try:
+        from supabase import create_client as _cc
+        _cc(SUPABASE_URL, SUPABASE_KEY).table('tenders').update(
+            {'extra_info': _lei, 'price': row.get('price')}
+        ).eq('external_id', row.get('external_id', '')).eq('source', row['source']).execute()
+    except Exception as _pexc:
+        logger.warning('[OfferEnrich] persist failed: %s', str(_pexc)[:80])
+
+
+def _row_to_raw_tender(row):
+    # type: (Dict[str, Any]) -> Any
+    """Coop dict row → RawTender for the shared notifier pipeline.
+
+    Traps handled: DB jsonb extra_info keeps native types (int quantity, bool
+    certificate) while RawTender wants Dict[str, str] — str-coerce like
+    crawler/scripts/investigator.py (fix af1c155); organization can be None;
+    contracts carry message_type='info' — preserved AS IS so the shared ALERT_TYPES
+    stage drops them deliberately (closed deals are not alerts; #конкурент covers
+    them). extra_info['tnved'] falls back to search_text so the notifier's
+    tnved-scope hook keeps the include channel (100 alerts/30d) alive."""
+    from crawler.core.models import RawTender
+    ei = row.get('extra_info')
+    ei = {str(k): ('' if v is None else str(v)) for k, v in ei.items()} if isinstance(ei, dict) else {}
+    st = row.get('search_text') or ''
+    if 'tnved' not in ei:
+        _tn = _extract_tnved(st)
+        if _tn:
+            ei['tnved'] = _tn
+    ext = row.get('external_id') or ''
+    return RawTender(
+        id=ext, external_id=ext,
+        title=row.get('title') or '',
+        organization=row.get('organization') or '',
+        price=row.get('price'), currency=row.get('currency') or 'UZS',
+        deadline=row.get('deadline'),
+        date_start=row.get('date_start'), date_end=row.get('date_end'),
+        source=row.get('source') or '', source_url=row.get('source_url') or '',
+        status=row.get('status') or 'active', search_text=st,
+        message_type=row.get('message_type') or 'tender',
+        extra_info=ei,
+        **({'collected_at': row['collected_at']} if row.get('collected_at') else {})
+    )
+
+
+def _prefilter_rows(rows, source_label):
+    # type: (List[Dict[str, Any]], str) -> List[Dict[str, Any]]
+    """Producer-side cheap gates that cut shared-pipeline AI spend. DROPS ONLY, never
+    force-passes (the legacy tnved/enkt include force-pass is replaced by the notifier
+    tnved_scope mechanism). _REJECT_TITLES kept whole incl. «книги печатные»: coop
+    rows carry real product names, not the UZEX OKED category the notifier dropped it for."""
+    kept = []
+    n_scope = n_title = 0
+    for row in rows:
+        st = row.get('search_text', '')
+        if _classify_tnved(st) == 'exclude' or _classify_enkt(st) == 'exclude':
+            n_scope += 1
+            continue
+        title_low = (row.get('title') or '').lower()
+        if any(rj in title_low for rj in _REJECT_TITLES):
+            n_title += 1
+            continue
+        kept.append(row)
+    if n_scope or n_title:
+        logger.info('[CoopPrefilter/%s] dropped %d (tnved/enkt-exclude=%d, reject-title=%d)',
+                    source_label, n_scope + n_title, n_scope, n_title)
+    return kept
+
+
+def send_alerts_unified(new_rows, source_label):
+    # type: (List[Dict[str, Any]], str) -> int
+    """Route coop tender alerts through the SHARED notifier pipeline (unification
+    2026-07-22): mute compliance, 3-tier routing, playbook-aware AI, verifier,
+    digest, screenshots — everything the legacy in-file sender lacked. On ANY
+    failure falls back loudly to the legacy sender: alerts are business-critical
+    and must never be lost silently. Lazy import keeps standalone runs (and the
+    fallback itself) independent of the crawler package."""
+    rows = _prefilter_rows(new_rows, source_label)
+    if not rows:
+        return 0
+    if source_label == 'Lots':
+        keywords = [k.strip().lower() for k in ALERT_KEYWORDS.split(',') if k.strip()]
+        for r in rows:
+            # keyword-gate the enrichment HTTP cost, as the legacy loop implicitly did
+            if _find_matching_keyword(r.get('title', ''), r.get('search_text', ''), keywords):
+                _enrich_lot_row(r)
+    try:
+        import asyncio
+        from crawler.core.notifier import send_alerts as _shared_send
+        tenders = [_row_to_raw_tender(r) for r in rows]
+        return asyncio.run(_shared_send(tenders))
+    except Exception as exc:
+        logger.error('[Unified] shared pipeline FAILED (%s) — falling back to legacy sender',
+                     str(exc)[:200])
+        return send_alerts(new_rows, source_label)
+
+
 def send_alerts(new_rows, source_label):
     # type: (List[Dict[str, Any]], str) -> int
     """Send Telegram alerts for new tenders matching keywords.
@@ -1245,31 +1373,9 @@ def send_alerts(new_rows, source_label):
             seq = start_seq + i
             parts = []
 
-            # Enrich lot with offer price + photo + reference supplier (e-catalog
-            # join via offerNumber)
-            _lei = row.get('extra_info') or {}
-            if row.get('source') == 'Cooperation.uz Лоты' and _lei.get('offer') and not _lei.get('unit_price'):
-                _od = _fetch_offer_detail(row.get('title', ''), _lei['offer'])
-                if _od:
-                    _lei.update({k: v for k, v in _od.items() if v is not None})
-                    row['extra_info'] = _lei
-                # Computed lot total: unit_price × quantity. Without it the lot
-                # showed «Сумма: Не указана» (Brayl darslik = 344M invisible).
-                try:
-                    if not row.get('price') and _lei.get('unit_price') and _lei.get('quantity'):
-                        row['price'] = float(_lei['unit_price']) * float(_lei['quantity'])
-                except (TypeError, ValueError):
-                    pass
-                # PERSIST enrichment — upsert ran BEFORE alerts, so without this
-                # update the Vercel card never sees price/photo/supplier (root
-                # cause of the empty card, 2026-07-05).
-                try:
-                    from supabase import create_client as _cc
-                    _cc(SUPABASE_URL, SUPABASE_KEY).table('tenders').update(
-                        {'extra_info': _lei, 'price': row.get('price')}
-                    ).eq('external_id', row.get('external_id', '')).eq('source', row['source']).execute()
-                except Exception as _pexc:
-                    logger.warning('[OfferEnrich] persist failed: %s', str(_pexc)[:80])
+            # Enrich lot with offer price + photo + reference supplier (extracted
+            # to _enrich_lot_row 2026-07-22 — shared with the unified path)
+            _enrich_lot_row(row)
 
             # Header with alert number
             msg_type = row.get('message_type', 'tender')
@@ -1472,9 +1578,12 @@ def send_lead_alerts(new_rows, source_label):
 
 # ── Process one source ───────────────────────────────────────────
 
-def process_source(rows, source_name, label, dry_run=False, is_plans=False, gate_on_alerted=False):
-    # type: (List[Dict[str, Any]], str, str, bool, bool, bool) -> Tuple[int, int, int, int, int]
-    """Upsert rows and send alerts. Returns (upserted, new_count, alerts, competitor_alerts, lead_alerts)."""
+def process_source(rows, source_name, label, dry_run=False, is_plans=False, gate_on_alerted=False,
+                   tender_alerts=True):
+    # type: (List[Dict[str, Any]], str, str, bool, bool, bool, bool) -> Tuple[int, int, int, int, int]
+    """Upsert rows and send alerts. Returns (upserted, new_count, alerts, competitor_alerts, lead_alerts).
+    tender_alerts=False keeps upsert + competitor/lead intel but skips generic tender
+    alerting (plans: runner's cooperation-plans-filtered owns those alerts — T0-a)."""
     if not rows:
         return 0, 0, 0, 0, 0
 
@@ -1507,8 +1616,9 @@ def process_source(rows, source_name, label, dry_run=False, is_plans=False, gate
     alerts = 0
     comp_alerts = 0
     lead_alerts = 0
-    if alert_rows:
-        alerts = send_alerts(alert_rows, label)
+    if alert_rows and tender_alerts:
+        alerts = (send_alerts(alert_rows, label) if COOP_LEGACY_SEND
+                  else send_alerts_unified(alert_rows, label))
     # Competitor + lead intel stay gated on brand-new rows (no backfill burst)
     if new_rows:
         comp_alerts = send_competitor_alerts(new_rows, label)
@@ -1540,7 +1650,10 @@ def main():
     # 1. Plans
     if args.source in ('all', 'plans'):
         rows = fetch_and_transform_plans(max_pages=args.pages)
-        u, n, a, c, l = process_source(rows, 'Cooperation.uz Закупочные планы', 'Plans', args.dry_run, is_plans=True)
+        # tender_alerts=False (T0-a, 2026-07-22): the runner's cooperation-plans-filtered
+        # earns the plan alerts (18/30d vs 0 here); this path keeps upsert + #лид only.
+        u, n, a, c, l = process_source(rows, 'Cooperation.uz Закупочные планы', 'Plans', args.dry_run,
+                                       is_plans=True, tender_alerts=False)
         total_upserted += u
         total_new += n
         total_alerts += a

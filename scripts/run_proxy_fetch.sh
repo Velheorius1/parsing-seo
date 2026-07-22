@@ -7,6 +7,11 @@ cd "$DIR"
 export $(grep -E "^(SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|TELEGRAM_BOT_TOKEN|TELEGRAM_ALERT_CHAT_ID|OPENROUTER_API_KEY|RESIDENTIAL_PROXY_URL)=" .env | xargs)
 export HTTP_PROXY=$RESIDENTIAL_PROXY_URL
 export HTTPS_PROXY=$RESIDENTIAL_PROXY_URL
+# Shared notifier pipeline (coop unification 2026-07-22) does NOT set trust_env=False:
+# keep Telegram/OpenRouter/Supabase/Vercel OFF the residential proxy. cooperation.uz
+# traffic still rides HTTP(S)_PROXY above.
+export NO_PROXY="api.telegram.org,openrouter.ai,.supabase.co,supabase.co,parsing-seo.vercel.app"
+export no_proxy="$NO_PROXY"
 
 # Precheck: skip silently if proxy is down. Dedicated cron proxy_health_check.sh sends the alert.
 __probe() { curl -s -o /dev/null -w "%{http_code}" --max-time 15 -x "$RESIDENTIAL_PROXY_URL" "$1" 2>/dev/null || true; }

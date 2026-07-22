@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 
 from crawler.core.models import RawTender
 from crawler.core.dedup import _logical_key, dedup_within_source
-from crawler.core.notifier import _is_high_signal, _is_own_lot
+from crawler.core.notifier import _is_high_signal, _is_own_lot, _route_to_push
 
 
 def _mk(**k):
@@ -73,6 +73,31 @@ def test_high_signal_routing():
     assert _is_high_signal(_mk(deadline=soon, source="X"))                       # closes tomorrow → push
     # relevant but not urgent/huge → digest (the over-push we tightened away)
     assert not _is_high_signal(_mk(relevance_score=88, price=20_000_000, deadline=far, source="X"))
+
+
+def test_muted_coop_source_routes_to_digest():
+    # Coop unification 2026-07-22: the exact bug class this project spent a week
+    # killing — a muted source that still pushes. Once coop flows through the shared
+    # pipeline, a mute on 'Cooperation.uz Лоты' must actually route it to digest.
+    soon = (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%d")
+    t = _mk(source="Cooperation.uz Лоты", deadline=soon)  # closes tomorrow = high signal
+    assert _is_high_signal(t)                                       # would push unmuted
+    assert not _route_to_push(t, {"Cooperation.uz Лоты"})           # mute wins → digest
+    assert _route_to_push(t, set())                                 # no mute → push
+
+
+def test_customer_request_overrides_mute():
+    # A real client asking to buy NOW is recall we never trade away.
+    t = _mk(message_type="customer_request", source="Cooperation.uz Лоты")
+    assert _route_to_push(t, {"Cooperation.uz Лоты"})
+
+
+def test_supplier_catalog_never_pushes():
+    # Sell-side listings (asking price ≠ demand): the big-ticket override must NOT
+    # leak them back (e-shop leak 2026-07-03; Оферты joined the pipeline 2026-07-22).
+    far = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
+    assert not _is_high_signal(_mk(source="Cooperation.uz Оферты", price=298_000_000, deadline=far))
+    assert not _is_high_signal(_mk(source="Cooperation.uz Э-магазин лоты", price=200_000_000, deadline=far))
 
 
 if __name__ == "__main__":

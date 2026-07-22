@@ -706,7 +706,16 @@ _REVERSE_AUCTION_SOURCES = {
     "XT-Xarid встречные аукционы",
     "E-Birja встречные аукционы",
     "E-Birja встречный аукцион (листинг)",
+    "Cooperation.uz Аукционы",  # buyer reverse auctions (coop unification 2026-07-22)
 }
+
+# Sell-side catalog markers: a supplier LISTING goods is not demand — these sources
+# never earn a push regardless of price (asking price ≠ buyer). "э-магазин" closed the
+# e-shop leak 2026-07-03; "оферт" covers Cooperation.uz Оферты, which reaches the
+# shared pipeline with the coop unification (2026-07-22) and would otherwise push via
+# the big-ticket override. Digest-only — deliberately NOT in _NO_PUSH_SOURCES (that
+# drops items entirely; we want digest visibility).
+_SUPPLIER_CATALOG_MARKERS = ("э-магазин", "оферт")
 
 # Supplier-catalog / off-profile sources dropped from PUSH (deep-think 2026-07-01):
 # e-shops are sell-side (sellers list offers) — no buyer, no demand signal (bid field
@@ -866,11 +875,20 @@ def _format_alert(
 _PUSH_PRICE_FLOOR = 100_000_000  # 100M UZS — big-ticket always pushes
 
 
+def _route_to_push(t: RawTender, mutes: set) -> bool:
+    """Push-vs-digest routing decision (module-level so it is unit-testable).
+    customer_request overrides a source-mute — a real client asking to buy NOW is
+    recall we never trade away; everything else needs high signal AND an unmuted source."""
+    if getattr(t, "message_type", None) == "customer_request":
+        return True
+    return _is_high_signal(t) and t.source not in mutes
+
+
 def _is_high_signal(t: RawTender) -> bool:
     """True → per-alert push; False → digest."""
     if getattr(t, "message_type", None) == "customer_request":
         return True  # hot lead: a client asking to buy NOW
-    if "э-магазин" in (t.source or "").lower():
+    if any(m in (t.source or "").lower() for m in _SUPPLIER_CATALOG_MARKERS):
         # Supplier-catalog listings NEVER earn a push (Daniyar's locked decision:
         # e-shop → только по старту аукциона). The big-ticket override leaked
         # them back (#5005 298M / #5006 100M, 2026-07-03) — a supplier's asking
@@ -1197,9 +1215,7 @@ async def send_alerts(
     _mutes = get_active_mutes()
 
     def _to_push(t):
-        if getattr(t, "message_type", None) == "customer_request":
-            return True  # hot lead always pushes (overrides a source-mute — recall)
-        return _is_high_signal(t) and t.source not in _mutes
+        return _route_to_push(t, _mutes)
 
     digest_tenders = [t for t, _kw in matching if not _to_push(t)]
     matching = [(t, kw) for t, kw in matching if _to_push(t)]
