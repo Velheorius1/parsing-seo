@@ -59,14 +59,8 @@ SUPABASE_URL = os.getenv('SUPABASE_URL', '')
 SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID', '')
-OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
-AI_MODEL = os.getenv('AI_RELEVANCE_MODEL', 'qwen/qwen3.6-max-preview')
 COMPETITOR_KEYWORDS = os.getenv('COMPETITOR_KEYWORDS', '')  # comma-separated company names
 LEAD_GEN_ENABLED = os.getenv('LEAD_GEN_ENABLED', 'true').lower() in ('true', '1', 'yes')
-# Kill-switch for the coop→notifier unification (2026-07-22): set COOP_LEGACY_SEND=1
-# (in run_proxy_fetch.sh, via git — NOT hand-edited on VPS) to route tender alerts
-# through the legacy in-file sender instead of the shared notifier pipeline.
-COOP_LEGACY_SEND = os.getenv('COOP_LEGACY_SEND', '').lower() in ('1', 'true', 'yes')
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
@@ -573,155 +567,6 @@ def fetch_and_transform_eshop_lots():
 
 # ── Source: UZEX Reverse Auctions (GEO-BLOCKED from VPS) ─────────
 
-def fetch_and_transform_uzex_auctions():
-    # type: () -> List[Dict[str, Any]]
-    """Fetch UZEX reverse auction lots — buyer-initiated, active bidding."""
-    logger.info('[UZEX-Auc] Fetching reverse auction lots...')
-    all_items = []  # type: List[Dict[str, Any]]
-
-    with httpx.Client(timeout=30) as client:
-        try:
-            resp = client.post(
-                'https://xarid-api-auctionx.uzex.uz/api/Lot/GetList',
-                json={'from': 0, 'to': 200},
-                headers={
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            # Response: {Status: 200, Data: [...]}
-            if isinstance(data, dict):
-                items = data.get('Data', [])
-                if isinstance(items, list):
-                    all_items = items
-            logger.info('[UZEX-Auc] Got %d items from API', len(all_items))
-        except Exception as exc:
-            logger.error('[UZEX-Auc] Error: %s', str(exc))
-
-    if not all_items:
-        return []
-
-    now = datetime.now(timezone.utc).isoformat()
-    rows = []
-    for item in all_items:
-        lot_id = str(item.get('id', ''))
-        if not lot_id:
-            continue
-        display_no = item.get('displayNo', lot_id)
-        title = item.get('categoryName', '')
-        if not title:
-            continue
-
-        region = item.get('regionName', '')
-        district = item.get('districtName', '')
-        start_cost = item.get('startCost')
-        next_cost = item.get('nextCost')
-        end_date = item.get('endDate', '') or ''
-        pcp_count = item.get('pcpCount', 0)
-
-        search_text = ' '.join(filter(None, [title, region, district])).lower()
-
-        rows.append({
-            'external_id': 'uzex-auc-%s' % lot_id,
-            'title': title[:500],
-            'organization': None,
-            'price': float(start_cost) if start_cost else None,
-            'currency': 'UZS',
-            'deadline': end_date[:10] if end_date else None,
-            'date_end': end_date[:10] if end_date else None,
-            'source': 'UZEX Обратные аукционы',
-            # 2026-05-21: UZEX migrated xarid.uzex.uz → new-xarid.uzex.uz.
-            # Universal URL pattern works for all UZEX lot types.
-            'source_url': 'https://new-xarid.uzex.uz/home/shop/detail/%s?elektron=true' % lot_id,
-            'status': 'active',
-            'search_text': search_text[:1000],
-            'collected_at': now,
-        })
-
-    logger.info('[UZEX-Auc] Transformed %d -> %d rows', len(all_items), len(rows))
-    return rows
-
-
-# ── Source: UZEX Prequalifications (GEO-BLOCKED from VPS) ────────
-
-def fetch_and_transform_uzex_prequest():
-    # type: () -> List[Dict[str, Any]]
-    """Fetch UZEX prequalification lots — buyer requests for supplier qualification."""
-    logger.info('[UZEX-Prq] Fetching prequalification lots...')
-    all_items = []  # type: List[Dict[str, Any]]
-
-    with httpx.Client(timeout=30) as client:
-        for page in range(2):  # max 2 pages of 500
-            skip = page * 500
-            try:
-                resp = client.post(
-                    'https://xarid-api-prequest.uzex.uz/api/Public/GetLots',
-                    json={'from': skip, 'to': skip + 500},
-                    headers={
-                        'Content-Type': 'application/json',
-                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                items = data.get('Data', []) if isinstance(data, dict) else []
-                if not items:
-                    break
-                all_items.extend(items)
-                logger.info('[UZEX-Prq] Page %d: %d items (total fetched: %d)', page + 1, len(items), len(all_items))
-                if len(items) < 500:
-                    break
-            except Exception as exc:
-                logger.error('[UZEX-Prq] Error on page %d: %s', page + 1, str(exc))
-                break
-
-    if not all_items:
-        logger.info('[UZEX-Prq] No items found')
-        return []
-
-    now = datetime.now(timezone.utc).isoformat()
-    rows = []
-    for item in all_items:
-        lot_id = str(item.get('id', ''))
-        if not lot_id:
-            continue
-        title = item.get('categoryName', '')
-        if not title:
-            continue
-
-        org = item.get('customerName', '')
-        start_cost = item.get('startCost')
-        start_date = item.get('startDate', '') or ''
-        end_date = item.get('endDate', '') or ''
-
-        search_text = ' '.join(filter(None, [title, org])).lower()
-
-        rows.append({
-            'external_id': 'uzex-prq-%s' % lot_id,
-            'title': title[:500],
-            'organization': org[:200] if org else None,
-            'price': float(start_cost) if start_cost else None,
-            'currency': 'UZS',
-            'deadline': end_date[:10] if end_date else None,
-            'date_start': start_date[:10] if start_date else None,
-            'date_end': end_date[:10] if end_date else None,
-            'source': 'UZEX Предквалификации',
-            # 2026-05-21: UZEX migrated xarid.uzex.uz → new-xarid.uzex.uz.
-            # Universal URL works for prequalifications (verified SO0068843, SO0068603).
-            'source_url': 'https://new-xarid.uzex.uz/home/shop/detail/%s?elektron=true' % lot_id,
-            'status': 'active',
-            'search_text': search_text[:1000],
-            'collected_at': now,
-        })
-
-    logger.info('[UZEX-Prq] Transformed %d -> %d rows', len(all_items), len(rows))
-    return rows
-
-
-# ── DB & Alerts ──────────────────────────────────────────────────
-
 def get_existing_ids(source_name):
     # type: (str) -> Set[str]
     """Get existing external_ids from Supabase for a source."""
@@ -933,201 +778,6 @@ def upsert_to_supabase(rows):
     return upserted
 
 
-AI_MODEL_FAST = os.getenv('AI_RELEVANCE_MODEL_FAST', 'deepseek/deepseek-v4-flash')
-AI_SCORE_THRESHOLD = int(os.getenv('AI_SCORE_THRESHOLD', '50'))
-# Escalate a flash REJECT to the slow max model only when its score is within
-# [floor, threshold) — a borderline call worth a recall-rescue second opinion.
-# Confident rejects (score < floor) skip the slow call. Parse-fails always escalate.
-_AI_ESCALATE_FLOOR = int(os.getenv('AI_ESCALATE_FLOOR', '30'))
-_VALID_CATEGORIES = ('client', 'ad', 'irrelevant')
-
-_AI_PROMPT = (
-    "Ты — эксперт по тендерам в сфере полиграфии и упаковки.\n\n"
-    "Наша компания — типография и упаковочное производство в Узбекистане. "
-    "Мы производим: коробки, гофрокороб, этикетки, наклейки, каталоги, книги, брошюры, "
-    "конверты, блокноты, ежедневники, бланки, календари, папки, бумажные пакеты.\n\n"
-    "НЕ НАШЕ: набор реагентов (мед/лаб), канцелярская печать (штампы), пакет документов, "
-    "наружная реклама (баннеры на фасадах, вывески, световые короба), вакансии/найм, "
-    "IT/сайты/SMM, мебель/оборудование/станки, стройматериалы, туалетная бумага/салфетки, "
-    "закупка готовых книг/тетрадей (не печать на заказ), реклама ЧУЖИХ услуг.\n\n"
-    "Тендер:\nНазвание: %s\nЗаказчик: %s\n\n"
-    "Ответь СТРОГО в JSON (только JSON, без markdown):\n"
-    "{\"score\": <0-100>, \"category\": \"<client|ad|irrelevant>\", \"reason\": \"<до 100 символов>\"}\n\n"
-    "score: 90-100 = точно наш заказ; 70-89 = вероятно наш; 40-69 = смежная; 0-39 = не наш.\n"
-    "category: client = заказчик хочет купить полиграфию/упаковку; ad = реклама чужих услуг; "
-    "irrelevant = не наша область.\n/no_think"
-)
-
-
-def _extract_json_object(text):
-    # type: (str) -> Optional[dict]
-    """First {...} JSON object, tolerating code fences and <think> blocks."""
-    if not text:
-        return None
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    fenced = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
-    if fenced:
-        candidate = fenced.group(1)
-    else:
-        m = re.search(r'\{.*\}', text, re.DOTALL)
-        if not m:
-            return None
-        candidate = m.group(0)
-    try:
-        return json.loads(candidate)
-    except (ValueError, TypeError):
-        return None
-
-
-def _parse_relevance(payload):
-    # type: (dict) -> Optional[dict]
-    """Validate AI JSON -> {is_relevant, score, category, reason}. None on bad shape."""
-    try:
-        score = int(payload.get('score'))
-    except (TypeError, ValueError):
-        return None
-    score = max(0, min(100, score))
-    cat = str(payload.get('category', '') or '').strip().lower()
-    if cat not in _VALID_CATEGORIES:
-        cat = 'client' if score >= AI_SCORE_THRESHOLD else 'irrelevant'
-    reason = str(payload.get('reason') or '')[:200].strip()
-    return {
-        'is_relevant': score >= AI_SCORE_THRESHOLD,
-        'score': score, 'category': cat, 'reason': reason,
-    }
-
-
-def _ai_json_call(title, organization, client, model):
-    # type: (str, str, httpx.Client, str) -> Optional[dict]
-    """One JSON relevance call. Returns parsed dict or None on failure."""
-    prompt = _AI_PROMPT % (title[:300], organization or '')
-    try:
-        resp = client.post(
-            'https://openrouter.ai/api/v1/chat/completions',
-            headers={'Authorization': 'Bearer %s' % OPENROUTER_API_KEY},
-            json={
-                'model': model,
-                'messages': [{'role': 'user', 'content': prompt}],
-                'max_tokens': 400,
-                'temperature': 0,
-                'response_format': {'type': 'json_object'},
-            },
-            timeout=20,
-        )
-        if resp.status_code != 200:
-            return None
-        content = resp.json()['choices'][0]['message']['content'] or ''
-        payload = _extract_json_object(content)
-        return _parse_relevance(payload) if payload else None
-    except Exception as exc:
-        logger.warning('[AI] %s error: %s', model, str(exc)[:80])
-        return None
-
-
-def _ai_check_relevance(title, organization, client):
-    # type: (str, str, httpx.Client) -> dict
-    """Relevance via DeepSeek JSON. Hybrid: fast (flash) -> max (pro) second opinion on
-    parse-fail or reject (recall rescue). Returns {is_relevant, score, category, reason}."""
-    if not OPENROUTER_API_KEY:
-        return {'is_relevant': True, 'score': None, 'category': None, 'reason': None}
-    res = _ai_json_call(title, organization, client, AI_MODEL_FAST)
-    # Escalate to the slow max model only on parse-fail or a BORDERLINE reject
-    # (recall rescue). A confident low score doesn't need a slow second opinion.
-    escalate = res is None or (
-        not res['is_relevant'] and res.get('score') is not None
-        and res['score'] >= _AI_ESCALATE_FLOOR
-    )
-    if escalate:
-        max_res = _ai_json_call(title, organization, client, AI_MODEL)
-        if max_res is not None:
-            res = max_res
-    if res is None:
-        return {'is_relevant': True, 'score': None, 'category': None, 'reason': 'AI parse failed (fail-open)'}
-    if not res['is_relevant']:
-        logger.info('[AI Filter] REJECTED: %s (score=%s)', title[:60], res['score'])
-    return res
-
-
-_SB_CLIENT = None
-
-
-def _get_supabase():
-    # type: () -> Any
-    """Cached Supabase client. Was referenced by 5 callers but never defined,
-    so _save_alert_seq / _lookup_tender_uuid / _get_next_alert_seq silently no-op'd
-    (NameError caught by their try/except). Defining it restores them."""
-    global _SB_CLIENT
-    if _SB_CLIENT is None:
-        from supabase import create_client
-        _SB_CLIENT = create_client(SUPABASE_URL, SUPABASE_KEY)
-    return _SB_CLIENT
-
-
-def _get_next_alert_seq(count=1):
-    """Reserve sequential alert numbers from Supabase."""
-    try:
-        sb = _get_supabase()
-        result = sb.rpc("get_next_alert_seq", {"p_count": count}).execute()
-        if result.data is not None:
-            return int(result.data)
-    except Exception:
-        pass
-    try:
-        sb = _get_supabase()
-        result = sb.table("tenders").select("alert_seq").not_.is_("alert_seq", "null").order("alert_seq", desc=True).limit(1).execute()
-        if result.data:
-            return int(result.data[0]["alert_seq"]) + 1
-    except Exception:
-        pass
-    return 9999
-
-
-def _save_alert_seq(external_id, source, alert_seq, telegram_message_id=None):
-    """Save alert_seq to tenders table."""
-    try:
-        sb = _get_supabase()
-        update = {"alert_seq": alert_seq}
-        if telegram_message_id is not None:
-            update["telegram_message_id"] = telegram_message_id
-        sb.table("tenders").update(update).eq("external_id", external_id).eq("source", source).execute()
-    except Exception as exc:
-        logger.warning("[Feedback] Failed to save alert_seq %d: %s", alert_seq, str(exc)[:80])
-
-
-def _persist_relevance(external_id, source, score, category, reason):
-    # type: (str, str, int, str, str) -> None
-    """Persist AI relevance decision to the tender row (analytics + feedback substrate).
-
-    Phase 1: binary score (passed=70/client, rejected=20/irrelevant). A real 0-100 score
-    arrives in Phase 2 with the TNVED/ENKT pipeline. Reuses existing columns (migration 017).
-    """
-    if not external_id:
-        return
-    try:
-        sb = _get_supabase()
-        sb.table("tenders").update({
-            "relevance_score": score,
-            "relevance_category": category,
-            "relevance_reason": (reason or "")[:500],
-        }).eq("external_id", external_id).eq("source", source).execute()
-    except Exception as exc:
-        logger.warning("[Persist] relevance_score fail %s: %s", external_id, str(exc)[:80])
-
-
-def _lookup_tender_uuid(external_id, source):
-    """Look up Supabase UUID for detail page link."""
-    try:
-        sb = _get_supabase()
-        result = sb.table("tenders").select("id").eq("external_id", external_id).eq("source", source).limit(1).execute()
-        if result.data:
-            return result.data[0]["id"]
-    except Exception:
-        pass
-    return None
-
-
-_DETAIL_PAGE = "https://parsing-seo.vercel.app/tenders"
-
 _REJECT_TITLES = [
     "книги печатные",
     "подписке и доставке периодического печатного издания",
@@ -1266,14 +916,35 @@ def _prefilter_rows(rows, source_label):
     return kept
 
 
+def _notify_pipeline_failure(source_label, n_rows, exc):
+    # type: (str, int, Exception) -> None
+    """Operational alert (NOT a tender alert) when the shared pipeline throws.
+    The legacy in-file sender was deleted after the 48h soak (2026-07-25), so there
+    is no second delivery path by design: a fallback that bypasses mutes/verifier is
+    exactly the noise class this unification removed. But a silent failure is how
+    alerts died unnoticed for weeks before — so make it visible in Telegram, not
+    only in a log nobody greps."""
+    try:
+        with httpx.Client(timeout=10, trust_env=False) as c:
+            c.post('https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN, json={
+                'chat_id': TELEGRAM_CHAT_ID,
+                'text': ('⚠️ Coop-алерты не отправлены (%s): пайплайн упал.\n'
+                         '%d лотов не разосланы. Ошибка: %s\n'
+                         'Лоты/Аукционы повторятся сами (gate_on_alerted), остальное — потеряно за этот прогон.'
+                         % (source_label, n_rows, str(exc)[:200])),
+                'disable_web_page_preview': True,
+            })
+    except Exception as _texc:
+        logger.error('[Unified] failure-notify also failed: %s', str(_texc)[:80])
+
+
 def send_alerts_unified(new_rows, source_label):
     # type: (List[Dict[str, Any]], str) -> int
     """Route coop tender alerts through the SHARED notifier pipeline (unification
     2026-07-22): mute compliance, 3-tier routing, playbook-aware AI, verifier,
-    digest, screenshots — everything the legacy in-file sender lacked. On ANY
-    failure falls back loudly to the legacy sender: alerts are business-critical
-    and must never be lost silently. Lazy import keeps standalone runs (and the
-    fallback itself) independent of the crawler package."""
+    digest, screenshots. Single delivery path by design — see
+    _notify_pipeline_failure for why there is no legacy fallback. Lazy import keeps
+    module import (and the tests) independent of the crawler package."""
     rows = _prefilter_rows(new_rows, source_label)
     if not rows:
         return 0
@@ -1289,179 +960,10 @@ def send_alerts_unified(new_rows, source_label):
         tenders = [_row_to_raw_tender(r) for r in rows]
         return asyncio.run(_shared_send(tenders))
     except Exception as exc:
-        logger.error('[Unified] shared pipeline FAILED (%s) — falling back to legacy sender',
-                     str(exc)[:200])
-        return send_alerts(new_rows, source_label)
-
-
-def send_alerts(new_rows, source_label):
-    # type: (List[Dict[str, Any]], str) -> int
-    """Send Telegram alerts for new tenders matching keywords.
-
-    Unified version: numbered alerts, inline buttons, detail page URL, fast reject filter.
-    """
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.error('[Unified] shared pipeline FAILED for %s (%d rows): %s',
+                     source_label, len(rows), str(exc)[:200])
+        _notify_pipeline_failure(source_label, len(rows), exc)
         return 0
-
-    keywords = [k.strip().lower() for k in ALERT_KEYWORDS.split(',') if k.strip()]
-    if not keywords:
-        return 0
-
-    MIN_PRICE = 10_000_000
-
-    matching = []  # type: List[tuple]
-    for row in new_rows:
-        price = row.get('price')
-        if price is not None and price < MIN_PRICE:
-            continue
-        st = row.get('search_text', '')
-        tcls = _classify_tnved(st)
-        ecls = _classify_enkt(st)
-        if tcls == 'exclude' or ecls == 'exclude':
-            continue  # hygiene paper / lab reagents — reject even if keyword matched
-        kw = _find_matching_keyword(row['title'], st, keywords)
-        if kw or tcls == 'include' or ecls == 'include':
-            label = kw or (('tnved' + _extract_tnved(st)[:4]) if tcls == 'include' else 'enkt')
-            matching.append((row, label))
-
-    if not matching:
-        logger.info('[Alerts/%s] No matches (%d checked)', source_label, len(new_rows))
-        return 0
-
-    # Fast reject filter — remove obvious non-relevant items
-    before = len(matching)
-    matching = [(r, kw) for r, kw in matching if not any(rej in r['title'].lower() for rej in _REJECT_TITLES)]
-    rejected_fast = before - len(matching)
-    if rejected_fast:
-        logger.info('[Fast Reject/%s] Removed %d non-relevant by title', source_label, rejected_fast)
-    if not matching:
-        logger.info('[Alerts/%s] All rejected by fast filter', source_label)
-        return 0
-
-    logger.info('[Alerts/%s] %d keyword matches, running AI filter...', source_label, len(matching))
-
-    # AI relevance filter
-    if OPENROUTER_API_KEY:
-        filtered = []  # type: List[tuple]
-        with httpx.Client(timeout=20, trust_env=False) as ai_client:
-            for row, kw in matching:
-                res = _ai_check_relevance(row['title'], row.get('organization', ''), ai_client)
-                _persist_relevance(
-                    row.get('external_id', ''), row['source'],
-                    res['score'] if res.get('score') is not None else (70 if res['is_relevant'] else 20),
-                    res.get('category') or ('client' if res['is_relevant'] else 'irrelevant'),
-                    (res.get('reason') or 'AI') + ' (kw=' + kw + ')',
-                )
-                if res['is_relevant']:
-                    filtered.append((row, kw))
-        rejected = len(matching) - len(filtered)
-        if rejected:
-            logger.info('[AI Filter] Passed %d / %d (rejected %d)', len(filtered), len(matching), rejected)
-        matching = filtered
-        if not matching:
-            logger.info('[Alerts/%s] All rejected by AI filter', source_label)
-            return 0
-
-    # Reserve alert sequence numbers
-    start_seq = _get_next_alert_seq(len(matching))
-
-    bot_url = 'https://api.telegram.org/bot%s/sendMessage' % TELEGRAM_BOT_TOKEN
-    sent = 0
-
-    with httpx.Client(timeout=10, trust_env=False) as client:
-        for i, (row, kw) in enumerate(matching):
-            seq = start_seq + i
-            parts = []
-
-            # Enrich lot with offer price + photo + reference supplier (extracted
-            # to _enrich_lot_row 2026-07-22 — shared with the unified path)
-            _enrich_lot_row(row)
-
-            # Header with alert number
-            msg_type = row.get('message_type', 'tender')
-            if msg_type == 'customer_request':
-                parts.append('#%03d [ЗАПРОС КЛИЕНТА]' % seq)
-            else:
-                parts.append('#%03d [ТЕНДЕР]' % seq)
-
-            parts.append('*%s*' % _escape_md(row['title'][:200]))
-            if row.get('organization'):
-                parts.append('Заказчик: %s' % _escape_md(row['organization']))
-            if row.get('price'):
-                parts.append('Цена: {:,.0f} UZS'.format(row['price']))
-            if row.get('deadline'):
-                parts.append('Дедлайн: %s' % row['deadline'])
-            _ei = row.get('extra_info') or {}
-            if _ei.get('quantity'):
-                parts.append('Кол-во: %s %s' % (_ei['quantity'], _ei.get('measure') or ''))
-            if _ei.get('min_part') or _ei.get('max_part'):
-                parts.append('Партия: %s-%s' % (_ei.get('min_part',''), _ei.get('max_part','')))
-            if _ei.get('certificate'):
-                parts.append('Сертификат: требуется')
-            if _ei.get('unit_price'):
-                parts.append('Цена: %s сум/%s' % ('{:,.0f}'.format(_ei['unit_price']), _ei.get('measure') or 'ед'))
-            if _ei.get('ref_supplier'):
-                # Competitor anchor: the buyer chose THIS supplier's catalog card —
-                # their price is the one to beat.
-                _tin = (' (ИНН %s)' % _ei['ref_supplier_tin']) if _ei.get('ref_supplier_tin') else ''
-                parts.append('Оферта-эталон: %s%s — его цену перебиваем' % (_escape_md(_ei['ref_supplier']), _tin))
-            if _ei.get('photo'):
-                parts.append('[📷 Фото](%s)' % _ei['photo'])
-            # Actionable path: cabinet search by lot number (SPA deep-link needs login)
-            _lotnum = str(row.get('external_id', '')).replace('coop-lot-', '')
-            if row.get('source') == 'Cooperation.uz Лоты' and _lotnum:
-                parts.append('Лот `%s` — вход: new.cooperation.uz → Кабинет поставщика → Лоты' % _lotnum)
-            parts.append('Источник: %s' % row['source'])
-
-            # Detail page URL (accessible without auth)
-            db_id = _lookup_tender_uuid(row.get('external_id', ''), row['source'])
-            if db_id:
-                parts.append('%s/%s' % (_DETAIL_PAGE, db_id))
-            else:
-                url = row.get('source_url', '')
-                if url:
-                    parts.append(url)
-
-            parts.append('#%s' % kw.replace(' ', '_'))
-
-            # Inline keyboard for feedback. Context-aware labels matching notifier.py
-            # (E-G, 2026-07-05): tenders get «Интересно/Не моё», leads keep «Клиент/Мимо».
-            # Same fb:seq:ok/ad/skip callbacks — only wording differs.
-            if row.get("message_type") == "customer_request":
-                _b_ok, _b_skip = "\U0001f464 Клиент", "\u274c Мимо"
-            else:
-                _b_ok, _b_skip = "\u2705 Интересно", "\u274c Не моё"
-            reply_markup = {
-                "inline_keyboard": [[
-                    {"text": _b_ok, "callback_data": "fb:%d:ok" % seq},
-                    {"text": "\U0001f4e2 Реклама", "callback_data": "fb:%d:ad" % seq},
-                    {"text": _b_skip, "callback_data": "fb:%d:skip" % seq},
-                ]]
-            }
-
-            try:
-                resp = client.post(bot_url, json={
-                    'chat_id': TELEGRAM_CHAT_ID,
-                    'text': '\n'.join(parts),
-                    'parse_mode': 'Markdown',
-                    'disable_web_page_preview': True,
-                    'protect_content': True,
-                    'reply_markup': reply_markup,
-                })
-                if resp.status_code == 200:
-                    sent += 1
-                    resp_data = resp.json()
-                    tg_msg_id = None
-                    if resp_data.get('ok') and resp_data.get('result'):
-                        tg_msg_id = resp_data['result'].get('message_id')
-                    _save_alert_seq(row.get('external_id', ''), row['source'], seq, tg_msg_id)
-                else:
-                    logger.warning('[Alerts] Telegram %d: %s', resp.status_code, resp.text[:200])
-            except Exception as exc:
-                logger.warning('[Alerts] Error: %s', str(exc))
-
-    logger.info('[Alerts/%s] Sent %d / %d (seq #%d-#%d)', source_label, sent, len(matching), start_seq, start_seq + len(matching) - 1)
-    return sent
 
 
 def send_competitor_alerts(new_rows, source_label):
@@ -1617,8 +1119,7 @@ def process_source(rows, source_name, label, dry_run=False, is_plans=False, gate
     comp_alerts = 0
     lead_alerts = 0
     if alert_rows and tender_alerts:
-        alerts = (send_alerts(alert_rows, label) if COOP_LEGACY_SEND
-                  else send_alerts_unified(alert_rows, label))
+        alerts = send_alerts_unified(alert_rows, label)
     # Competitor + lead intel stay gated on brand-new rows (no backfill burst)
     if new_rows:
         comp_alerts = send_competitor_alerts(new_rows, label)
@@ -1635,7 +1136,7 @@ def main():
     parser = argparse.ArgumentParser(description='Fetch cooperation.uz data')
     parser.add_argument('--dry-run', action='store_true', help='Fetch only, no DB')
     parser.add_argument('--pages', type=int, default=3, help='Max pages for plans (default: 3)')
-    parser.add_argument('--source', choices=['plans', 'offers', 'lots', 'auction', 'eshop', 'contracts', 'uzex-auc', 'uzex-prq', 'all'],
+    parser.add_argument('--source', choices=['plans', 'offers', 'lots', 'auction', 'eshop', 'contracts', 'all'],
                         default='all', help='Which source to fetch')
     args = parser.parse_args()
 
@@ -1705,26 +1206,6 @@ def main():
     if args.source in ('all', 'contracts'):
         rows = fetch_and_transform_auction_contracts(max_pages=10, page_size=500)
         u, n, a, c, l = process_source(rows, 'Cooperation.uz Контракты', 'AucContracts', args.dry_run)
-        total_upserted += u
-        total_new += n
-        total_alerts += a
-        total_competitor += c
-        total_leads += l
-
-    # 6. UZEX reverse auctions (GEO-BLOCKED from VPS, runs on Mac)
-    if args.source in ('all', 'uzex-auc'):
-        rows = fetch_and_transform_uzex_auctions()
-        u, n, a, c, l = process_source(rows, 'UZEX Обратные аукционы', 'UZEX-Auc', args.dry_run)
-        total_upserted += u
-        total_new += n
-        total_alerts += a
-        total_competitor += c
-        total_leads += l
-
-    # 7. UZEX prequalifications (GEO-BLOCKED from VPS, runs on Mac)
-    if args.source in ('all', 'uzex-prq'):
-        rows = fetch_and_transform_uzex_prequest()
-        u, n, a, c, l = process_source(rows, 'UZEX Предквалификации', 'UZEX-Prq', args.dry_run)
         total_upserted += u
         total_new += n
         total_alerts += a
