@@ -298,10 +298,23 @@ _playbook_cache = None
 _playbook_cache_ts = 0.0
 
 
+# Recall-side taxonomy: "наш заказ ошибочно зарезан" — principles that widen the net
+# back. They are structurally rare (a miss is only noticed when Daniyar spots it,
+# while false positives are clicked away daily), so a plain support-DESC top-N starves
+# them forever: on 2026-07-25 all 23 active principles were rejection-side and the
+# only real recall guard sat below the cut. Reserve slots for them explicitly.
+_RECALL_TAXONOMY = "relevant-rejected"
+
+
 def get_relevance_playbook(limit=20):
     # type: (int) -> str
     """Active classifier_playbook principles formatted for the relevance prompt.
-    Empty string when none active (dormant — prompt stays at baseline). Cached 2h."""
+    Empty string when none active (dormant — prompt stays at baseline). Cached 2h.
+
+    Composition: every recall-side principle (see _RECALL_TAXONOMY) is always
+    included; the remaining slots go to the highest-support rejection principles.
+    Without this the prompt drifts one-directional — the exact over-rejection risk
+    the two-way feedback signal (A1) exists to prevent."""
     global _playbook_cache, _playbook_cache_ts
     import time
     now = time.time()
@@ -311,11 +324,17 @@ def get_relevance_playbook(limit=20):
     try:
         client = _get_client()
         r = (client.table("classifier_playbook")
-             .select("taxonomy,principle,example")
+             .select("taxonomy,principle,example,support_count")
              .eq("status", "active")
              .order("support_count", desc=True)
-             .limit(limit).execute())
-        rows = r.data or []
+             .execute())
+        active = r.data or []
+        recall = [x for x in active if (x.get("taxonomy") or "") == _RECALL_TAXONOMY]
+        rest = [x for x in active if (x.get("taxonomy") or "") != _RECALL_TAXONOMY]
+        rows = recall + rest[:max(0, limit - len(recall))]
+        if len(active) > len(rows):
+            logger.info("[Playbook] %d active → %d in prompt (%d recall pinned)",
+                        len(active), len(rows), len(recall))
         if rows:
             lines = []
             for row in rows:
