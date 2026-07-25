@@ -567,22 +567,58 @@ def fetch_and_transform_eshop_lots():
 
 # ── Source: UZEX Reverse Auctions (GEO-BLOCKED from VPS) ─────────
 
-def get_existing_ids(source_name):
-    # type: (str) -> Set[str]
-    """Get existing external_ids from Supabase for a source."""
+def _ids_present(client, source_name, candidate_ids, only_alerted=False):
+    # type: (Any, str, List[str], bool) -> Set[str]
+    """Which of `candidate_ids` already exist for this source (optionally: already
+    alerted). Asks about the ~1.5k ids we actually fetched instead of listing the
+    whole source.
+
+    Deep-OFFSET pagination was the old shape: 'Cooperation.uz Лоты' passed 83k rows,
+    so every run walked 83+ pages and the tail pages started timing out (57014 at
+    offset 83000, observed 2026-07-25) — which killed the entire coop run before any
+    alert was sent. Cost is now O(fetched), not O(table), and shrinks nothing else."""
+    from crawler.core.db import query_with_retry
+    found = set()  # type: Set[str]
+    chunk = 300  # keep the URL well under PostgREST/proxy length limits
+    for i in range(0, len(candidate_ids), chunk):
+        part = candidate_ids[i:i + chunk]
+
+        def _q(p=part):
+            q = client.table('tenders').select('external_id').eq('source', source_name).in_('external_id', p)
+            if only_alerted:
+                q = q.not_.is_('alert_seq', 'null')
+            return q.execute()
+
+        resp = query_with_retry(_q, label='coop ids %s[%d]' % ('alerted' if only_alerted else 'existing', i))
+        for r in (resp.data or []):
+            found.add(r['external_id'])
+    return found
+
+
+def get_existing_ids(source_name, candidate_ids=None):
+    # type: (str, Optional[List[str]]) -> Set[str]
+    """external_ids already in DB for this source. Pass candidate_ids to ask only
+    about those (cheap); omitting it falls back to listing the source, which is
+    O(table) and times out on the big ones — kept only for ad-hoc callers."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return set()
 
     from supabase import create_client
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+    if candidate_ids is not None:
+        return _ids_present(client, source_name, candidate_ids)
+
+    from crawler.core.db import query_with_retry
     existing = set()  # type: Set[str]
     offset = 0
     batch = 1000
     while True:
-        resp = client.table('tenders').select('external_id').eq(
-            'source', source_name
-        ).range(offset, offset + batch - 1).execute()
+        resp = query_with_retry(
+            lambda o=offset: client.table('tenders').select('external_id').eq(
+                'source', source_name
+            ).range(o, o + batch - 1).execute(),
+            label='coop existing_ids p%d' % offset)
         rows = resp.data or []
         for r in rows:
             existing.add(r['external_id'])
@@ -593,22 +629,30 @@ def get_existing_ids(source_name):
     return existing
 
 
-def get_alerted_ids(source_name):
-    # type: (str) -> Set[str]
-    """external_ids that were ALREADY alerted (alert_seq IS NOT NULL) for a source.
-    Used to gate relevance alerts so active-but-never-alerted lots get re-evaluated
-    each crawl instead of being permanently skipped for not being 'new to DB'."""
+def get_alerted_ids(source_name, candidate_ids=None):
+    # type: (str, Optional[List[str]]) -> Set[str]
+    """external_ids ALREADY alerted (alert_seq IS NOT NULL) for a source. Gates the
+    relevance alerts so active-but-never-alerted lots get re-evaluated each crawl
+    instead of being permanently skipped for not being 'new to DB'. Pass
+    candidate_ids to scope the query to the fetched batch (see _ids_present)."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return set()
     from supabase import create_client
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    if candidate_ids is not None:
+        return _ids_present(client, source_name, candidate_ids, only_alerted=True)
+
+    from crawler.core.db import query_with_retry
     alerted = set()  # type: Set[str]
     offset = 0
     batch = 1000
     while True:
-        resp = client.table('tenders').select('external_id').eq(
-            'source', source_name
-        ).not_.is_('alert_seq', 'null').range(offset, offset + batch - 1).execute()
+        resp = query_with_retry(
+            lambda o=offset: client.table('tenders').select('external_id').eq(
+                'source', source_name
+            ).not_.is_('alert_seq', 'null').range(o, o + batch - 1).execute(),
+            label='coop alerted_ids p%d' % offset)
         rows = resp.data or []
         for r in rows:
             alerted.add(r['external_id'])
@@ -1095,19 +1139,24 @@ def process_source(rows, source_name, label, dry_run=False, is_plans=False, gate
             logger.info('  %s | %s', r['title'][:60], r.get('organization') or '-')
         return 0, 0, 0, 0, 0
 
-    # Find new rows (brand-new to DB) — used for competitor/lead intel as before
-    existing_ids = get_existing_ids(source_name)
+    # Find new rows (brand-new to DB) — used for competitor/lead intel as before.
+    # Scoped to the fetched ids: listing the whole source is O(table) and the big ones
+    # (Лоты 83k, Оферты 96k) started timing out on deep OFFSET, killing the run.
+    candidate_ids = [r['external_id'] for r in rows]
+    existing_ids = get_existing_ids(source_name, candidate_ids)
     new_rows = [r for r in rows if r['external_id'] not in existing_ids]
-    logger.info('[%s] New: %d (existing: %d)', label, len(new_rows), len(existing_ids))
+    logger.info('[%s] New: %d (of %d fetched; %d already in DB)',
+                label, len(new_rows), len(rows), len(existing_ids))
 
     # Relevance-alert gate: optionally re-surface active lots never alerted (alert_seq NULL).
     # Fixes the leak where a relevant lot upserted during an outage / before keyword expansion
     # became 'existing' and was permanently skipped. GetLotsInTrade returns only active lots,
     # so this safely recovers active candidates; dedup is implicit (alerted rows are excluded).
     if gate_on_alerted:
-        alerted_ids = get_alerted_ids(source_name)
+        alerted_ids = get_alerted_ids(source_name, candidate_ids)
         alert_rows = [r for r in rows if r['external_id'] not in alerted_ids]
-        logger.info('[%s] Alert-gate(not-yet-alerted): %d (already alerted: %d)', label, len(alert_rows), len(alerted_ids))
+        logger.info('[%s] Alert-gate(not-yet-alerted): %d (of %d fetched; %d already alerted)',
+                    label, len(alert_rows), len(rows), len(alerted_ids))
     else:
         alert_rows = new_rows
 
