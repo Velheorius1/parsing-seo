@@ -163,7 +163,7 @@ def main(send, cutover):
         lines.append("⚠️ Пока ни одного лота 5-10М не прошло — либо их нет в потоке, "
                      "либо порог не применился. Проверить `[Alerts] Skipped ... below 5M` в логах.")
     else:
-        lines.append("Прогноз был ~1.7 алерта/день (56 лотов/30д × ~92%% client).")
+        lines.append("Прогноз был ~1.7 алерта/день (56 лотов/30д × ~92% client).")
 
     lines.append("")
     lines.append("Playbook: %d активных, из них recall %d; в промпте recall-строк: %d"
