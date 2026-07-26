@@ -26,6 +26,12 @@ CUTOVER = "2026-07-25T14:00:00Z"
 BEFORE_FROM = "2026-07-18T00:00:00Z"
 MIN_SAMPLE = 60  # below this the after-window can't distinguish signal from noise
 
+# Price gate lowered 10M → 5M (2026-07-26, commit cb344e4). The gate runs BEFORE the
+# AI, so anything under it never reaches the classifier — 165 core-profile lots died
+# there in 30d and a 40-lot sample scored 37 × client @ 90-100.
+PRICE_CUTOVER = "2026-07-26T05:00:00Z"
+PRICE_LO, PRICE_HI = 5_000_000, 10_000_000
+
 
 def _client():
     from crawler.core.db import _get_client
@@ -76,6 +82,29 @@ def _stats(rows):
     }
 
 
+def _price_band(client, since):
+    """Lots in the newly-admitted [5M, 10M) band that reached the AI since the change.
+    Before 2026-07-26 this band was cut by MIN_PRICE and could not be scored at all,
+    so any row here with a relevance_score is direct evidence the gate change works."""
+    import collections
+    from crawler.core.db import query_with_retry
+
+    def _q():
+        return (client.table("tenders")
+                .select("title,price,relevance_score,relevance_category,alert_seq")
+                .gte("price", PRICE_LO).lt("price", PRICE_HI)
+                .not_.is_("relevance_score", "null")
+                .gte("collected_at", since).limit(1000).execute())
+
+    rows = (query_with_retry(_q, label="price-band").data or [])
+    cats = collections.Counter(r.get("relevance_category") for r in rows)
+    return {
+        "n": len(rows),
+        "alerted": len([r for r in rows if r.get("alert_seq") is not None]),
+        "cats": ", ".join("%s=%d" % (k, v) for k, v in cats.most_common()),
+    }
+
+
 def _playbook_state(client):
     """Regression guard: are the recall principles still active AND still in the prompt?"""
     from crawler.core.feedback import get_relevance_playbook, _RECALL_TAXONOMY
@@ -117,6 +146,24 @@ def main(send, cutover):
         else:
             lines.append("➡️ Реджект-рейт почти не изменился (%+d п.п.). "
                          "Значит принципы влияют лишь на пограничные кейсы, а не на общий поток." % d)
+
+    # ── Section 2: the price gate (10M → 5M, 2026-07-26) ──────────────────
+    # The gate sits BEFORE the AI, so lots under it never reach the classifier at
+    # all — no playbook or recall principle can rescue them. 165 core-profile lots
+    # died there in 30d; a 40-lot sample scored 37 × client @ 90-100.
+    lines.append("")
+    lines.append("\U0001f4b0 *Эффект порога цены* (10M→5M, %s)" % PRICE_CUTOVER[:10])
+    band = _price_band(client, PRICE_CUTOVER)
+    lines.append("```")
+    lines.append("лотов 5-10М дошло до AI : %d" % band["n"])
+    lines.append("из них алерчено         : %d" % band["alerted"])
+    lines.append("категории AI            : %s" % (band["cats"] or "—"))
+    lines.append("```")
+    if band["n"] == 0:
+        lines.append("⚠️ Пока ни одного лота 5-10М не прошло — либо их нет в потоке, "
+                     "либо порог не применился. Проверить `[Alerts] Skipped ... below 5M` в логах.")
+    else:
+        lines.append("Прогноз был ~1.7 алерта/день (56 лотов/30д × ~92%% client).")
 
     lines.append("")
     lines.append("Playbook: %d активных, из них recall %d; в промпте recall-строк: %d"
