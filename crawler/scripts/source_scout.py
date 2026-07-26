@@ -54,11 +54,23 @@ _PRINT_TERMS = ("печат", "полиграф", "бумаг", "этикет", 
 # ── Seed candidates (2026-07-16 in-session web discovery, cross-checked vs sources.yaml) ──
 # kind: 'portal' = probe as a real candidate source; 'aggregator' = report-only note (low
 # upside — re-lists platforms we already crawl directly).
+# verdict: set once a candidate has been investigated by hand. A seed with a verdict is
+# never probed or re-proposed again — the reasoning is kept here so the same dead end is
+# not re-discovered in three months. Delete the verdict to reopen the candidate.
 SEED = [
     {"name": "Mintrans e-tender portal", "url": "https://e-tender.uztrans.uz/", "kind": "portal",
-     "why": "Портал э-тендеров Минтранса. У нас есть только TG @Mintrans_uz, не сам портал — прямой источник может нести лоты раньше/полнее."},
+     "why": "Портал э-тендеров Минтранса. У нас есть только TG @Mintrans_uz, не сам портал — прямой источник может нести лоты раньше/полнее.",
+     "verdict": {"date": "2026-07-26", "outcome": "rejected",
+                 "note": "Не закупки товаров: система раздаёт МАРШРУТЫ пассажирских перевозок "
+                         "(автобус/такси) перевозчикам. У лота нет цены — есть номер маршрута и "
+                         "тип авто. Печати/упаковки нет как класса. API e-tenderapi.uztrans.uz "
+                         "/api/tender/list требует токен."}},
     {"name": "NIM open-data закупки", "url": "https://nim.uz/open-data/public-procurement/", "kind": "portal",
-     "why": "Открытые данные по госзакупкам (машиночитаемо). Если есть API/дамп — дешёвый структурированный recall-слой."},
+     "why": "Открытые данные по госзакупкам (машиночитаемо). Если есть API/дамп — дешёвый структурированный recall-слой.",
+     "verdict": {"date": "2026-07-26", "outcome": "rejected",
+                 "note": "nim.uz — сайт Института метрологии, не портал закупок. Страница "
+                         "open-data/закупки пуста во всех трёх локалях: 0 таблиц, 0 файлов "
+                         "(xlsx/csv/json/xml), только навигация. Выгрузки не существует."}},
     {"name": "TenderZone (augz.uz)", "url": "https://augz.uz/en/tenderzone/", "kind": "aggregator",
      "why": "E-IMZO аналитик-агрегатор поверх ETENDER.UZEX + XARID.UZEX — их мы уже краулим напрямую. Upside охвата НИЗКИЙ (не новый источник лотов, а перекладка). Регистрация ради этого малополезна."},
     {"name": "Bicotender (UZ раздел)", "url": "https://www.bicotender.ru/catalog/by-region/uzbekistan/", "kind": "aggregator",
@@ -111,9 +123,27 @@ def _probe(url):
     return out
 
 
+def _load_list(key):
+    # type: (str) -> list
+    """Read a stored list back out of its dict envelope.
+
+    session_store.get_setting returns ONLY dicts — a bare list is dropped and comes
+    back as None. This module stored bare lists from birth (18.07), so every Monday
+    scan wrote 4 candidates and the report 10 minutes later read zero and announced
+    "нет новых кандидатов (охват актуален)" to Telegram. Envelope, not bare list.
+    """
+    v = session_store.get_setting(key)
+    if isinstance(v, dict):
+        items = v.get("items")
+        return items if isinstance(items, list) else []
+    if isinstance(v, list):        # tolerate a hand-written legacy payload
+        return v
+    return []
+
+
 def _load_candidates():
-    v = session_store.get_setting(CAND_KEY)
-    return v if isinstance(v, list) else []
+    # type: () -> list
+    return _load_list(CAND_KEY)
 
 
 def scan(dry):
@@ -124,6 +154,10 @@ def scan(dry):
     proposed = []
 
     for s in SEED:
+        if s.get("verdict"):
+            logger.info("skip %s — closed %s (%s)", s["name"],
+                        s["verdict"].get("date"), s["verdict"].get("outcome"))
+            continue
         host = _norm_host(urlparse(s["url"]).hostname)
         if host in known:
             logger.info("skip %s — already crawled (%s)", s["name"], host)
@@ -158,7 +192,9 @@ def scan(dry):
                          "alive": p.get("alive"), "last_scan": now})
             logger.warning("MIGRATION/DEATH signal: %s → %s (alive=%s)", m["name"], p.get("final_host"), p.get("alive"))
 
-    summary = {"scanned": len(SEED), "candidates": len(proposed), "migration_flags": len(migr)}
+    n_closed = len([s for s in SEED if s.get("verdict")])
+    summary = {"scanned": len(SEED), "candidates": len(proposed),
+               "closed": n_closed, "migration_flags": len(migr)}
     print("scout scan:", summary)
     for r in proposed:
         print("  [%s] %s — %s" % (r["status"], r["name"], r["url"]))
@@ -168,15 +204,21 @@ def scan(dry):
     if dry:
         print(">>> DRY-RUN — nothing stored.")
         return summary
-    session_store.set_setting(CAND_KEY, proposed)
-    session_store.set_setting("source_scout_migration", migr)
-    print(">>> stored %d candidates + %d migration flags to crawler_settings" % (len(proposed), len(migr)))
+    # Dict envelope — a bare list is dropped on read (see _load_list).
+    session_store.set_setting(CAND_KEY, {"items": proposed, "last_scan": now})
+    session_store.set_setting("source_scout_migration", {"items": migr, "last_scan": now})
+    stored = len(_load_candidates())
+    if stored != len(proposed):
+        logger.error("READ-BACK MISMATCH: stored %d candidates, read %d — the report will lie",
+                     len(proposed), stored)
+    print(">>> stored %d candidates + %d migration flags to crawler_settings (read-back: %d)"
+          % (len(proposed), len(migr), stored))
     return summary
 
 
 def _fmt_report():
     cands = _load_candidates()
-    migr = session_store.get_setting("source_scout_migration") or []
+    migr = _load_list("source_scout_migration")
     portals = [c for c in cands if c.get("kind") == "portal"]
     aggs = [c for c in cands if c.get("kind") == "aggregator"]
     lines = ["\U0001f9ed *SCOUT — источники-кандидаты*"]
@@ -192,6 +234,10 @@ def _fmt_report():
         lines.append("\n⚠️ *Миграция площадок:* " + "; ".join("%s→%s" % (m["name"], m.get("final_host")) for m in migr))
     if not portals and not migr:
         lines.append("нет новых кандидатов (охват актуален)")
+    closed = [s for s in SEED if s.get("verdict")]
+    if closed:
+        lines.append("\n_Закрыто разведкой (не подключаем): %s._" % "; ".join(
+            "%s — %s" % (c["name"], c["verdict"]["note"].split(".")[0]) for c in closed))
     return "\n".join(lines)
 
 

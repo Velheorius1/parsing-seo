@@ -146,6 +146,16 @@ class SessionStore:
                     return None
                 if isinstance(parsed, dict):
                     return parsed
+                # Silently returning None here made source_scout store 4 candidates
+                # every Monday and read back nothing — the weekly report announced
+                # "охват актуален" while sitting on unresolved proposals (18.07→26.07).
+                # The dict-only contract stays (11 callers rely on it), but a violation
+                # must be audible: see .conventions/gold-standards/crawler-settings-key.py
+                logger.warning(
+                    "[SessionStore] %s holds %s, not a dict — value DROPPED. "
+                    "Wrap the payload in a dict before storing.",
+                    key, type(parsed).__name__,
+                )
                 return None
         except Exception as exc:
             logger.debug(
