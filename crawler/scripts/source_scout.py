@@ -216,6 +216,16 @@ def scan(dry):
     return summary
 
 
+def _clip(text, limit=150):
+    # type: (str, int) -> str
+    """Trim to a word boundary. NOT text.split('.')[0] — that cut the NIM verdict at
+    'nim' because the note opens with the hostname 'nim.uz'."""
+    text = " ".join((text or "").split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + "…"
+
+
 def _fmt_report():
     cands = _load_candidates()
     migr = _load_list("source_scout_migration")
@@ -233,11 +243,12 @@ def _fmt_report():
     if migr:
         lines.append("\n⚠️ *Миграция площадок:* " + "; ".join("%s→%s" % (m["name"], m.get("final_host")) for m in migr))
     if not portals and not migr:
-        lines.append("нет новых кандидатов (охват актуален)")
+        lines.append("нет новых портал-кандидатов (охват актуален)")
     closed = [s for s in SEED if s.get("verdict")]
     if closed:
-        lines.append("\n_Закрыто разведкой (не подключаем): %s._" % "; ".join(
-            "%s — %s" % (c["name"], c["verdict"]["note"].split(".")[0]) for c in closed))
+        lines.append("\n_Закрыто разведкой (не подключаем):_")
+        for c in closed:
+            lines.append("• *%s* — %s" % (c["name"], _clip(c["verdict"]["note"])))
     return "\n".join(lines)
 
 

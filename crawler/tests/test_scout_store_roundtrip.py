@@ -120,6 +120,15 @@ def test_report_keeps_the_verdict_visible():
             assert s["name"] in body, "verdict for %s not surfaced" % s["name"]
 
 
+def test_verdict_note_is_not_cut_at_a_hostname_dot():
+    """First cut used note.split('.')[0] — the NIM verdict rendered as the word 'nim',
+    because its note opens with the hostname 'nim.uz'. A clipped verdict is useless."""
+    note = "nim.uz — сайт Института метрологии, не портал закупок. Страница пуста."
+    assert S._clip(note, 200).startswith("nim.uz — сайт Института"), S._clip(note, 200)
+    long = S._clip("слово " * 60, 150)
+    assert len(long) <= 151 and long.endswith("…"), (len(long), long[-20:])
+
+
 def test_every_verdict_is_self_explaining():
     """A verdict without a reason is worse than none — it blocks a re-check silently."""
     for s in S.SEED:
