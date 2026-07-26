@@ -1003,8 +1003,15 @@ async def send_alerts(
                     len(_own), ", ".join((t.title or "")[:40] for t in _own))
         relevant = [t for t in relevant if not _is_own_lot(t.organization)]
 
-    # Filter out tenders below minimum price (10M UZS)
-    MIN_PRICE = 10_000_000
+    # Minimum lot value. Lowered 10M → 5M UZS on 2026-07-26 by Daniyar's call, on
+    # measurement rather than taste: over 30 days, 165 lots whose titles are core
+    # profile («Услуга типографий», «Услуги издательские», «Услуги печатные») were
+    # dropped here and NEVER reached the AI — the price gate fires before it. Scoring
+    # a random 40 of them through the live classifier returned 37 × client @ 90-100
+    # and only 3 irrelevant, i.e. ~5 real print orders/day were invisible purely for
+    # being cheap. 5M keeps the biggest bucket (5-10M ≈ 56 lots/30d) while still
+    # cutting the sub-1M dust. Raising it back is a one-line change.
+    MIN_PRICE = 5_000_000
     priced = [t for t in relevant if t.price is None or t.price >= MIN_PRICE]
     low_price_count = len(new_tenders) - len(priced)
     if low_price_count:
