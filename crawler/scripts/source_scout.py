@@ -465,7 +465,7 @@ def main():
         scan(dry=a.dry_run)
     if a.report:
         report(send=a.tg)
-    if not (a.scan or a.dry_run or a.report):
+    if not (a.scan or a.dry_run or a.report or a.discover):
         ap.print_help()
 
 
