@@ -384,6 +384,16 @@ def _clip(text, limit=150):
     return text[:limit].rsplit(" ", 1)[0] + "…"
 
 
+def _plural(n, one, few, many):
+    # type: (int, str, str, str) -> str
+    n = abs(int(n))
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not (12 <= n % 100 <= 14):
+        return few
+    return many
+
+
 def _discover_status():
     # type: () -> str
     """One line on the web pass itself. A discovery that quietly stopped running looks
@@ -397,8 +407,10 @@ def _discover_status():
                - datetime.strptime(last, "%Y-%m-%d").date()).days
     except ValueError:
         age = -1
-    line = ("\n_Веб-разведка: %s (%d прогонов, потрачено $%s). Последний: вернула %s, "
-            "оставила %s._" % (last, meta.get("runs") or 0, meta.get("cost_usd_total") or 0,
+    runs = int(meta.get("runs") or 0)
+    line = ("\n_Веб-разведка: %s (%d %s, потрачено $%s). Последний: вернула %s, "
+            "оставила %s._" % (last, runs, _plural(runs, "прогон", "прогона", "прогонов"),
+                               meta.get("cost_usd_total") or 0,
                                meta.get("returned"), meta.get("kept")))
     if age > DISCOVER_STALE_DAYS or age < 0:
         line += "\n\U0001f7e5 *Разведка не запускалась %s дней — проверить крон.*" % age
