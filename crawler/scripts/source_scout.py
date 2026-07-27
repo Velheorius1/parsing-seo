@@ -13,14 +13,19 @@ What it does (all deterministic, VPS-safe — no Claude WebSearch on the box):
 Candidates land in crawler_settings['source_candidates'] (JSON) with a self-sufficient
 note for Daniyar. 0 auto-connections — connecting a source stays a human decision.
 
-Open-web discovery of brand-new platforms needs a search API the VPS lacks; that pass is
-run in a Claude session and its findings are seeded below (2026-07-16 discovery).
+  4. --discover (26.07) — open-web pass for platforms nobody seeded. Runs on the
+     OpenRouter key already in .env via the `web` plugin, same pattern Daniyar chose for
+     investigator on 02.07: reuse the funded key, do not add a credential. ~$0.005 per
+     weekly call. A model claim is NOT evidence: every proposal is filtered to .uz,
+     deduped against sources.yaml + SEED, then probed like any seed before it is stored.
 
 Cron (host, weekly): 0 6 * * 1 cd /opt/parsing-seo && .venv/bin/python3 -m crawler.scripts.source_scout --scan
-                     10 6 * * 1 cd /opt/parsing-seo && .venv/bin/python3 -m crawler.scripts.source_scout --report --tg
-Usage: --scan (probe+store) | --report [--tg] | --dry-run (probe+print, no store/send)
+                     5 6 * * 1 cd /opt/parsing-seo && .venv/bin/python3 -m crawler.scripts.source_scout --discover
+                    10 6 * * 1 cd /opt/parsing-seo && .venv/bin/python3 -m crawler.scripts.source_scout --report --tg
+Usage: --scan (probe+store) | --discover (web pass) | --report [--tg] | --dry-run
 """
 import argparse
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -77,6 +82,16 @@ SEED = [
      "why": "Российский агрегатор с UZ-разделом. Тоже re-list уже покрытых площадок. Report-only."},
 ]
 
+# ── Open-web discovery (--discover) ───────────────────────────────────────────
+# Same key and model as investigator.py — Daniyar 02.07: reuse the funded OpenRouter
+# credential instead of adding an Anthropic/search one. deepseek-v4-* is a reasoning
+# model: reasoning MUST stay disabled or it eats the budget and returns empty content
+# (error-log 06-29).
+DISCOVER_MODEL = "deepseek/deepseek-v4-pro"
+DISCOVER_META_KEY = "source_discover_v1"   # last run / cost / counts — so a dead pass is visible
+MAX_DISCOVER = 8
+DISCOVER_STALE_DAYS = 10
+
 # Covered hosts with a known migration risk (main.md): watch for a silent move.
 MIGRATION_WATCH = [
     {"name": "etender.uzex.uz", "url": "https://etender.uzex.uz/", "risk": "миграция на new-xarid.uzex.uz"},
@@ -123,6 +138,11 @@ def _probe(url):
     return out
 
 
+def _today():
+    # type: () -> str
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
 def _load_list(key):
     # type: (str) -> list
     """Read a stored list back out of its dict envelope.
@@ -149,9 +169,13 @@ def _load_candidates():
 def scan(dry):
     known = _known_hosts()
     logger.info("known hosts: %d", len(known))
-    existing = {c["url"]: c for c in _load_candidates()}
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    proposed = []
+    stored = _load_candidates()
+    existing = {c["url"]: c for c in stored}
+    now = _today()
+    # scan() rebuilds its proposals from SEED and overwrites the store — web-discovery
+    # findings are not in SEED, so they must be carried across or Monday's scan erases
+    # what Monday's discover pass just found.
+    proposed = [c for c in stored if c.get("kind") == "discovered"]
 
     for s in SEED:
         if s.get("verdict"):
@@ -197,7 +221,9 @@ def scan(dry):
                "closed": n_closed, "migration_flags": len(migr)}
     print("scout scan:", summary)
     for r in proposed:
-        print("  [%s] %s — %s" % (r["status"], r["name"], r["url"]))
+        # .get: carried-over entries come from the store, not from this run's SEED loop,
+        # and a stored shape from an older version must not crash the whole scan.
+        print("  [%s] %s — %s" % (r.get("status", "?"), r.get("name", "?"), r.get("url", "?")))
     if migr:
         print("  MIGRATION:", migr)
 
@@ -216,6 +242,138 @@ def scan(dry):
     return summary
 
 
+def _parse_json_array(text):
+    # type: (str) -> list
+    """Pull the JSON array out of a reply that may wrap it in prose or code fences."""
+    if not text:
+        return []
+    i, j = text.find("["), text.rfind("]")
+    if i < 0 or j <= i:
+        return []
+    try:
+        out = json.loads(text[i:j + 1])
+    except ValueError:
+        return []
+    return out if isinstance(out, list) else []
+
+
+def _discover_prompt(domains):
+    # type: (list) -> str
+    """Known platforms go in as ANTI-context. A naive 'find UZ procurement sites' query
+    came back with Kazakh portals, a Russian service and a trade magazine (probe 26.07);
+    the same query with the known list and an explicit empty-answer escape hatch came
+    back with [] and an explanation. Asking for what we DON'T have is the whole trick."""
+    return (
+        "Задача: перечислить ЭЛЕКТРОННЫЕ ПЛОЩАДКИ ЗАКУПОК УЗБЕКИСТАНА (только домены .uz, "
+        "только сайты, где реально публикуются лоты/тендеры/аукционы и можно подать заявку).\n\n"
+        "УЖЕ ИЗВЕСТНЫ, НЕ ПОВТОРЯТЬ: %s\n\n"
+        "Нужны ДРУГИЕ площадки, которых нет в списке выше. Не предлагать: новостные сайты, "
+        "отраслевые журналы, агрегаторы-перепродажи, площадки других стран (.kz, .ru), "
+        "сайты одной организации со своими объявлениями.\n"
+        "Если других площадок нет — верни пустой массив []. Пустой ответ лучше выдуманного.\n"
+        'Ответ: ТОЛЬКО JSON-массив {"name":..., "url":..., "why":...}, максимум %d.'
+        % (", ".join(domains[:40]), MAX_DISCOVER)
+    )
+
+
+def discover(dry):
+    # type: (bool) -> dict
+    """One bounded web-search pass; survivors are merged into the candidate store."""
+    known = _known_hosts()
+    seed_hosts = set()
+    for s in SEED:
+        h = _norm_host(urlparse(s["url"]).hostname)
+        if h:
+            seed_hosts.add(h)
+    domains = sorted([h for h in known if "." in h])   # drop @tg handles
+
+    api_key = settings.openrouter_api_key
+    if not api_key:
+        logger.error("no OpenRouter key — discovery skipped")
+        return {"error": "no key"}
+
+    try:
+        r = httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": "Bearer %s" % api_key},
+            json={"model": DISCOVER_MODEL,
+                  "plugins": [{"id": "web", "engine": "parallel", "max_results": 8}],
+                  "messages": [{"role": "user", "content": _discover_prompt(domains)}],
+                  "max_tokens": 1200, "temperature": 0,
+                  "reasoning": {"enabled": False},     # reasoning model — see header
+                  "usage": {"include": True}},
+            timeout=180)
+        r.raise_for_status()
+        body = r.json()
+    except Exception as exc:
+        logger.error("discovery call failed: %s", str(exc)[:160])
+        return {"error": str(exc)[:160]}
+
+    msg = (body.get("choices") or [{}])[0].get("message") or {}
+    raw = _parse_json_array(msg.get("content") or "")
+    cost = float((body.get("usage") or {}).get("cost") or 0.0)
+    logger.info("discovery: model returned %d item(s), %d web sources, cost $%.4f",
+                len(raw), len(msg.get("annotations") or []), cost)
+
+    # A model claim is not evidence: filter to .uz, dedup, then probe like any seed.
+    fresh, rejected = [], []
+    seen = set()
+    for item in raw[:MAX_DISCOVER]:
+        if not isinstance(item, dict):
+            continue
+        url = (item.get("url") or "").strip()
+        host = _norm_host(urlparse(url if url.startswith("http") else "https://" + url).hostname)
+        if not host or not host.endswith(".uz"):
+            rejected.append("%s (не .uz)" % (host or url[:40]))
+            continue
+        if host in known or host in seed_hosts or host in seen:
+            rejected.append("%s (уже знаем)" % host)
+            continue
+        seen.add(host)
+        p = _probe(url)
+        if not p.get("alive") or not p.get("relevant"):
+            rejected.append("%s (проба: alive=%s relevant=%s)" % (host, p.get("alive"), p.get("relevant")))
+            continue
+        fresh.append({
+            "name": (item.get("name") or host)[:80], "url": url, "kind": "discovered",
+            "why": (item.get("why") or "")[:400],
+            "status": "proposed" if p.get("has_print") else "proposed-verify-scope",
+            "http": p.get("status"), "has_print_terms": p.get("has_print", False),
+            "found_by": "web-discovery", "first_seen": _today(), "last_scan": _today(),
+        })
+
+    for x in rejected:
+        logger.info("discovery rejected: %s", x)
+    for c in fresh:
+        logger.warning("DISCOVERY HIT: %s — %s", c["name"], c["url"])
+
+    print("discovery: %d returned, %d kept, %d rejected, cost $%.4f"
+          % (len(raw), len(fresh), len(rejected), cost))
+    if dry:
+        print(">>> DRY-RUN — nothing stored.")
+        return {"returned": len(raw), "kept": len(fresh), "cost": cost}
+
+    # Merge: keep every existing candidate, add only genuinely new hosts.
+    current = _load_candidates()
+    have = set()
+    for c in current:
+        h = _norm_host(urlparse(c.get("url") or "").hostname)
+        if h:
+            have.add(h)
+    added = [c for c in fresh if _norm_host(urlparse(c["url"]).hostname) not in have]
+    session_store.set_setting(CAND_KEY, {"items": current + added, "last_scan": _today()})
+
+    meta = session_store.get_setting(DISCOVER_META_KEY) or {}
+    session_store.set_setting(DISCOVER_META_KEY, {
+        "last_run": _today(),
+        "runs": int(meta.get("runs") or 0) + 1,
+        "returned": len(raw), "kept": len(added), "rejected": len(rejected),
+        "cost_usd_total": round(float(meta.get("cost_usd_total") or 0.0) + cost, 4),
+    })
+    print(">>> merged %d new candidate(s) into the store" % len(added))
+    return {"returned": len(raw), "kept": len(added), "cost": cost}
+
+
 def _clip(text, limit=150):
     # type: (str, int) -> str
     """Trim to a word boundary. NOT text.split('.')[0] — that cut the NIM verdict at
@@ -224,6 +382,27 @@ def _clip(text, limit=150):
     if len(text) <= limit:
         return text
     return text[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def _discover_status():
+    # type: () -> str
+    """One line on the web pass itself. A discovery that quietly stopped running looks
+    exactly like a discovery that found nothing — the report must tell them apart."""
+    meta = session_store.get_setting(DISCOVER_META_KEY) or {}
+    last = meta.get("last_run")
+    if not last:
+        return "\n_Веб-разведка: ещё ни разу не запускалась._"
+    try:
+        age = (datetime.now(timezone.utc).date()
+               - datetime.strptime(last, "%Y-%m-%d").date()).days
+    except ValueError:
+        age = -1
+    line = ("\n_Веб-разведка: %s (%d прогонов, потрачено $%s). Последний: вернула %s, "
+            "оставила %s._" % (last, meta.get("runs") or 0, meta.get("cost_usd_total") or 0,
+                               meta.get("returned"), meta.get("kept")))
+    if age > DISCOVER_STALE_DAYS or age < 0:
+        line += "\n\U0001f7e5 *Разведка не запускалась %s дней — проверить крон.*" % age
+    return line
 
 
 def _fmt_report():
@@ -235,15 +414,21 @@ def _fmt_report():
     if portals:
         lines.append("\n*Предложения (нужен твой коннект, 0 автоподключений):*")
         for c in portals:
-            flag = "✅" if c["status"].startswith("proposed") else "❓"
+            flag = "✅" if (c.get("status") or "").startswith("proposed") else "❓"
             lines.append("%s *%s* — %s\n  _%s_" % (flag, c["name"], c["url"], c["why"]))
     if aggs:
         names = ", ".join(c["name"] for c in aggs)
         lines.append("\n_E-IMZO/агрегаторы (%s): re-list уже покрытых площадок, upside низкий — регистрация малополезна._" % names)
     if migr:
         lines.append("\n⚠️ *Миграция площадок:* " + "; ".join("%s→%s" % (m["name"], m.get("final_host")) for m in migr))
-    if not portals and not migr:
+    found = [c for c in cands if c.get("kind") == "discovered"]
+    if found:
+        lines.append("\n*Найдено веб-разведкой (проверено пробой, не подключено):*")
+        for c in found:
+            lines.append("🆕 *%s* — %s\n  _%s_" % (c["name"], c["url"], _clip(c.get("why") or "")))
+    if not portals and not found and not migr:
         lines.append("нет новых портал-кандидатов (охват актуален)")
+    lines.append(_discover_status())
     closed = [s for s in SEED if s.get("verdict")]
     if closed:
         lines.append("\n_Закрыто разведкой (не подключаем):_")
@@ -270,9 +455,13 @@ def main():
     ap.add_argument("--scan", action="store_true", help="probe seeds + store candidates")
     ap.add_argument("--report", action="store_true", help="print/send the candidate report")
     ap.add_argument("--tg", action="store_true", help="with --report: send to Telegram")
-    ap.add_argument("--dry-run", action="store_true", help="with --scan: probe+print, no store")
+    ap.add_argument("--discover", action="store_true",
+                    help="open-web pass via OpenRouter web plugin (~$0.005/run)")
+    ap.add_argument("--dry-run", action="store_true", help="probe+print, no store")
     a = ap.parse_args()
-    if a.scan or a.dry_run:
+    if a.discover:
+        discover(dry=a.dry_run)
+    elif a.scan or a.dry_run:
         scan(dry=a.dry_run)
     if a.report:
         report(send=a.tg)

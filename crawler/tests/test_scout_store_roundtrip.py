@@ -31,7 +31,8 @@ def _load():
     cfg = "crawler.config.settings"
     if cfg not in sys.modules:      # pydantic_settings is a prod-only dep
         m = types.ModuleType(cfg)
-        m.settings = types.SimpleNamespace(telegram_bot_token="", telegram_alert_chat_id="")
+        m.settings = types.SimpleNamespace(telegram_bot_token="", telegram_alert_chat_id="",
+                                           openrouter_api_key="test-key")
         sys.modules[cfg] = m
     import crawler.scripts.source_scout as S
     return S
@@ -137,6 +138,100 @@ def test_every_verdict_is_self_explaining():
             continue
         assert v.get("date") and v.get("outcome"), s["name"]
         assert len(v.get("note") or "") >= 40, "verdict note too thin: %s" % s["name"]
+
+
+# ── open-web discovery (--discover) ───────────────────────────────────────────
+
+def _stub_model(items, cost=0.005):
+    """Make the OpenRouter call return `items` as a fenced JSON array."""
+    body = {"choices": [{"message": {"content": "```json\n%s\n```" % _dumps(items),
+                                     "annotations": [1, 2, 3]}}],
+            "usage": {"cost": cost}}
+
+    class _R(object):
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return body
+
+    S.httpx = types.SimpleNamespace(post=lambda *a, **k: _R())
+
+
+def _dumps(obj):
+    import json
+    return json.dumps(obj, ensure_ascii=False)
+
+
+def test_json_array_survives_prose_and_fences():
+    assert S._parse_json_array('```json\n[{"a":1}]\n```') == [{"a": 1}]
+    assert S._parse_json_array('Поиск ничего не дал.\n\n```json\n[]\n```') == []
+    assert S._parse_json_array("нет никакого json") == []
+    assert S._parse_json_array('{"not": "an array"}') == []
+
+
+def test_foreign_platforms_are_dropped():
+    """Probe 26.07 returned eoz.kz, tenderplus.kz and a Russian service for a naive
+    query. The .uz gate is what stands between that and Daniyar's Monday report."""
+    _stub_store({})
+    S._known_hosts = lambda: set()
+    S._probe = lambda url: {"alive": True, "status": 200, "relevant": True, "has_print": True}
+    _stub_model([{"name": "ЕОЗ", "url": "https://eoz.kz/", "why": "x"},
+                 {"name": "Контур", "url": "https://zakupki-kontur.ru/", "why": "x"},
+                 {"name": "Новая", "url": "https://newplat.uz/", "why": "x"}])
+    out = S.discover(dry=False)
+    assert out["kept"] == 1, out
+    assert [c["url"] for c in S._load_candidates()] == ["https://newplat.uz/"]
+
+
+def test_a_model_claim_is_not_evidence():
+    """A .uz host that fails the live probe never becomes a candidate."""
+    _stub_store({})
+    S._known_hosts = lambda: set()
+    S._probe = lambda url: {"alive": False, "status": 0, "relevant": False, "has_print": False}
+    _stub_model([{"name": "Призрак", "url": "https://ghost.uz/", "why": "x"}])
+    assert S.discover(dry=False)["kept"] == 0
+    assert S._load_candidates() == []
+
+
+def test_already_crawled_host_is_not_reproposed():
+    _stub_store({})
+    S._known_hosts = lambda: {"xarid.uzex.uz"}
+    S._probe = lambda url: {"alive": True, "status": 200, "relevant": True, "has_print": True}
+    _stub_model([{"name": "Xarid", "url": "https://xarid.uzex.uz/", "why": "x"}])
+    assert S.discover(dry=False)["kept"] == 0
+
+
+def test_discovery_merges_and_never_clobbers():
+    _stub_store({S.CAND_KEY: {"items": [{"name": "seed-cand", "url": "https://augz.uz/",
+                                         "kind": "aggregator"}]}})
+    S._known_hosts = lambda: set()
+    S._probe = lambda url: {"alive": True, "status": 200, "relevant": True, "has_print": True}
+    _stub_model([{"name": "Новая", "url": "https://newplat.uz/", "why": "x"}])
+    S.discover(dry=False)
+    names = [c["name"] for c in S._load_candidates()]
+    assert "seed-cand" in names and "Новая" in names, names
+
+
+def test_scan_carries_discoveries_across():
+    """scan() rebuilds from SEED and overwrites — a discovery must survive that."""
+    store = _stub_store({S.CAND_KEY: {"items": [
+        {"name": "Найдена", "url": "https://newplat.uz/", "kind": "discovered"}]}})
+    S._known_hosts = lambda: set()
+    S._probe = lambda url: {"alive": True, "status": 200, "relevant": True,
+                            "has_print": False, "final_host": "etender.uzex.uz"}
+    S.scan(dry=False)
+    assert "Найдена" in [c["name"] for c in S._load_candidates()], store
+
+
+def test_report_flags_a_discovery_that_stopped_running():
+    _stub_store({S.CAND_KEY: {"items": []}, S.DISCOVER_META_KEY: {
+        "last_run": "2026-01-01", "runs": 3, "cost_usd_total": 0.02, "returned": 0, "kept": 0}})
+    assert "не запускалась" in S._fmt_report(), S._fmt_report()
+    _stub_store({S.CAND_KEY: {"items": []}})
+    assert "ещё ни разу" in S._fmt_report()
 
 
 if __name__ == "__main__":
