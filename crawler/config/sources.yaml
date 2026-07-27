@@ -1130,7 +1130,23 @@ sources:
       date_end: endDate
       region: regionName
       external_id: id
-      # 2026-06-21: browser-verified. Reverse auctions render on the legacy
+      # !!! BROKEN as of 2026-07-27 (W31 weekly routine, browser-verified) !!!
+      # The 2026-06-21 note below is STALE — do not trust it.
+      # This template resolves ids in the WRONG subsystem. Two different UZEX
+      # auction backends exist and their id spaces collide:
+      #   - xarid-api-auctionx.uzex.uz (THIS source): id=808  -> displayNo 2611_1131_000808
+      #   - xarid-api-auction.uzex.uz  (legacy UI)  : id=408965 -> display_no 2611_1007_408965
+      # xarid.uzex.uz/auction/detail/{id} is the UI of the SECOND one, so our
+      # ids land on unrelated 2021-era lots. Verified 2026-07-27 in a browser:
+      #   1128 -> lot 21121007001128 "Продукты минеральные" (DB says "Текстиль")
+      #   1134 -> lot 21121007001134 "Стеновые панели"      (DB says "Машины и оборудование")
+      #    808 -> lot 21121007000808 "Сооружения..."        (API says "Изделия резиновые")
+      # => 100% wrong_card. The public UI route for auctionX was NOT found
+      # (/home/auction/detail/{id} on new-xarid = 404, detail/{displayNo} = empty page,
+      # /auctionx/detail/{id} = falls back to home). Lot data IS available anonymously
+      # at xarid-api-auctionx.uzex.uz/api/Lot/Get?id={id} — a UI route likely exists.
+      # NOT changed automatically: a replacement template must be browser-verified first.
+      # (stale) 2026-06-21: browser-verified. Reverse auctions render on the legacy
       # xarid.uzex.uz/auction/detail/{id} route (lot + product table). The
       # /home/shop/detail/{id} migration resolved to a wrong/unrelated card.
       source_url_template: "https://xarid.uzex.uz/auction/detail/{id}"
