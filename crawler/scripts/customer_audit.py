@@ -266,17 +266,34 @@ def _fmt_report(patterns, inns, platform_hits, db_hits, cands, verdicts, deep):
             len(inns), ", ".join("%s (%d)" % (i, d["hits"]) for i, d in top)))
 
     if verdicts:
+        delivered_n = len([v for v in verdicts if v.delivered])
+        if delivered_n != alerted:
+            L.append("*Сейчас против тогда:* %d → %d %s" % (
+                alerted, delivered_n,
+                "(стало лучше)" if delivered_n > alerted else "(стало ХУЖЕ)"))
+
         misses = [v for v in verdicts if not v.delivered]
         if misses:
+            # Price context matters: "8 потеряно на цене" reads alarming until you
+            # see they are sub-1.5M dust. Show the band instead of the bare count.
+            price_of = {}
+            for c in cands:
+                price_of[c["tender"].external_id] = c["row"].get("price")
             stages = Counter(v.dropped_at_stage or "ai-reject" for v in misses)
             L.append("")
             L.append("*Где теряем сейчас* (%d шт)" % len(misses))
             L.append("```")
             for st, n in stages.most_common():
-                L.append("%-22s %d" % (st, n))
+                prices = [price_of.get(v.external_id) for v in misses
+                          if (v.dropped_at_stage or "ai-reject") == st]
+                prices = [p for p in prices if p]
+                band = ""
+                if prices:
+                    band = "  %.1f-%.1fM" % (min(prices) / 1e6, max(prices) / 1e6)
+                L.append("%-20s %2d%s" % (st, n, band))
             L.append("```")
-            for v in misses[:5]:
-                L.append("• `%s` — %s" % (v.dropped_at_stage or "ai", (v.title or "")[:58]))
+            for v in misses[:4]:
+                L.append("• `%s` — %s" % (v.dropped_at_stage or "ai", (v.title or "")[:56]))
 
     wide_only = [c for c in cands if c["wide_hit"] and not c["kw_hit"]]
     if wide_only:
