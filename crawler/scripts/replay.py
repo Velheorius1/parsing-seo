@@ -238,10 +238,17 @@ def main():
                                      collected_at=ts_map))
     for v in out:
         stage = v.dropped_at_stage or ("bypass" if v.uzex_bypass else "passed")
-        print("%-14s | %-9s | kw=%-12s | ai=%s/%s%s | route=%s | %s" % (
-            (v.external_id or "")[:14], stage, v.matched_kw,
-            v.ai_score, v.ai_category, " ERR" if v.ai_error else "",
-            v.route, (v.title or "")[:60]))
+        # Leads go through the spam gate, which is keep/drop and has NO score —
+        # printing "ai=None" there reads like a failure when it is the design.
+        if v.is_lead and not v.ai_skipped:
+            ai = "lead-keep" if v.delivered else "lead-drop"
+        elif v.ai_skipped:
+            ai = "skipped"
+        else:
+            ai = "%s/%s" % (v.ai_score, v.ai_category)
+        print("%-14s | %-9s | kw=%-12s | ai=%-14s%s | route=%s | %s" % (
+            (v.external_id or "")[:14], stage, v.matched_kw, ai,
+            " ERR" if v.ai_error else "", v.route, (v.title or "")[:60]))
 
 
 if __name__ == "__main__":
