@@ -51,6 +51,41 @@ def query_with_retry(fn, attempts=3, label="query"):
     raise last_err
 
 
+def iter_rows(table, select, filters=None, page_size=1000, order_col="collected_at",
+              label="iter_rows", max_pages=200):
+    """Range-paginate a table client-side, yielding pages of rows.
+
+    THE way to sweep a big source: ILIKE on unindexed columns (organization)
+    times out with 57014 consistently — the honest pattern is narrow eq-filters
+    server-side + everything fuzzy in Python over paged rows. This is the shared
+    paginator; four scripts already carry private copies (metrics_tracker,
+    impact_report, source_scorecard, recall_effect_check) — new code uses this
+    one instead of a fifth.
+
+    filters: list of (method, args) applied to the query builder in order,
+    e.g. [("eq", ("source", "ETender UZEX")), ("gte", ("collected_at", iso))].
+    """
+    from crawler.config.settings import settings  # noqa: F401  (client init path)
+    client = _get_client()
+    offset = 0
+    pages = 0
+    while pages < max_pages:
+        def _q(o=offset):
+            q = client.table(table).select(select)
+            for method, args in (filters or []):
+                q = getattr(q, method)(*args)
+            return q.order(order_col, desc=True).range(o, o + page_size - 1).execute()
+        resp = query_with_retry(_q, label="%s p%d" % (label, pages))
+        rows = resp.data or []
+        if not rows:
+            return
+        yield rows
+        if len(rows) < page_size:
+            return
+        offset += page_size
+        pages += 1
+
+
 def _tender_to_row(t: RawTender) -> dict:
     """Convert RawTender to a dict matching the Supabase tenders table schema."""
     row = {
