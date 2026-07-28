@@ -102,15 +102,24 @@ def _sweep_etender(patterns, inns, http):
         if os.path.exists(cache):
             rows = json.load(open(cache))
         else:
-            rows, offset = [], 0
+            # from/to are INDEX BOUNDS, not offset+limit (probed 2026-07-27:
+            # {from:0,to:500} and {from:500,to:1000} return adjacent windows with
+            # a 1-row overlap). Passing a constant `to` silently returns page 1
+            # forever — the first sweep took 501 of 7943 rows and looked fine.
+            rows, seen, offset, step = [], set(), 0, 500
             while True:
-                page = http.post(_ETENDER % ep, json={"from": offset, "to": 500}).json()
+                page = http.post(_ETENDER % ep,
+                                 json={"from": offset, "to": offset + step}).json()
                 if not isinstance(page, list) or not page:
                     break
-                rows.extend(page)
+                for r in page:
+                    key = r.get("civil_contract_id") or r.get("deal_num") or id(r)
+                    if key not in seen:
+                        seen.add(key)
+                        rows.append(r)
                 total = page[0].get("total_count") or 0
-                offset += len(page)
-                if offset >= total or len(page) < 500:
+                offset += step
+                if len(page) < step or (total and offset >= total):
                     break
             json.dump(rows, open(cache, "w"), ensure_ascii=False)
         print("  %s: %d rows swept" % (ep, len(rows)))
@@ -136,7 +145,9 @@ def _sweep_big(url, body_fn, tag, patterns, http, max_pages, page=500):
             rows = json.load(open(cache))
         else:
             try:
-                rows = http.post(url, json=body_fn(offset, page)).json()
+                # body_fn gets (from_index, to_index) — these endpoints bound by
+                # index, not offset+limit (see _sweep_etender).
+                rows = http.post(url, json=body_fn(offset, offset + page)).json()
             except Exception as exc:
                 print("  %s @%d failed: %s" % (tag, offset, str(exc)[:70]))
                 break
@@ -149,7 +160,7 @@ def _sweep_big(url, body_fn, tag, patterns, http, max_pages, page=500):
             if _matches(r.get("customer_name") or "", patterns):
                 found.append((tag, r))
         total = (rows[0].get("total_count") or 0) if rows else 0
-        offset += len(rows)
+        offset += page
         pages += 1
         if len(rows) < page or (total and offset >= total):
             break
@@ -235,7 +246,9 @@ def _fmt_report(patterns, inns, platform_hits, db_hits, cands, verdicts, deep):
     if platform_hits:
         L.append("на площадках (свип)   : %d" % len(platform_hits))
     L.append("в нашей БД            : %d" % len(db_hits))
-    L.append("из них печатных       : %d" % len(cands))
+    uniq = len(set((c["row"].get("external_id"), c["row"].get("source")) for c in cands))
+    L.append("из них печатных       : %d%s" % (
+        len(cands), "" if uniq == len(cands) else " (уникальных %d)" % uniq))
     alerted = len([c for c in cands if (c["row"].get("alert_seq") is not None)])
     L.append("алертилось тогда      : %d" % alerted)
     if verdicts:
@@ -340,12 +353,11 @@ def main():
     print("\n" + report)
 
     if a.export_corpus:
-        by_id = dict((c["tender"].external_id, c) for c in cands)
+        # zip positionally: replay_tenders returns 1:1 in input order. Keying by
+        # external_id collapsed rows that repeat across id-spaces and mislabeled
+        # their history (caught on the first bank run).
         out = []
-        for v in verdicts:
-            c = by_id.get(v.external_id)
-            if not c:
-                continue
+        for c, v in zip(cands, verdicts):
             r = c["row"]
             out.append({
                 "external_id": r.get("external_id"), "source": r.get("source"),
