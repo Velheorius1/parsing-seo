@@ -132,12 +132,26 @@ async def _tool_check_alive(t):
 
 def _tool_cross_platform(t, client):
     from crawler.core.dedup import _extract_significant_words
+    from crawler.core.db import query_with_retry
     words = _extract_significant_words(t.title or "")
     if not words:
         return "нет значимых слов в названии"
-    rows = (client.table("tenders").select("source,title,price,deadline,alert_seq")
-            .neq("source", t.source).ilike("title", "%" + sorted(words, key=len)[-1] + "%")
-            .order("collected_at", desc=True).limit(30).execute().data) or []
+
+    # ILIKE on the unindexed `title` is a 57014 magnet under crawl load, and an
+    # unhandled APIError here killed the WHOLE investigation run (observed
+    # 2026-07-28 17:15). Retry like every other hot query, and degrade to a
+    # readable tool answer instead of a traceback — this is one of several
+    # tools in an agent loop, not the point of the run.
+    def _q():
+        return (client.table("tenders").select("source,title,price,deadline,alert_seq")
+                .neq("source", t.source).ilike("title", "%" + sorted(words, key=len)[-1] + "%")
+                .order("collected_at", desc=True).limit(30).execute())
+
+    try:
+        rows = query_with_retry(_q, label="investigator cross-platform").data or []
+    except Exception as exc:
+        logger.warning("[Investigator] cross-platform lookup failed: %s", str(exc)[:90])
+        return "сверка по площадкам недоступна (таймаут БД)"
     hits = []
     for r in rows:
         rw = _extract_significant_words(r.get("title") or "")
