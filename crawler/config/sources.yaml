@@ -82,6 +82,11 @@ sources:
       source_url_template: "https://etender.uzex.uz/lot/{external_id}"
       extra_info:
         "Победитель": "{provider_name} (ИНН {provider_inn})"
+        # ИНН заказчика приходит в каждой строке ответа, а мы его выбрасывали:
+        # customer_audit из-за этого искал заказчика по имени, а филиалы пишут
+        # название как попало («AT XALQ BANKI» / «AKSIYADORLIK TIJORAT XALQ
+        # BANKI»). Поле аддитивное, старые строки не трогает (2026-07-28).
+        "ИНН заказчика": "{customer_inn}"
         "Цена старт": "{start_cost} {currency_name}"
         "Участников": "{participants_count}"
         "Дата сделки": "{deal_date}"
@@ -119,6 +124,7 @@ sources:
       source_url_template: "https://etender.uzex.uz/lot/{external_id}"
       extra_info:
         "Статус": "{status_name}"
+        "ИНН заказчика": "{customer_inn}"   # см. etender-deals (2026-07-28)
         "Участников было": "{participants_count}"
         "Торг завершён": "{end_date}"
     keywords_fields: [category_name, customer_name]
@@ -233,6 +239,13 @@ sources:
       external_id: display_id
       # 2026-05-21: see note above (UZEX migration). Universal new-xarid URL.
       source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true"
+      extra_info:
+        # ИНН заказчика и победителя есть в каждой строке — сохраняем для
+        # аудита по заказчику (2026-07-28). Внимание: `deadline` здесь =
+        # contract_date, то есть дата УЖЕ заключённого контракта, поэтому такие
+        # строки всегда «просроченные» — это записи, а не возможности.
+        "ИНН заказчика": "{customer_inn}"
+        "Поставщик": "{provider_name} (ИНН {provider_inn})"
     keywords_fields: [category_name, customer_name, provider_name]
 
   # ── World Bank API ─────────────────────────────────────────────────
