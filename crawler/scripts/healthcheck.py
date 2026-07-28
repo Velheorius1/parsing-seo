@@ -249,6 +249,52 @@ class HealthCheck:
         except Exception as exc:
             self._add("feedback_bot", WARN, "Could not check: %s" % str(exc)[:60])
 
+    def check_deploy_fresh(self):
+        # type: () -> None
+        """Prod must actually BE the commit we think it is.
+
+        Auto-deploy is `git pull --ff-only` every 5 min, and it aborts silently
+        on a dirty working tree — a file edited or scp'd into /opt/parsing-seo
+        freezes every later commit while the crawler keeps running happily on
+        old code. That happened 2026-07-28 (a benchmark file copied in by hand
+        held prod one commit back for ~25 minutes, found by accident, not by a
+        monitor). Nothing watched for it, so nothing said anything.
+        """
+        import os as _os
+        repo = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+        if not _os.path.isdir(_os.path.join(repo, ".git")):
+            self._add("deploy_fresh", WARN, "not a git checkout (%s)" % repo)
+            return
+
+        def _git(*args):
+            return subprocess.run(("git",) + args, cwd=repo, capture_output=True,
+                                  text=True, timeout=25).stdout.strip()
+
+        try:
+            subprocess.run(["git", "fetch", "-q", "origin"], cwd=repo,
+                           capture_output=True, timeout=45)
+            behind = _git("rev-list", "--count", "HEAD..origin/main")
+            dirty = [l for l in _git("status", "--porcelain").splitlines()
+                     if l and not l.startswith("??")]
+            # logs/ is written by the crons themselves — tracked churn there is
+            # expected and does not block a fast-forward of other paths.
+            blocking = [l for l in dirty if "logs/" not in l]
+            head = _git("rev-parse", "--short", "HEAD")
+
+            if blocking:
+                self._add("deploy_fresh", FAIL,
+                          "рабочее дерево грязное (%s) — auto-deploy встал, прод на %s, "
+                          "позади origin на %s коммит(ов). Вернуть: git checkout -- <файл>"
+                          % (", ".join(x[3:] for x in blocking[:3]), head, behind or "?"))
+            elif behind and behind != "0":
+                self._add("deploy_fresh", FAIL,
+                          "прод на %s, позади origin/main на %s коммит(ов) — "
+                          "проверь cron авто-деплоя" % (head, behind))
+            else:
+                self._add("deploy_fresh", OK, "%s == origin/main, дерево чистое" % head)
+        except Exception as exc:
+            self._add("deploy_fresh", WARN, "не смог проверить: %s" % str(exc)[:70])
+
     # ── Check 5: Cron Jobs ──
 
     def check_cron(self):
@@ -1050,6 +1096,7 @@ def main():
     hc.check_dead_sources()
     hc.check_feedback_bot()
     hc.check_cron()
+    hc.check_deploy_fresh()
     hc.check_telegram()
     hc.check_api_endpoints()
     hc.check_playwright()
