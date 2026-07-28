@@ -532,12 +532,23 @@ def _parse_deadline(deadline_str: Optional[str]) -> Optional[datetime]:
     return last_dt
 
 
-def _is_deadline_expired(tender: RawTender) -> bool:
-    """Check if tender deadline has already passed. Returns False if no deadline."""
+def _is_deadline_expired(tender: RawTender, now: Optional[datetime] = None) -> bool:
+    """Check if tender deadline has already passed. Returns False if no deadline.
+
+    ``now`` lets replay/benchmark evaluate a HISTORICAL tender as of its own day
+    (default None = wall clock, i.e. exactly the old behavior). Naive UTC; an
+    aware value is normalized.
+    """
     dt = _parse_deadline(tender.deadline)
     if dt is None:
         return False  # no deadline or unparseable = let it through
-    return dt < datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1)  # 1 day grace period
+    if now is None:
+        ref = datetime.now(timezone.utc).replace(tzinfo=None)
+    elif now.tzinfo is not None:
+        ref = now.astimezone(timezone.utc).replace(tzinfo=None)
+    else:
+        ref = now
+    return dt < ref - timedelta(days=1)  # 1 day grace period
 
 
 # Minimum stem length for fuzzy matching (Russian word roots)
@@ -740,6 +751,301 @@ def _is_own_lot(org: Optional[str]) -> bool:
         return False
     norm = " ".join(org.casefold().split())
     return any(frag in norm for frag in _OWN_ORG_FRAGMENTS)
+
+
+# ── Prefilter: stages 2-11 of send_alerts as a pure, replayable function ─────
+#
+# Extracted 2026-07-27 so that replay/benchmark tooling runs THE SAME code the
+# production pipeline runs — not a hand-maintained copy that silently drifts.
+# send_alerts() delegates here; behavior and log lines are byte-identical to the
+# pre-refactor inline version (the A/B dry-run diff on prod data was empty).
+# These constants used to be locals inside send_alerts — module level so replay
+# and version_scorecard can see (and version) them.
+
+# Filter out competitor ads (info) — only alert on tenders and customer requests
+_ALERT_TYPES = ("tender", "customer_request")
+
+# Minimum lot value. Lowered 10M → 5M UZS on 2026-07-26 by Daniyar's call, on
+# measurement rather than taste: over 30 days, 165 lots whose titles are core
+# profile («Услуга типографий», «Услуги издательские», «Услуги печатные») were
+# dropped here and NEVER reached the AI — the price gate fires before it. Scoring
+# a random 40 of them through the live classifier returned 37 × client @ 90-100
+# and only 3 irrelevant, i.e. ~5 real print orders/day were invisible purely for
+# being cheap. 5M keeps the biggest bucket (5-10M ≈ 56 lots/30d) while still
+# cutting the sub-1M dust. Raising it back is a one-line change.
+MIN_PRICE = 5_000_000
+
+# Stale-tender filter horizon: drop anything with deadline >365 days in the past.
+# Catches Hayotbirja тендеры (2020-12-28) and Xarid Конкурсы (2022-07-13)
+# — adapter regression where parser keeps returning archived rows.
+# NOTE (pinned by test_prefilter_parity): this stage is currently unreachable —
+# both it and _is_deadline_expired parse the same `deadline` field, and the
+# expired gate (1-day grace) always fires first. Kept for parity, not "fixed".
+STALE_DAYS = 365
+
+# Fast reject filter — remove obvious non-relevant items before AI.
+# Note: "книги печатные" was here but removed 2026-04-19 because it is the
+# OKED category name in UZEX prequest/etender — collapses entire UZEX feed
+# to 0 alerts. Let AI decide on a per-item basis.
+_REJECT_TITLES = [
+    "подписке и доставке периодического печатного издания",
+    "подписке и доставке периодических печатных изданий",
+    "марля полиграфическая",
+    "nfc визитк",
+]
+
+# UZEX prequest fast-pass: titles are OKED category names ("Услуги печатные...",
+# "Книги печатные") so AI conservatively rejects them. For UZEX-family sources,
+# if the title obviously matches our niche by category we skip the AI cost
+# and let it through — Daniyar wants prequals to come "так успеем подготовиться".
+_UZEX_PASSTHROUGH_SOURCES = {
+    "UZEX Предквалификации",
+    "UZEX Результаты",
+    "ETender UZEX",
+    "ETender Обсуждения",
+}
+_UZEX_NICHE_HINTS = (
+    "печатн", "полиграф", "упаков", "пакет", "коробк",
+    "этикет", "брошюр", "буклет", "стикер", "календар",
+    "блокнот", "конверт", "сувенир", "ежедневник", "обложк", "bosma",
+)
+
+
+class DropStage(object):
+    """Canonical stage names — the single vocabulary for replay/audit/scorecard."""
+
+    MESSAGE_TYPE = "message_type"
+    NO_PUSH_SOURCE = "no_push_source"
+    OWN_LOT = "own_lot"
+    MIN_PRICE = "min_price"
+    DEADLINE_EXPIRED = "deadline_expired"
+    STALE = "stale"
+    NO_KEYWORD = "no_keyword"
+    REJECT_TITLE = "reject_title"
+    ORDER = (MESSAGE_TYPE, NO_PUSH_SOURCE, OWN_LOT, MIN_PRICE,
+             DEADLINE_EXPIRED, STALE, NO_KEYWORD, REJECT_TITLE)
+
+
+@dataclass
+class PrefilterVerdict:
+    """Per-tender outcome of the deterministic stages (2-11)."""
+
+    tender: RawTender
+    passed: bool                    # survived all stages — candidate for AI/send
+    dropped_at: Optional[str]       # DropStage.* of the FIRST killing stage, or None
+    matched_kw: Optional[str]       # keyword or "тнвэд:XXXX"
+    uzex_bypass: bool               # True → skips the AI gate (annotate-not-gate)
+    is_lead: bool                   # customer_request → AI gate is _ai_lead_is_spam
+
+
+@dataclass
+class PrefilterResult:
+    matching: List[Tuple[RawTender, str]]       # AI-gated survivors, prod order
+    uzex_bypass: List[Tuple[RawTender, str]]    # AI-bypass survivors, prod order
+    verdicts: List[PrefilterVerdict]            # 1:1 with the input, input order
+    counters: Dict[str, int]                    # DropStage.* -> dropped; + passed/bypass
+
+
+def prefilter(
+    new_tenders: List[RawTender],
+    keywords: List[str],
+    tnved_scope: Optional[List[str]] = None,
+    now: Optional[datetime] = None,
+    tnved_scope_loader=None,
+) -> PrefilterResult:
+    """Deterministic filter stages of the alert pipeline, side-effect-free.
+
+    Pure by contract: no DB, no HTTP, no settings reads — keywords and
+    tnved_scope are injected by the caller (send_alerts passes the live ones,
+    replay passes whatever era it is reconstructing). ``now`` anchors the
+    deadline/stale stages so a historical tender can be judged as of its day.
+
+    ``tnved_scope_loader`` exists ONLY to preserve the exact prod log stream:
+    the scope SELECT historically ran between the stale and keyword stages, so
+    its httpx log line sits at that position in every crawl log (A/B parity
+    diff 2026-07-27 caught the move). send_alerts passes the loader; replay
+    passes an explicit ``tnved_scope`` list and stays offline.
+
+    Log lines are intentionally byte-identical to the pre-2026-07-27 inline
+    code — including the known quirk that the "below price threshold" counter
+    is cumulative from the ORIGINAL input, not per-stage. Prod-log diffing
+    relies on this; do not "fix" the wording here.
+    """
+    total_input = len(new_tenders)
+    verdicts = [
+        PrefilterVerdict(
+            tender=t, passed=False, dropped_at=None, matched_kw=None,
+            uzex_bypass=False, is_lead=(t.message_type == "customer_request"),
+        )
+        for t in new_tenders
+    ]
+
+    def _result(matching_idx, bypass_idx):
+        # type: (List[int], List[int]) -> PrefilterResult
+        counters = dict((s, 0) for s in DropStage.ORDER)
+        for v in verdicts:
+            if v.dropped_at:
+                counters[v.dropped_at] += 1
+        counters["passed"] = len(matching_idx)
+        counters["bypass"] = len(bypass_idx)
+        return PrefilterResult(
+            matching=[(new_tenders[i], verdicts[i].matched_kw) for i in matching_idx],
+            uzex_bypass=[(new_tenders[i], verdicts[i].matched_kw) for i in bypass_idx],
+            verdicts=verdicts,
+            counters=counters,
+        )
+
+    # Stage: message_type — only tenders and customer requests alert
+    alive = []
+    for i, t in enumerate(new_tenders):
+        if t.message_type in _ALERT_TYPES:
+            alive.append(i)
+        else:
+            verdicts[i].dropped_at = DropStage.MESSAGE_TYPE
+    info_count = total_input - len(alive)
+    if info_count:
+        logger.info("[Alerts] Skipped %d info/ads (not tender or customer_request)", info_count)
+
+    # Stage: supplier-catalog e-shop sources (sell-side, no buyer demand)
+    nxt = []
+    for i in alive:
+        if new_tenders[i].source not in _NO_PUSH_SOURCES:
+            nxt.append(i)
+        else:
+            verdicts[i].dropped_at = DropStage.NO_PUSH_SOURCE
+    _nopush = len(alive) - len(nxt)
+    if _nopush:
+        logger.info("[NoPush] Dropped %d e-shop/catalog alerts (supplier-side, not buyer demand)", _nopush)
+    alive = nxt
+
+    # Stage: suppress our own postings (Winch is the vendor on e-shop listings)
+    _own = [new_tenders[i] for i in alive if _is_own_lot(new_tenders[i].organization)]
+    if _own:
+        logger.info("[Self-Lot] Suppressed %d own postings: %s",
+                    len(_own), ", ".join((t.title or "")[:40] for t in _own))
+    nxt = []
+    for i in alive:
+        if _is_own_lot(new_tenders[i].organization):
+            verdicts[i].dropped_at = DropStage.OWN_LOT
+        else:
+            nxt.append(i)
+    alive = nxt
+
+    # Stage: minimum lot value
+    nxt = []
+    for i in alive:
+        t = new_tenders[i]
+        if t.price is None or t.price >= MIN_PRICE:
+            nxt.append(i)
+        else:
+            verdicts[i].dropped_at = DropStage.MIN_PRICE
+    # Quirk preserved: counted from the ORIGINAL input, so this log also fires
+    # when earlier stages dropped rows and this one dropped none.
+    low_price_count = total_input - len(nxt)
+    if low_price_count:
+        logger.info("[Alerts] Skipped %d tenders below %dM price threshold", low_price_count, MIN_PRICE // 1_000_000)
+    alive = nxt
+
+    # Stage: expired deadlines
+    nxt = []
+    for i in alive:
+        if not _is_deadline_expired(new_tenders[i], now=now):
+            nxt.append(i)
+        else:
+            verdicts[i].dropped_at = DropStage.DEADLINE_EXPIRED
+    expired_count = len(alive) - len(nxt)
+    if expired_count:
+        logger.info("[Alerts] Skipped %d tenders with expired deadlines", expired_count)
+    alive = nxt
+
+    # Stage: stale (deadline >STALE_DAYS in the past) — see note on STALE_DAYS
+    if now is None:
+        _ref_now = datetime.utcnow()
+    elif now.tzinfo is not None:
+        _ref_now = now.astimezone(timezone.utc).replace(tzinfo=None)
+    else:
+        _ref_now = now
+    _stale_cutoff = _ref_now - timedelta(days=STALE_DAYS)
+    nxt = []
+    stale_count = 0
+    for i in alive:
+        dt = _parse_deadline(new_tenders[i].deadline)
+        if dt is None:
+            nxt.append(i)
+            continue
+        # Strip tzinfo if present so the comparison is always naive vs naive.
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
+        if dt >= _stale_cutoff:
+            nxt.append(i)
+        else:
+            stale_count += 1
+            verdicts[i].dropped_at = DropStage.STALE
+    if stale_count:
+        logger.info("[Alerts] Skipped %d stale tenders (deadline >1 year past)", stale_count)
+    alive = nxt
+
+    # TNVED scope resolution — at THIS position, not earlier: the loader's SELECT
+    # historically ran here, and its httpx log line must keep its place in the
+    # crawl-log stream (see docstring).
+    if tnved_scope is None and tnved_scope_loader is not None:
+        tnved_scope = tnved_scope_loader()
+    tnved_scope = tnved_scope or []
+
+    # Stage: keyword match, with ТНВЭД-prefix fallback (language-agnostic recall)
+    matched_idx = []
+    for i in alive:
+        t = new_tenders[i]
+        kw = _find_matching_keyword(t, keywords)
+        if not kw and tnved_scope:
+            _tn = str((t.extra_info or {}).get("tnved") or (t.extra_info or {}).get("code") or "")
+            if _tn and any(_tn.startswith(p) for p in tnved_scope):
+                kw = "тнвэд:%s" % _tn[:4]
+        if kw:
+            verdicts[i].matched_kw = kw
+            matched_idx.append(i)
+        else:
+            verdicts[i].dropped_at = DropStage.NO_KEYWORD
+
+    if not matched_idx:
+        logger.info("[Alerts] No tenders match alert keywords (%d checked)", total_input)
+        return _result([], [])
+
+    logger.info("[Alerts] %d tenders match keywords (out of %d new)", len(matched_idx), total_input)
+
+    # Stage: fast reject by title
+    before_reject = len(matched_idx)
+    kept = []
+    for i in matched_idx:
+        if any(rej in new_tenders[i].title.lower() for rej in _REJECT_TITLES):
+            verdicts[i].dropped_at = DropStage.REJECT_TITLE
+        else:
+            kept.append(i)
+    rejected_fast = before_reject - len(kept)
+    if rejected_fast:
+        logger.info("[Fast Reject] Removed %d non-relevant tenders by title", rejected_fast)
+
+    # Split: UZEX-family category fast-pass bypasses the AI gate
+    bypass_idx = []
+    rest_idx = []
+    for i in kept:
+        t = new_tenders[i]
+        title_l = (t.title or "").lower()
+        if t.source in _UZEX_PASSTHROUGH_SOURCES and any(h in title_l for h in _UZEX_NICHE_HINTS):
+            verdicts[i].uzex_bypass = True
+            bypass_idx.append(i)
+        else:
+            rest_idx.append(i)
+    if bypass_idx:
+        logger.info("[UZEX Pass] %d UZEX-family tenders bypass AI by category match", len(bypass_idx))
+
+    if not rest_idx and not bypass_idx:
+        logger.info("[Alerts] All tenders rejected by fast filter")
+        return _result([], [])
+
+    for i in rest_idx + bypass_idx:
+        verdicts[i].passed = True
+    return _result(rest_idx, bypass_idx)
 
 
 def _format_alert(
@@ -982,144 +1288,17 @@ async def send_alerts(
         logger.debug("[Alerts] No keywords configured, skipping")
         return 0
 
-    # Filter out competitor ads (info) — only alert on tenders and customer requests
-    ALERT_TYPES = ("tender", "customer_request")
-    relevant = [t for t in new_tenders if t.message_type in ALERT_TYPES]
-    info_count = len(new_tenders) - len(relevant)
-    if info_count:
-        logger.info("[Alerts] Skipped %d info/ads (not tender or customer_request)", info_count)
-
-    # Drop supplier-catalog e-shop sources from PUSH (sell-side, no buyer demand).
-    _bpush = len(relevant)
-    relevant = [t for t in relevant if t.source not in _NO_PUSH_SOURCES]
-    _nopush = _bpush - len(relevant)
-    if _nopush:
-        logger.info("[NoPush] Dropped %d e-shop/catalog alerts (supplier-side, not buyer demand)", _nopush)
-
-    # Suppress our own postings (Winch is the vendor on e-shop listings).
-    _own = [t for t in relevant if _is_own_lot(t.organization)]
-    if _own:
-        logger.info("[Self-Lot] Suppressed %d own postings: %s",
-                    len(_own), ", ".join((t.title or "")[:40] for t in _own))
-        relevant = [t for t in relevant if not _is_own_lot(t.organization)]
-
-    # Minimum lot value. Lowered 10M → 5M UZS on 2026-07-26 by Daniyar's call, on
-    # measurement rather than taste: over 30 days, 165 lots whose titles are core
-    # profile («Услуга типографий», «Услуги издательские», «Услуги печатные») were
-    # dropped here and NEVER reached the AI — the price gate fires before it. Scoring
-    # a random 40 of them through the live classifier returned 37 × client @ 90-100
-    # and only 3 irrelevant, i.e. ~5 real print orders/day were invisible purely for
-    # being cheap. 5M keeps the biggest bucket (5-10M ≈ 56 lots/30d) while still
-    # cutting the sub-1M dust. Raising it back is a one-line change.
-    MIN_PRICE = 5_000_000
-    priced = [t for t in relevant if t.price is None or t.price >= MIN_PRICE]
-    low_price_count = len(new_tenders) - len(priced)
-    if low_price_count:
-        logger.info("[Alerts] Skipped %d tenders below %dM price threshold", low_price_count, MIN_PRICE // 1_000_000)
-
-    # Filter out tenders with expired deadlines
-    active = [t for t in priced if not _is_deadline_expired(t)]
-    expired_count = len(priced) - len(active)
-    if expired_count:
-        logger.info("[Alerts] Skipped %d tenders with expired deadlines", expired_count)
-
-    # Stale-tender filter: drop anything with deadline >365 days in the past.
-    # Catches Hayotbirja тендеры (2020-12-28) and Xarid Конкурсы (2022-07-13)
-    # — adapter regression where parser keeps returning archived rows.
-    # _parse_deadline returns naive datetime, so compare with naive utcnow.
-    _STALE_CUTOFF = datetime.utcnow() - timedelta(days=365)
-    fresh = []
-    stale_count = 0
-    for t in active:
-        dt = _parse_deadline(t.deadline)
-        if dt is None:
-            fresh.append(t)
-            continue
-        # Strip tzinfo if present so the comparison is always naive vs naive.
-        if dt.tzinfo is not None:
-            dt = dt.replace(tzinfo=None)
-        if dt >= _STALE_CUTOFF:
-            fresh.append(t)
-        else:
-            stale_count += 1
-    if stale_count:
-        logger.info("[Alerts] Skipped %d stale tenders (deadline >1 year past)", stale_count)
-    active = fresh
-
-    # TNVED scope consult (shadow-promoted, language-agnostic recall layer):
-    # a lot whose ТНВЭД prefix is in the promoted scope matches even with zero
-    # keyword hits — catches uz-titled lots ru keywords can't see. Empty until a
-    # shadow candidate is promoted, so this is a safe no-op today.
-    _tnved_scope = _load_tnved_scope()
-
-    # Filter matching tenders by keywords
-    matching = []  # type: List[Tuple[RawTender, str]]
-    for t in active:
-        kw = _find_matching_keyword(t, keywords)
-        if not kw and _tnved_scope:
-            _tn = str((t.extra_info or {}).get("tnved") or (t.extra_info or {}).get("code") or "")
-            if _tn and any(_tn.startswith(p) for p in _tnved_scope):
-                kw = "тнвэд:%s" % _tn[:4]
-        if kw:
-            matching.append((t, kw))
-
-    if not matching:
-        logger.info("[Alerts] No tenders match alert keywords (%d checked)", len(new_tenders))
-        return 0
-
-    logger.info("[Alerts] %d tenders match keywords (out of %d new)", len(matching), len(new_tenders))
-
-    # Fast reject filter — remove obvious non-relevant items before AI.
-    # Note: "книги печатные" was here but removed 2026-04-19 because it is the
-    # OKED category name in UZEX prequest/etender — collapses entire UZEX feed
-    # to 0 alerts. Let AI decide on a per-item basis.
-    _REJECT_TITLES = [
-        "подписке и доставке периодического печатного издания",
-        "подписке и доставке периодических печатных изданий",
-        "марля полиграфическая",
-        "nfc визитк",
-    ]
-    before_reject = len(matching)
-    matching = [
-        (t, kw) for t, kw in matching
-        if not any(rej in t.title.lower() for rej in _REJECT_TITLES)
-    ]
-    rejected_fast = before_reject - len(matching)
-    if rejected_fast:
-        logger.info("[Fast Reject] Removed %d non-relevant tenders by title", rejected_fast)
-
-    # UZEX prequest fast-pass: titles are OKED category names ("Услуги печатные...",
-    # "Книги печатные") so AI conservatively rejects them. For UZEX-family sources,
-    # if the title obviously matches our niche by category we skip the AI cost
-    # and let it through — Daniyar wants prequals to come "так успеем подготовиться".
-    _UZEX_PASSTHROUGH_SOURCES = {
-        "UZEX Предквалификации",
-        "UZEX Результаты",
-        "ETender UZEX",
-        "ETender Обсуждения",
-    }
-    _UZEX_NICHE_HINTS = (
-        "печатн", "полиграф", "упаков", "пакет", "коробк",
-        "этикет", "брошюр", "буклет", "стикер", "календар",
-        "блокнот", "конверт", "сувенир", "ежедневник", "обложк", "bosma",
-    )
-    uzex_bypass: List[Tuple[RawTender, str]] = []
-    rest: List[Tuple[RawTender, str]] = []
-    for t, kw in matching:
-        title_l = (t.title or "").lower()
-        if (
-            t.source in _UZEX_PASSTHROUGH_SOURCES
-            and any(hint in title_l for hint in _UZEX_NICHE_HINTS)
-        ):
-            uzex_bypass.append((t, kw))
-        else:
-            rest.append((t, kw))
-    if uzex_bypass:
-        logger.info("[UZEX Pass] %d UZEX-family tenders bypass AI by category match", len(uzex_bypass))
-    matching = rest
+    # Deterministic stages 2-11 — extracted to prefilter() 2026-07-27 so replay
+    # and the version benchmark run the SAME code, not a drifting copy. The
+    # TNVED scope consult (shadow-promoted recall layer) goes in as a lazy
+    # loader so its SELECT keeps its historical position in the log stream; it
+    # is empty until a shadow candidate is promoted, so a safe no-op by default.
+    pf = prefilter(new_tenders, keywords, tnved_scope_loader=_load_tnved_scope)
+    matching = pf.matching
+    uzex_bypass = pf.uzex_bypass
 
     if not matching and not uzex_bypass:
-        logger.info("[Alerts] All tenders rejected by fast filter")
+        # prefilter already logged which gate emptied the batch
         return 0
 
     if dry_run:
