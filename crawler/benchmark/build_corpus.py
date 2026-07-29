@@ -154,6 +154,39 @@ GOLDEN_LEADS_MERCH = [
      "irrelevant", "КОНТРОЛЬ: «футболка кепка керак» без нанесения — закупка одежды"),
 ]
 
+# Найдено независимой проверкой Данияра 29.07 (два живых лота), корпус v2.2 → v2.3.
+# Оба — реальные закупки банков, и оба показали дыры РАЗНЫХ стадий, поэтому
+# лежат здесь как якоря: лид-запись ловит регрессию гейта, pipeline-запись —
+# регрессию ключевиков и AI-релевантности.
+GOLDEN_LEADS_LIVE = [
+    ("Картон конверт Конвертлар, махфий хатлар",
+     "client",
+     "встречный аукцион Sanoat-Qurilish Bank на 234 850 000 сум; бумага и картон "
+     "наш товар и БЕЗ нанесения — на этой записи я сам сломал гейт 29.07"),
+]
+
+# pipeline-запись: судится префильтром (ключевики!) и AI-релевантностью.
+GOLDEN_PIPELINE = [
+    {
+        "external_id": "26120012502812",
+        "source": "ETender UZEX",
+        "title": "Mastercard kartalari uchun kartholder ishlab chiqarish xizmatlarini xarid qilish",
+        "organization": "XALQ BANK",
+        "search_text": ("Mastercard kartalari uchun kartholder ishlab chiqarish "
+                        "xizmatlarini xarid qilish XALQ BANK"),
+        "price": 1225574400.0,
+        "currency": "UZS",
+        "deadline": "2026-07-24T08:56:45",
+        "frozen_now": "2026-07-24T04:00:10.520871+00:00",
+        "label": "relevant",
+        "expect_delivered": True,
+        "category": "client",
+        "note": ("Xalq Bank, 1 225 574 400 сум. Лежал в БД с 24.07 неотправленным: "
+                 "ни один из 134 ключевиков не совпал, AI его не видел. Якорь на "
+                 "стадию ключевиков — правка промпта такое не ловит"),
+    },
+]
+
 MIN_PRICE_POLICY = 5_000_000
 
 
@@ -299,7 +332,8 @@ def add_golden(b):
 def add_golden_leads(b, skip_texts=()):
     """Смешанные корзины. Зовётся ПОСЛЕДНИМ и только дописывает: cid выдаются по
     порядку вставки, и вклинивание в середину перенумеровало бы весь хвост."""
-    for i, (text, lab, why) in enumerate(GOLDEN_LEADS + GOLDEN_LEADS_MERCH):
+    for i, (text, lab, why) in enumerate(
+            GOLDEN_LEADS + GOLDEN_LEADS_MERCH + GOLDEN_LEADS_LIVE):
         if text in skip_texts:
             continue
         b.add(kind="lead", external_id="mixed-%02d" % (i + 1),
@@ -335,14 +369,17 @@ def append_curated(path):
     b.entries = list(corpus["entries"])          # cid продолжится с максимума
     before = len(b.entries)
     add_golden_leads(b, skip_texts=set(e.get("search_text") or "" for e in b.entries))
+    add_golden_pipeline(b, skip_ids=set(e.get("external_id") or "" for e in b.entries))
     corpus["entries"] = b.entries
     added = len(b.entries) - before
-    marker = ("v2 → v2.1 → v2.2 (29.07): ДОБАВЛЕНЫ записи классов «смешанная "
+    marker = ("v2 → v2.1 → v2.2 → v2.3 (29.07): ДОБАВЛЕНЫ записи классов «смешанная "
               "корзина» (наша позиция рядом с чужой) и «мерч из дерева/кожи/"
               "стекла с нанесением» — по решению Данияра «берём»; в обоих "
               "случаях вместе с контрольными отрицательными (омонимы, закупка "
               "одежды без логотипа). Метки существующих не тронуты — минорные "
-              "версии, дельта внутри v2.x осмысленна.")
+              "версии, дельта внутри v2.x осмысленна. v2.3 — два живых лота из "
+              "независимой проверки: «Картон конверт» (лид) и картхолдеры Xalq "
+              "Bank (pipeline, якорь на стадию ключевиков).")
     if added and marker not in corpus.get("notes", ""):
         corpus["notes"] = (corpus.get("notes", "") + " " + marker).strip()
     print("дописано %d записей (было %d, стало %d)"
@@ -358,6 +395,24 @@ def rebuild():
     add_feedback(b)
     add_golden_leads(b)
     return b
+
+
+def add_golden_pipeline(b, skip_ids=()):
+    """Курированные ТЕНДЕРЫ (не лиды): проходят префильтр целиком, включая
+    ключевики, и судятся AI-релевантностью — то есть ловят регрессии стадий,
+    которых лид-записи не касаются."""
+    for e in GOLDEN_PIPELINE:
+        if e["external_id"] in skip_ids:
+            continue
+        b.add(kind="pipeline", external_id=e["external_id"], source=e["source"],
+              title=e["title"], organization=e["organization"],
+              search_text=e["search_text"], price=e["price"],
+              currency=e["currency"], deadline=e["deadline"], extra_info={},
+              message_type="tender", bid_count=None, status="active",
+              frozen_now=e["frozen_now"], label=e["label"],
+              expect_delivered=e["expect_delivered"], category=e["category"],
+              provenance="live-check:2026-07-29", added="2026-07-29",
+              since="v2.3", note=e["note"])
 
 
 def main():
