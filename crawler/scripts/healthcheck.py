@@ -106,17 +106,37 @@ class HealthCheck:
 
     def check_supabase(self):
         # type: () -> None
-        """Check Supabase connection and basic data."""
+        """Связь с Supabase и наличие данных.
+
+        Связь проверялась через `count="exact"` — полный проход по всей таблице.
+        На 640k строк он занимает ~7.5с и уже перебивает statement timeout:
+        29.07 проверка дважды подряд выдала FAIL «Connection failed», хотя база
+        отвечала мгновенно, краулер писал штатно, а три прямых запроса подряд
+        прошли. Это худший сорт ложной тревоги — он растёт вместе с таблицей и
+        приучает не верить красному.
+
+        Теперь связь проверяется тем, чем она и является: одной дешёвой строкой
+        (~0.25с). Размер берётся оценкой планировщика (~0.3с, расхождение с
+        точным счётом 0.5% — для healthcheck достаточно), а её отказ отдельным
+        WARN, а не FAIL'ом связи.
+        """
         try:
             client = self._get_client()
-            result = client.table("tenders").select("id", count="exact").limit(0).execute()
-            total = result.count or 0
-            if total > 0:
-                self._add("supabase", OK, "Connected. %d tenders total" % total)
-            else:
-                self._add("supabase", WARN, "Connected but 0 tenders")
+            probe = client.table("tenders").select("id").limit(1).execute()
         except Exception as exc:
             self._add("supabase", FAIL, "Connection failed: %s" % str(exc)[:80])
+            return
+        if not (probe.data or []):
+            self._add("supabase", WARN, "Connected but 0 tenders")
+            return
+
+        try:
+            result = client.table("tenders").select("id", count="estimated").limit(0).execute()
+            self._add("supabase", OK, "Connected. ~%d tenders (оценка)" % (result.count or 0))
+        except Exception as exc:
+            self._add("supabase", OK, "Connected (строки читаются)")
+            self._add("supabase.count", WARN,
+                      "счётчик строк не ответил: %s" % str(exc)[:60])
 
     # ── Check 2: Data Freshness ──
 
