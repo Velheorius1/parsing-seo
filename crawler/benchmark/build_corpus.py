@@ -168,6 +168,24 @@ GOLDEN_LEADS_LIVE = [
 # pipeline-запись: судится префильтром (ключевики!) и AI-релевантностью.
 GOLDEN_PIPELINE = [
     {
+        "external_id": "8046752",
+        "source": "XT-Xarid встречные аукционы",
+        "message_type": "customer_request",
+        "title": "Картон конверт",
+        "organization": "O`ZBEKISTON SANOAT-QURILISH BANK ATB",
+        "search_text": "Картон конверт Конвертлар, махфий хатлар",
+        "price": 234850000.0,
+        "currency": "UZS",
+        "deadline": "2026-07-24T04:44:53.663000Z",
+        "frozen_now": "2026-07-24T04:40:03.267711+00:00",
+        "label": "relevant",
+        "expect_delivered": True,
+        "category": "client",
+        "note": ("Sanoat-Qurilish Bank, 234 850 000 сум. Замена ретайрнутой "
+                 "c0086: несёт customer_request, но источник площадочный, "
+                 "поэтому после 73b649a судится тендерным трактом — как в проде"),
+    },
+    {
         "external_id": "26120012502812",
         "source": "ETender UZEX",
         "title": "Mastercard kartalari uchun kartholder ishlab chiqarish xizmatlarini xarid qilish",
@@ -347,6 +365,17 @@ def add_golden_leads(b, skip_texts=()):
               added="2026-07-29", since="v2.1", note=why)
 
 
+# Записи, выведенные из замера. Метки НЕ переписываем и записи НЕ удаляем —
+# cid вечен. Ретайр нужен, когда запись мерит не то, что думает: c0086 я 29.07
+# положил как чатовый лид, хотя это площадочный встречный аукцион XT-Xarid, и
+# после разведения гейтов (73b649a) она мерила бы тракт, в который прод её уже
+# не отправляет. Замена — c0088 с настоящим источником.
+_RETIRE = {
+    "c0086": ("29.07: источник был указан неверно (положена как TG-лид, а это "
+              "встречный аукцион XT-Xarid) — заменена на c0088 после разведения "
+              "гейтов"),
+}
+
 CORPUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "corpus_v1.json")
 
 
@@ -368,6 +397,12 @@ def append_curated(path):
     b = Builder()
     b.entries = list(corpus["entries"])          # cid продолжится с максимума
     before = len(b.entries)
+    retired_now = 0
+    for e in b.entries:
+        why = _RETIRE.get(e["cid"])
+        if why and not e.get("retired"):
+            e["retired"] = why
+            retired_now += 1
     add_golden_leads(b, skip_texts=set(e.get("search_text") or "" for e in b.entries))
     add_golden_pipeline(b, skip_ids=set(e.get("external_id") or "" for e in b.entries))
     corpus["entries"] = b.entries
@@ -379,11 +414,13 @@ def append_curated(path):
               "одежды без логотипа). Метки существующих не тронуты — минорные "
               "версии, дельта внутри v2.x осмысленна. v2.3 — два живых лота из "
               "независимой проверки: «Картон конверт» (лид) и картхолдеры Xalq "
-              "Bank (pipeline, якорь на стадию ключевиков).")
+              "Bank (pipeline, якорь на стадию ключевиков). v2.4 — разведение "
+              "чатовых лидов и площадочных встречных: c0086 выведена из замера "
+              "(мерила не тот тракт), взамен c0088 с настоящим источником.")
     if added and marker not in corpus.get("notes", ""):
         corpus["notes"] = (corpus.get("notes", "") + " " + marker).strip()
-    print("дописано %d записей (было %d, стало %d)"
-          % (added, before, len(b.entries)), file=sys.stderr)
+    print("дописано %d записей (было %d, стало %d), выведено из замера %d"
+          % (added, before, len(b.entries), retired_now), file=sys.stderr)
     return corpus
 
 
@@ -408,7 +445,8 @@ def add_golden_pipeline(b, skip_ids=()):
               title=e["title"], organization=e["organization"],
               search_text=e["search_text"], price=e["price"],
               currency=e["currency"], deadline=e["deadline"], extra_info={},
-              message_type="tender", bid_count=None, status="active",
+              message_type=e.get("message_type", "tender"),
+              bid_count=None, status="active",
               frozen_now=e["frozen_now"], label=e["label"],
               expect_delivered=e["expect_delivered"], category=e["category"],
               provenance="live-check:2026-07-29", added="2026-07-29",
