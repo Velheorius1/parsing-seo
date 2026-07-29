@@ -892,6 +892,45 @@ def _is_own_lot(org: Optional[str]) -> bool:
 # Filter out competitor ads (info) — only alert on tenders and customer requests
 _ALERT_TYPES = ("tender", "customer_request")
 
+# ── Чатовый лид против площадочного встречного аукциона (29.07) ───────────────
+#
+# `message_type="customer_request"` ставят ДВА разных места: telegram_adapter,
+# когда человек пишет в чат «нужны коробки», и jsonrpc.py:280 — ЛЮБОМУ
+# встречному аукциону площадки. Из-за этого закупки банков судил промпт,
+# который начинается словами «Это сообщение из Telegram-чата, где люди ищут
+# исполнителей»: из последних 400 строк `customer_request` 345 оказались
+# площадочными лотами XT-Xarid и Hayotbirja и лишь 55 — настоящими лидами.
+#
+# Что это стоило: лот Sanoat-Qurilish Bank «Картон конверт» на 234 850 000 сум
+# плавал у чатового гейта, а `relevance_score` у всех таких строк оставался
+# пустым — то есть playbook на 86% «лидов» не учился вообще, и дайджест не мог
+# их ранжировать.
+#
+# Замер перед правкой (7 дней, 576 встречных, 12 алерченных): тендерный и
+# чатовый промпты согласились 32 из 32 на смешанной выборке, а все 12 алерченных
+# проходят общий роутинг (high-signal / big-ticket / живые ставки) и без
+# оговорки «customer_request → push всегда». То есть разведение НЕ меняет
+# сегодняшних решений — оно возвращает площадочные лоты в тендерный тракт с
+# playbook, скорингом и обучением.
+#
+# Префикс, а не список источников: telegram_adapter зовёт чат-ветку только для
+# TG-каналов, и все они называются «TG: …». Новый TG-канал попадёт в чатовый
+# гейт сам — а промахнуться в эту сторону безопаснее: product-scope-промпт
+# режет разговорные заказы («сумка 1250шт» → 0), ради чего гейт и вводился.
+_TG_LEAD_SOURCE_PREFIX = "TG:"
+
+
+def _is_tg_lead(t) -> bool:
+    # type: (object) -> bool
+    """True только для ЧАТОВОГО лида: человек в Telegram ищет исполнителя.
+
+    Площадочный встречный аукцион тоже несёт message_type="customer_request",
+    но это закупка с ценой, заказчиком и дедлайном — её судит тендерный тракт.
+    """
+    if getattr(t, "message_type", None) != "customer_request":
+        return False
+    return (getattr(t, "source", "") or "").startswith(_TG_LEAD_SOURCE_PREFIX)
+
 # Minimum lot value. Lowered 10M → 5M UZS on 2026-07-26 by Daniyar's call, on
 # measurement rather than taste: over 30 days, 165 lots whose titles are core
 # profile («Услуга типографий», «Услуги издательские», «Услуги печатные») were
@@ -1002,7 +1041,7 @@ def prefilter(
     verdicts = [
         PrefilterVerdict(
             tender=t, passed=False, dropped_at=None, matched_kw=None,
-            uzex_bypass=False, is_lead=(t.message_type == "customer_request"),
+            uzex_bypass=False, is_lead=_is_tg_lead(t),
         )
         for t in new_tenders
     ]
@@ -1188,7 +1227,7 @@ def _format_alert(
     prefix = ""
     if alert_seq is not None:
         prefix = "#%03d " % alert_seq
-    if tender.message_type == "customer_request":
+    if _is_tg_lead(tender):
         parts.append("%s🔥🔥🔥 ГОРЯЧИЙ ЛИД" % prefix)
     elif tender.message_type == "info":
         parts.append("%s[ИНФО]" % prefix)
@@ -1310,16 +1349,18 @@ _PUSH_PRICE_FLOOR = 100_000_000  # 100M UZS — big-ticket always pushes
 
 def _route_to_push(t: RawTender, mutes: set) -> bool:
     """Push-vs-digest routing decision (module-level so it is unit-testable).
-    customer_request overrides a source-mute — a real client asking to buy NOW is
-    recall we never trade away; everything else needs high signal AND an unmuted source."""
-    if getattr(t, "message_type", None) == "customer_request":
+    ЧАТОВЫЙ лид обходит мьют источника — живой клиент, который просит купить
+    сейчас, это recall, которым мы не торгуем. Площадочный встречный аукцион
+    сюда НЕ входит (замер 29.07: все 12 алерченных за неделю проходят общий
+    роутинг и без оговорки); ему нужен high signal И немьютнутый источник."""
+    if _is_tg_lead(t):
         return True
     return _is_high_signal(t) and t.source not in mutes
 
 
 def _is_high_signal(t: RawTender) -> bool:
     """True → per-alert push; False → digest."""
-    if getattr(t, "message_type", None) == "customer_request":
+    if _is_tg_lead(t):
         return True  # hot lead: a client asking to buy NOW
     if any(m in (t.source or "").lower() for m in _SUPPLIER_CATALOG_MARKERS):
         # Supplier-catalog listings NEVER earn a push (Daniyar's locked decision:
@@ -1453,7 +1494,7 @@ async def send_alerts(
                 # "usta kerak", non-print tech). Run the LIGHT spam gate instead:
                 # drops pure spam / out-of-scope (sewing, cutting/signage per
                 # Daniyar 12.06), keeps every real order. Fail-open.
-                if getattr(tender, "message_type", None) == "customer_request":
+                if _is_tg_lead(tender):
                     if await _ai_lead_is_spam(tender, ai_client):
                         return tender, kw, RelevanceResult(
                             is_relevant=False, score=0,
@@ -1542,7 +1583,7 @@ async def send_alerts(
     # Hot leads first: customer_request items (real clients asking to buy NOW)
     # jump the queue — lowest seq + sent before tender noise. Stable sort keeps
     # relative order within each group.
-    matching.sort(key=lambda tk: 0 if getattr(tk[0], "message_type", None) == "customer_request" else 1)
+    matching.sort(key=lambda tk: 0 if _is_tg_lead(tk[0]) else 1)
 
     # ── Pre-send live verification (V1, 2026-07-02): re-check each PUSH lot on
     # its source platform; drop confirmed closed/gone («алерт есть — тендера нет»).
@@ -1584,7 +1625,7 @@ async def send_alerts(
             # Leads keep \u041a\u043b\u0438\u0435\u043d\u0442/\u0420\u0435\u043a\u043b\u0430\u043c\u0430/\u041c\u0438\u043c\u043e; tenders get \u0418\u043d\u0442\u0435\u0440\u0435\u0441\u043d\u043e/\u0420\u0435\u043a\u043b\u0430\u043c\u0430/\u041d\u0435 \u043c\u043e\u0451.
             # Same callback semantics (ok=keep, ad=spam, skip=FP) \u2192 feedback_bot and
             # in-flight old alerts unchanged; only the visible label adapts.
-            if tender.message_type == "customer_request":
+            if _is_tg_lead(tender):
                 _fb_row = [
                     {"text": "\U0001f464 \u041a\u043b\u0438\u0435\u043d\u0442", "callback_data": "fb:%d:ok" % seq},
                     {"text": "\U0001f4e2 \u0420\u0435\u043a\u043b\u0430\u043c\u0430", "callback_data": "fb:%d:ad" % seq},

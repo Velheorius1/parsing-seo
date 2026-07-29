@@ -86,10 +86,18 @@ def test_muted_coop_source_routes_to_digest():
     assert _route_to_push(t, set())                                 # no mute → push
 
 
-def test_customer_request_overrides_mute():
+def test_tg_lead_overrides_mute():
     # A real client asking to buy NOW is recall we never trade away.
-    t = _mk(message_type="customer_request", source="Cooperation.uz Лоты")
-    assert _route_to_push(t, {"Cooperation.uz Лоты"})
+    t = _mk(message_type="customer_request", source="TG: PR Media Group (запросы клиентов)")
+    assert _route_to_push(t, {"TG: PR Media Group (запросы клиентов)"})
+
+
+def test_platform_customer_request_does_not_override_mute():
+    # 29.07: привилегия «пушить в обход мьюта» принадлежит ЧАТОВОМУ лиду.
+    # Площадочный встречный аукцион несёт ту же метку, но это закупка —
+    # замер показал, что все алерченные за неделю проходят и общий роутинг.
+    t = _mk(message_type="customer_request", source="Cooperation.uz Лоты", price=6_000_000)
+    assert not _route_to_push(t, {"Cooperation.uz Лоты"})
 
 
 def test_supplier_catalog_never_pushes():

@@ -88,9 +88,20 @@ def test_info_message_type_drops_first():
     assert r.verdicts[0].dropped_at == DropStage.MESSAGE_TYPE
 
 
-def test_customer_request_is_lead():
-    r = _run([_mk(message_type="customer_request")])
+def test_tg_customer_request_is_lead():
+    # Чатовый лид судится спам-гейтом — ради этого метка и существует.
+    r = _run([_mk(message_type="customer_request",
+                  source="TG: PR Media Group (запросы клиентов)")])
     assert r.verdicts[0].passed and r.verdicts[0].is_lead
+
+
+def test_reverse_auction_customer_request_is_not_lead():
+    # 29.07: площадочный встречный аукцион тоже несёт customer_request, но это
+    # закупка с ценой и заказчиком — её судит тендерный тракт, а не промпт,
+    # начинающийся словами «Это сообщение из Telegram-чата».
+    r = _run([_mk(message_type="customer_request",
+                  source="XT-Xarid встречные аукционы")])
+    assert r.verdicts[0].passed and not r.verdicts[0].is_lead
 
 
 def test_no_push_source_drops():
