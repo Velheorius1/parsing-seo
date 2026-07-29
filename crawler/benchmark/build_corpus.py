@@ -34,6 +34,27 @@ sys.path.insert(0, "/opt/parsing-seo")
 # that never runs on them.
 _LEAD_SOURCES = ("TG: PR Media Group (запросы клиентов)",)
 
+# Corrections to the human labels, confirmed by Daniyar 2026-07-28.
+#
+# The corpus derives labels mechanically from alert_feedback.corrected_label,
+# so a mis-click becomes benchmark ground truth and the gate gets punished for
+# being RIGHT. These three were flagged during the lead-precision work because
+# they contradict explicit keep-rules of the prompt (stickers and boxes are our
+# profile) — Daniyar confirmed the clicks, not the rules, were wrong.
+#
+# Keyed by an exact text prefix so a re-run of this script cannot silently
+# revert them. NOTE: the clicks themselves still sit in alert_feedback with the
+# old labels and still feed Monday's playbook_refine — fixing prod data is a
+# separate, deliberate call.
+_LABEL_OVERRIDES = {
+    "Нужен исполнитель для печати наклеек на листе":
+        ("client", "печать наклеек — прямо в keep-списке промпта"),
+    "Изготовление именной подарочной коробки срочно":
+        ("client", "коробка — наш профиль; единичность не делает заказ чужим"),
+    "sergelida UV pechat kimda bor, bitta qutuni ustiga":
+        ("client", "запрос УФ-печати на коробке, помечен как реклама по ошибке"),
+}
+
 _NOISE_TERMS = ["Изолента", "Стакан бумажный", "Портландцемент",
                 "Указатель высокого", "Марля полиграфическая", "NFC визитк"]
 
@@ -136,6 +157,14 @@ def add_feedback(b, limit_per_label=None):
         want[lab] -= 1
         src = r.get("source") or ""
         is_lead = src in _LEAD_SOURCES
+
+        note = "clicked by Daniyar; %s gate in prod" % ("lead-spam" if is_lead else "relevance")
+        for prefix, (corrected, why) in _LABEL_OVERRIDES.items():
+            if txt.startswith(prefix):
+                note = "МЕТКА ИСПРАВЛЕНА (%s → %s, 28.07): %s" % (lab, corrected, why)
+                lab = corrected
+                break
+
         b.add(kind="lead" if is_lead else "ai_only",
               external_id="fb-%04d" % (len(b.entries) + 1),
               title=txt[:200], search_text=txt[:1200], organization="",
@@ -146,8 +175,7 @@ def add_feedback(b, limit_per_label=None):
               expect_delivered=(lab == "client"), category=lab,
               provenance="feedback:corrected",
               frozen_now="2026-07-28T00:00:00+00:00",
-              note="clicked by Daniyar; %s gate in prod"
-                   % ("lead-spam" if is_lead else "relevance"))
+              note=note)
 
 
 def add_noise(b):
@@ -155,11 +183,16 @@ def add_noise(b):
     c = _client()
     for term in _NOISE_TERMS:
         def _q(t=term):
+            # ORDER BY is not cosmetic here: without it Postgres returns an
+            # arbitrary pair each run, so rebuilding the "frozen" corpus quietly
+            # swapped 7 noise rows for 7 others (caught by diffing v1.1 vs v2).
+            # A benchmark whose contents drift on rebuild is not a benchmark.
             return (c.table("tenders")
                     .select("external_id,source,title,organization,search_text,price,"
                             "currency,deadline,message_type,extra_info,bid_count,status,"
                             "collected_at")
-                    .ilike("title", "%%%s%%" % t).limit(2).execute())
+                    .ilike("title", "%%%s%%" % t)
+                    .order("external_id").limit(2).execute())
         try:
             for r in (query_with_retry(_q, label="noise").data or []):
                 b.snapshot(r, label="irrelevant", expect_delivered=False,
@@ -190,14 +223,17 @@ def main():
     add_feedback(b)
 
     corpus = {
-        "corpus_version": "v1.1",
+        "corpus_version": "v2",
         "created": "2026-07-28",
         "notes": ("Замороженный бенчмарк ВЕРСИИ краулера. Не дублирует weekly_metrics: "
                   "тот меряет живую неделю (данные плавают, версии несравнимы), этот — "
                   "детерминированный прогон одного набора через любой коммит. "
                   "label = правда о мире; expect_delivered = что политика предписывает "
                   "сегодня. kind=lead судится spam-гейтом, как в проде. "
-                  "Пересобрать: python3 -m crawler.benchmark.build_corpus"),
+                  "Пересобрать: python3 -m crawler.benchmark.build_corpus. "
+                  "v1.1 → v2 (28.07): исправлены три метки, где клик противоречил "
+                  "явным keep-правилам (наклейки, коробки) — подтверждено Данияром. "
+                  "Смена меток = мажорная версия, баллы v1.1 и v2 несравнимы."),
         "entries": b.entries,
     }
     print(json.dumps(corpus, ensure_ascii=False, indent=1))
