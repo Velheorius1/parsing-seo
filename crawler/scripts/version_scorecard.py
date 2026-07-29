@@ -55,6 +55,13 @@ LOG_PATH = os.path.join(LOG_DIR, "version_scores.jsonl")
 
 WEIGHTS = {"recall": 0.40, "precision": 0.30, "routing": 0.15, "prefilter": 0.15}
 AI_ERROR_DEGRADED = 0.15   # above this the run is not comparable
+
+# Measured, not assumed. Three identical v1 runs first suggested zero variance —
+# a conclusion three samples cannot support. Two later runs on the SAME commit
+# and corpus returned 10.0 and 9.9: one borderline entry ("УФ-печать на
+# прозрачной плёнке") flips between fast-model calls. So the floor of a
+# meaningful delta is ~0.2; the red flag keeps a 10x margin over observed noise.
+OBSERVED_NOISE = 0.1       # points, same code + same corpus
 RED_FLAG_DROP = 1.0        # points; below this is provider noise, not regression
 
 
