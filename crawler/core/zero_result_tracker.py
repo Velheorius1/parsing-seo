@@ -167,6 +167,24 @@ def should_send_recovery(prior, new_state):
     return new_state.get("last_outcome") == OK_WITH_DATA
 
 
+def recovery_is_due(now=None):
+    # type: (Optional[datetime]) -> bool
+    """Шлём ли сегодня «снова с данными».
+
+    Правило — раз в неделю, по понедельникам UTC (просьба Данияра 30.06:
+    восстановление источника не критично, а каждый цикл оно шумит). Поломка
+    сбора при этом уходит сразу, в любой день.
+
+    Вынесено из тела `track_and_alert` отдельной функцией потому, что было
+    инлайн-условием на `datetime.now()`, и два теста на восстановление
+    проходили ТОЛЬКО по понедельникам, а остальные шесть дней недели считались
+    «предсуществующими падениями сьюта». Тест, зависящий от дня запуска, не
+    тест — теперь правило подменяется в тестах и закреплено отдельно.
+    """
+    now = now or datetime.now(timezone.utc)
+    return now.weekday() == 0
+
+
 async def track_and_alert(outcomes, dry_run=False):
     # type: (Dict[str, Dict], bool) -> int
     """Update persisted state and send alerts/recoveries.
@@ -216,12 +234,10 @@ async def track_and_alert(outcomes, dry_run=False):
     sent = 0
     if not dry_run:
         # «Молчит N циклов» — всегда (поломка сбора, требует действия).
-        # «Снова с данными» (recovery) — раз в неделю (понедельник UTC): не критично,
-        # шумит каждый цикл. По просьбе Данияра (30.06). State сохраняется в любом
-        # случае, чтобы recovery не задваивался.
-        from datetime import datetime as _dt, timezone as _tz
+        # «Снова с данными» — по расписанию из recovery_is_due (понедельник UTC).
+        # State сохраняется в любом случае, чтобы recovery не задваивался.
         bodies = list(alerts_to_send)
-        if _dt.now(_tz.utc).weekday() == 0:
+        if recovery_is_due():
             bodies += recoveries_to_send
         for body in bodies:
             if await _send_telegram(body):

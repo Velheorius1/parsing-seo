@@ -74,9 +74,18 @@ class TestExtractWords:
         assert "закупка" not in words  # in stop list
         assert "ташкенте" in words
 
-    def test_extracts_numbers(self):
+    def test_spec_tokens_are_stripped_not_kept(self):
+        # Тест раньше требовал обратного — чтобы число попало в набор слов. Это
+        # поведение отменено осознанно 01.07 (`c972851`, «dedup Hole 2»): тираж,
+        # размер и формат вырезаются, чтобы «чек лента 80мм» и «чек лента 80г»
+        # не разъезжались на два логических лота. Тест не обновили, и он месяц
+        # числился «предсуществующим падением сьюта».
+        # Цена решения, записанная явно: два лота одного заказчика, различающиеся
+        # ТОЛЬКО тиражом, схлопнутся в один алерт.
         words = _extract_significant_words("Этикетки 5000 шт")
-        assert "5000" in words
+        assert words == {"этикетки"}, words
+        assert _extract_significant_words("Чек лента 80мм") == {"чек", "лента"}
+        assert _extract_significant_words("Бумага А4") == {"бумага"}
 
     def test_empty_string(self):
         assert _extract_significant_words("") == set()

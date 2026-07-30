@@ -188,6 +188,31 @@ def capture_tg(monkeypatch):
     return sent
 
 
+@pytest.fixture
+def recovery_day(monkeypatch):
+    """Считать, что сегодня понедельник — день недельной рассылки recovery.
+
+    Без этого два теста ниже проходили ТОЛЬКО по понедельникам, а остальные
+    шесть дней выглядели «предсуществующим падением сьюта» (и именно так их и
+    записали 30.07, пока не разобрались). Сам недельный режим закреплён
+    отдельным тестом ниже.
+    """
+    monkeypatch.setattr(zrt, "recovery_is_due", lambda now=None: True)
+
+
+class TestRecoverySchedule:
+    """Недельный режим recovery — правило, а не случайность дня запуска."""
+
+    def test_recovery_only_on_monday(self):
+        from datetime import datetime, timezone
+        monday = datetime(2026, 7, 27, 6, 0, tzinfo=timezone.utc)
+        assert monday.weekday() == 0
+        assert zrt.recovery_is_due(monday) is True
+        for shift in range(1, 7):
+            day = datetime(2026, 7, 27 + shift, 6, 0, tzinfo=timezone.utc)
+            assert zrt.recovery_is_due(day) is False, day
+
+
 class TestTrackAndAlert:
     def _run(self, outcomes, dry_run=False):
         return asyncio.get_event_loop().run_until_complete(
@@ -215,7 +240,7 @@ class TestTrackAndAlert:
             self._run(out)
         assert len(capture_tg) == 1, "still exactly one alert"
 
-    def test_recovery_clears_state_and_messages(self, fake_store, capture_tg):
+    def test_recovery_clears_state_and_messages(self, fake_store, capture_tg, recovery_day):
         out_zero = {"sid-x": {"count": 0, "skipped_no_auth": False, "error": None}}
         out_ok = {"sid-x": {"count": 7, "skipped_no_auth": False, "error": None}}
         for _ in range(zrt.ALERT_THRESHOLD):
@@ -253,7 +278,7 @@ class TestTrackAndAlert:
         # State never written
         assert fake_store.saved is None
 
-    def test_mixed_outcomes_single_run(self, fake_store, capture_tg):
+    def test_mixed_outcomes_single_run(self, fake_store, capture_tg, recovery_day):
         # Seed pre-existing streaks so one source crosses the threshold on this run.
         import json
         fake_store.saved = {
