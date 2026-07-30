@@ -204,12 +204,14 @@ class TestRecoverySchedule:
     """Недельный режим recovery — правило, а не случайность дня запуска."""
 
     def test_recovery_only_on_monday(self):
-        from datetime import datetime, timezone
+        # Сдвиг через timedelta, а не арифметикой по числу месяца: 27+5 дало
+        # «32 июля» и падение теста, который проверяет чужую календарность.
+        from datetime import datetime, timedelta, timezone
         monday = datetime(2026, 7, 27, 6, 0, tzinfo=timezone.utc)
         assert monday.weekday() == 0
         assert zrt.recovery_is_due(monday) is True
         for shift in range(1, 7):
-            day = datetime(2026, 7, 27 + shift, 6, 0, tzinfo=timezone.utc)
+            day = monday + timedelta(days=shift)
             assert zrt.recovery_is_due(day) is False, day
 
 
