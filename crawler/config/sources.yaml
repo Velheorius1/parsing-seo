@@ -853,7 +853,11 @@ sources:
     rate_limit: 2
     timeout: 15
     id_prefix: "ebirja-ns"
-    response_path: "data"
+    # FIX 2026-07-30: было "data", источник молчал 54 дня при ЖИВОМ эндпоинте.
+    # Конверт xarid-api — {"result": {"data": [...]}}; у соседа ebirja-eshop (тот
+    # же URL, отличается только platform_display) путь правильный, здесь его
+    # просто не поправили. Проверено живым запросом: HTTP 200, данные есть.
+    response_path: "result.data"
     field_map:
       title: title
       organization: made_in
@@ -2987,10 +2991,20 @@ sources:
   #   alternative (list/active/counter-auction all 404; /auction-product/all without 'external' = 401 auth).
   #   Likely transient (no active reverse auctions today). Monitored via zero-result tracker (#6 ok_empty state).
   #   See docs/findings/ebirja-reverse-auction-diagnosis.md
+  # ОТКЛЮЧЁН 2026-07-30 — разобрано до конца, «пусто» было ДВУМЯ разными вещами.
+  #   (1) Эндпоинт жив и не пуст: 200, meta.totalCount = 59. Ноль в наших логах
+  #       давал не сервер, а field_map: он читает name / company_name / price /
+  #       end_date, а записи содержат productDetailNameRu, addressRu, amount,
+  #       unitTypeNameRu — заголовок выходил пустым, и адаптер отбрасывал всё.
+  #   (2) Чинить field_map незачем: это биржевое ТАБЛО СПОТ-ЦЕН на сырьё
+  #       (портландцемент, уголь) — ни покупателя, ни дедлайна, ни лота, только
+  #       цена за тонну и базис поставки. Спроса на полиграфию тут нет и быть не
+  #       может, а 59 строк сырья в день — чистый шум в префильтре.
+  #   Реанимировать, только если ebirja откроет закупочную сторону биржи.
   - id: ebirja-reverse-auction
     name: "E-Birja встречные аукционы"
     adapter: api
-    enabled: true
+    enabled: false
     url: "https://api.ebirja.uz/fond-api/api/external/auction-product/all"
     method: GET
     headers:
