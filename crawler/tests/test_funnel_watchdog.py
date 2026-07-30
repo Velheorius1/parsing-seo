@@ -200,6 +200,32 @@ def test_many_silent_sources_collapse_into_one_line():
     assert any("ещё 3 источника" in a for a in alarms), alarms
 
 
+# ── состояние: когда молчать, когда писать снова ──────────────────────────────
+
+def test_alarm_kind_is_stable_when_only_numbers_drift():
+    # Иначе сторож писал бы в Telegram каждый день, пока просадка не пройдёт.
+    a = "объём: 54.0 → 18.6 алертов/день (−65.6% к базе 28 дн)"
+    b = "объём: 53.1 → 18.9 алертов/день (−64.4% к базе 28 дн)"
+    assert W.alarm_kind(a) == W.alarm_kind(b) == "volume"
+
+
+def test_alarm_kinds_separate_by_meaning():
+    assert W.alarm_kind("объём ниже пола: 3.0 алертов/день (пол 8.0)") == "floor"
+    assert W.alarm_kind("сползание: 3 недели подряд вниз, 84.0 → 18.0") == "slide"
+    assert W.alarm_kind("стадия «алертов / новых»: 0.030 → 0.008 (−73.3%)") \
+        == "stage:алертов / новых"
+    assert W.alarm_kind("источник замолчал в алертах: «TG: Мин ИТ» (было 16, стало 0)") \
+        == "source:TG: Мин ИТ"
+    assert W.alarm_kind("ещё 3 источника замолчали (30 алертов в базе): A, B, C") \
+        == "sources_tail"
+
+
+def test_new_source_going_silent_is_a_new_kind():
+    k1 = W.alarm_kind("источник замолчал в алертах: «A» (было 16, стало 0)")
+    k2 = W.alarm_kind("источник замолчал в алертах: «B» (было 16, стало 0)")
+    assert k1 != k2
+
+
 # ── подписи ───────────────────────────────────────────────────────────────────
 
 def test_growth_is_not_printed_as_double_minus():

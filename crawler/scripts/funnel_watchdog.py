@@ -426,6 +426,30 @@ def render(rep, alarms, notes):
     return "\n".join(L)
 
 
+def alarm_kind(text):
+    # type: (str) -> str
+    """Устойчивый вид тревоги — то, ПО ЧЕМУ сравнивается состояние.
+
+    Сравнивать состояние по готовым строкам нельзя: в них проценты, и любой
+    дрейф «−65.6%» → «−65.9%» читался бы как новая тревога, то есть сторож
+    писал бы в Telegram каждый день, пока просадка не пройдёт. Вид же меняется
+    только когда меняется СУТЬ картины.
+    """
+    if text.startswith("объём ниже пола"):
+        return "floor"
+    if text.startswith("объём"):
+        return "volume"
+    if text.startswith("сползание"):
+        return "slide"
+    for prefix, kind in (("стадия", "stage"), ("источник замолчал", "source")):
+        if text.startswith(prefix):
+            name = text.split("«", 1)[-1].split("»", 1)[0] if "«" in text else ""
+            return "%s:%s" % (kind, name)
+    if text.startswith("ещё"):
+        return "sources_tail"
+    return text[:40]
+
+
 async def _send_telegram(text):
     # type: (str) -> bool
     if not settings.telegram_bot_token or not settings.telegram_alert_chat_id:
@@ -475,18 +499,20 @@ async def main(dry_run=False, as_of=None):
         print(render(rep, alarms, notes))
         return 1 if alarms else 0
 
-    # Шлём при смене набора тревог: молчим, пока картина та же, и отбиваем
-    # выздоровление один раз.
+    # Шлём при смене НАБОРА ВИДОВ тревог: молчим, пока картина та же, и отбиваем
+    # выздоровление один раз. Сравнение по видам, а не по текстам — иначе дрейф
+    # процента в формулировке выглядел бы новой тревогой каждый день.
     raw = session_store.get_setting(STATE_KEY)
-    prev = set(raw.get("alarms", [])) if isinstance(raw, dict) else set()
-    now_set = set(alarms)
+    prev = set(raw.get("kinds", [])) if isinstance(raw, dict) else set()
+    now_set = set(alarm_kind(a) for a in alarms)
     if now_set and now_set != prev:
         await _send_telegram(render(rep, alarms, notes))
     elif prev and not now_set:
         await _send_telegram("✅ *Воронка алертов восстановилась*\nалертов/день: %.1f"
                              % rep["per_day_recent"])
     session_store.set_setting(STATE_KEY, {
-        "alarms": sorted(now_set),
+        "kinds": sorted(now_set),
+        "alarms": alarms,          # текст последней картины — для разбора руками
         "per_day_recent": rep["per_day_recent"],
         "updated_at": datetime.now(timezone.utc).isoformat(),
     })
