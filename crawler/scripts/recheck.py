@@ -210,9 +210,40 @@ async def run(days, min_price, cap, execute):
         return 0
 
     from crawler.core.notifier import send_alerts
-    sent = await send_alerts(deduped, dry_run=False)
-    logger.info("ДОСЛАНО: %d алертов из %d кандидатов", sent, len(deduped))
-    return sent
+    pushed = await send_alerts(deduped, dry_run=False)
+    delivered = _count_delivered(deduped)
+    # `send_alerts` возвращает ТОЛЬКО пуши. Первая версия печатала это число как
+    # «доставлено», и прогон, отправивший дайджест из 16 строк, отчитался
+    # «ДОСЛАНО: 0» — отчёт занижал собственную работу. Считаем по факту в базе:
+    # дайджест-строки тоже получают alert_seq.
+    logger.info("ДОСЛАНО: %d из %d кандидатов (пушей %d, остальное дайджестом)",
+                delivered, len(deduped), pushed)
+    return delivered
+
+
+def _count_delivered(tenders):
+    # type: (List) -> int
+    """Сколько из переданных лотов реально получили номер алерта."""
+    from crawler.core.db import _get_client, query_with_retry
+    ids = [getattr(t, "external_id", None) for t in tenders]
+    ids = [i for i in ids if i]
+    if not ids:
+        return 0
+    client = _get_client()
+    total = 0
+    for start in range(0, len(ids), 100):
+        chunk = ids[start:start + 100]
+
+        def _q(c=chunk):
+            return (client.table("tenders").select("external_id,alert_seq")
+                    .in_("external_id", c).execute())
+        try:
+            rows = query_with_retry(_q, label="recheck delivered").data or []
+        except Exception as exc:
+            logger.warning("не смог сверить доставку по базе: %s", str(exc)[:100])
+            return -1
+        total += sum(1 for r in rows if r.get("alert_seq") is not None)
+    return total
 
 
 def main():
