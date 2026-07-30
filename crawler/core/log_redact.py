@@ -47,9 +47,25 @@ def redact(text):
 
 
 def _redact_any(value):
+    """Отредактировать аргумент записи лога.
+
+    Проверять только `isinstance(value, str)` НЕДОСТАТОЧНО, и это выяснилось на
+    живом проде, а не в тестах: httpx кладёт в args не строку, а объект
+    `httpx.URL`, поэтому первая версия фильтра пропускала токен целиком.
+    Поэтому у не-строк смотрим строковое представление и подменяем ТОЛЬКО если
+    в нём действительно нашёлся секрет — числа и прочее остаются собой, и
+    форматирование `%d`/`%f` не ломается.
+    """
     if isinstance(value, str):
         return redact(value)
-    return value
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    try:
+        text = str(value)
+    except Exception:                             # pragma: no cover
+        return value
+    redacted = redact(text)
+    return redacted if redacted != text else value
 
 
 def install():

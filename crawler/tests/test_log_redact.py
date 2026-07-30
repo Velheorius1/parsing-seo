@@ -60,6 +60,37 @@ def test_record_args_are_redacted_not_just_message():
     assert "200 OK" in rec.getMessage()
 
 
+class _FakeURL(object):
+    """httpx кладёт в args не строку, а объект URL — ровно это и утекло."""
+
+    def __init__(self, raw):
+        self._raw = raw
+
+    def __str__(self):
+        return self._raw
+
+
+def test_non_string_arg_with_str_repr_is_redacted():
+    # РЕГРЕССИЯ 30.07: первая версия фильтра проверяла isinstance(value, str),
+    # тесты были зелёными, а на живом проде токен лёг в лог целиком — потому что
+    # httpx передаёт httpx.URL, а не str.
+    install()
+    rec = logging.getLogRecordFactory()(
+        "httpx", logging.INFO, __file__, 1,
+        "HTTP Request: %s %s \"%s\"",
+        ("GET", _FakeURL(URL), "HTTP/1.1 200 OK"), None)
+    assert TOKEN not in rec.getMessage(), rec.getMessage()
+    assert "api.telegram.org" in rec.getMessage()
+
+
+def test_numbers_stay_numbers():
+    # Подменять всё подряд строкой нельзя: %d на строке падает.
+    install()
+    rec = logging.getLogRecordFactory()(
+        "x", logging.INFO, __file__, 1, "собрано %d за %.1fс", (100, 1.5), None)
+    assert rec.getMessage() == "собрано 100 за 1.5с", rec.getMessage()
+
+
 def test_dict_args_are_redacted():
     install()
     # logging принимает словарь именно так — одним элементом кортежа, и сам его
