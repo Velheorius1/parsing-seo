@@ -61,6 +61,18 @@ MIN_SRC_ALERTS = 5       # источник считаем «дававшим»,
 MIN_BASE_DAYS = 14       # меньше данных в базе — сравнивать нечестно
 MAX_SILENT_ALARMS = 4    # больше — сворачиваем в одну строку, чтобы не глушить
 
+# Проверка на сползание. Бэктест 30.07 показал: порога «−50% к базе 28 дней»
+# мало. Он звенел бы 26.07 — на три дня раньше человека, и то потому, что к
+# этому дню обвал стал резким. На 12.07 падение было −39.6%, на 19.07 −45.8%,
+# и сторож молчал бы обе недели, потому что база сама съезжает вместе с трендом.
+# Понижать порог до 30% нельзя: недельный разброс достигает ±20% (на 05.07
+# сравнение дало +20% роста). Поэтому вторая, независимая проверка — форма
+# кривой: три недельных шага подряд вниз и суммарное падение ≥ TREND_DROP_PCT.
+# Разброс так себя не ведёт, а пятинедельное сползание — ровно так.
+DAYS_TREND = 56          # окно для недельных корзин
+TREND_WEEKS = 3          # столько шагов подряд вниз считаем сползанием
+TREND_DROP_PCT = 30      # и суммарное падение от начала серии
+
 FIELDS_ALERTED = "source,collected_at,alert_seq"
 RUN_FIELDS = ("started_at,total_fetched,total_new,alerts_sent,ai_calls_count,dry_run")
 
@@ -181,6 +193,48 @@ def _delta(drop):
     return " (+%.1f%% роста)" % abs(drop)
 
 
+def weekly_buckets(runs, end, weeks):
+    # type: (List[Dict], datetime, int) -> List[Dict]
+    """Алертов в день по недельным корзинам, от старой к свежей.
+
+    Корзины считаются назад от `end` семидневками, поэтому последняя корзина —
+    это ровно свежее окно из проверки A.
+    """
+    out = []            # type: List[Dict]
+    for k in range(weeks, 0, -1):
+        hi = (end - timedelta(days=7 * (k - 1))).isoformat()
+        lo = (end - timedelta(days=7 * k)).isoformat()
+        alerts = _sum_window(runs, lo, hi, "alerts_sent")
+        days = len(set(str(r.get("started_at"))[:10] for r in runs
+                       if lo <= str(r.get("started_at") or "") < hi))
+        out.append({"from": lo[:10], "to": hi[:10], "alerts": alerts,
+                    "days": days, "per_day": round(alerts / 7.0, 1)})
+    return out
+
+
+def trend_slide(buckets):
+    # type: (List[Dict]) -> Optional[Dict]
+    """Сползание: TREND_WEEKS шагов подряд вниз и суммарное падение от начала
+    серии ≥ TREND_DROP_PCT. Возвращает описание или None.
+
+    Смотрим ровно хвост: сползание — это то, что происходит сейчас, а не то, что
+    когда-то было в середине окна.
+    """
+    need = TREND_WEEKS + 1
+    tail = [b for b in buckets if b["days"] > 0][-need:]
+    if len(tail) < need:
+        return None
+    for i in range(1, len(tail)):
+        if tail[i]["per_day"] >= tail[i - 1]["per_day"]:
+            return None
+    drop = _pct_drop(tail[0]["per_day"], tail[-1]["per_day"])
+    if drop is None or drop < TREND_DROP_PCT:
+        return None
+    return {"weeks": len(tail) - 1, "drop": drop,
+            "path": [b["per_day"] for b in tail],
+            "from": tail[0]["from"], "to": tail[-1]["to"]}
+
+
 def silent_sources(src_base, src_recent, nopush=None):
     # type: (Dict, Dict, Optional[frozenset]) -> List[Dict]
     """Источники, дававшие алерты в базе и умолкшие в свежем окне.
@@ -207,7 +261,10 @@ def silent_sources(src_base, src_recent, nopush=None):
 def analyze(as_of):
     # type: (datetime) -> Dict
     base_start, recent_start, end = _windows(as_of)
-    runs = _fetch_runs(base_start, end)
+    # crawl_runs тянем шире окон сравнения — на недельные корзины тренда.
+    # Таблица маленькая, лишние три недели ничего не стоят.
+    trend_start = (as_of - timedelta(days=DAYS_TREND)).isoformat()
+    runs = _fetch_runs(min(trend_start, base_start), end)
     alerted = _fetch_alerted(base_start, end)
 
     days_with_runs = len(set(str(r.get("started_at"))[:10] for r in runs
@@ -257,6 +314,9 @@ def analyze(as_of):
             src_recent[s] += 1
     silent = silent_sources(src_base, src_recent)
 
+    # D. Сползание — независимая от базы проверка формы кривой.
+    buckets = weekly_buckets(runs, as_of, DAYS_TREND // 7)
+
     return {
         "as_of": end, "base_start": base_start, "recent_start": recent_start,
         "days_with_runs_in_base": days_with_runs,
@@ -264,6 +324,7 @@ def analyze(as_of):
         "per_day_base": round(per_base, 1), "per_day_recent": round(per_recent, 1),
         "volume_drop_pct": vol_drop,
         "stages": stages, "silent_sources": silent,
+        "weekly": buckets, "slide": trend_slide(buckets),
         "src_base": dict(src_base), "src_recent": dict(src_recent),
     }
 
@@ -286,6 +347,12 @@ def verdict(rep):
     if rep["per_day_recent"] < FLOOR_PER_DAY:
         alarms.append("объём ниже пола: %.1f алертов/день (пол %.1f)"
                       % (rep["per_day_recent"], FLOOR_PER_DAY))
+
+    sl = rep.get("slide")
+    if sl:
+        alarms.append("сползание: %d недели подряд вниз, %s алертов/день (−%.1f%% с %s)"
+                      % (sl["weeks"], " → ".join("%.1f" % v for v in sl["path"]),
+                         sl["drop"], sl["from"]))
 
     for st in rep["stages"]:
         if not st.get("alarm"):
@@ -323,6 +390,10 @@ def render(rep, alarms, notes):
     L.append("алертов/день: *%.1f* → *%.1f*%s"
              % (rep["per_day_base"], rep["per_day_recent"],
                 _delta(rep["volume_drop_pct"])))
+    wk = [b for b in rep.get("weekly", []) if b["days"] > 0]
+    if wk:
+        L.append("по неделям: %s"
+                 % " → ".join("%.1f" % b["per_day"] for b in wk[-5:]))
     L.append("")
     L.append("*Стадии* (доля прохождения):")
     for st in rep["stages"]:

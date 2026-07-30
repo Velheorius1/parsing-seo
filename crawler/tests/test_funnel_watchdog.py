@@ -41,7 +41,8 @@ silent_sources = W.silent_sources
 verdict = W.verdict
 
 
-def _rep(per_base=54.0, per_recent=50.0, stages=None, silent=None, base_days=28):
+def _rep(per_base=54.0, per_recent=50.0, stages=None, silent=None, base_days=28,
+         slide=None, weekly=None):
     return {
         "as_of": "2026-07-30T00:00:00+00:00",
         "base_start": "2026-06-25T00:00:00+00:00",
@@ -56,6 +57,7 @@ def _rep(per_base=54.0, per_recent=50.0, stages=None, silent=None, base_days=28)
              "alarm": True, "drop": 0.0},
         ],
         "silent_sources": silent or [],
+        "weekly": weekly or [], "slide": slide,
         "src_base": {}, "src_recent": {},
     }
 
@@ -89,6 +91,53 @@ def test_short_base_refuses_to_judge():
     alarms, notes = verdict(_rep(per_base=54.0, per_recent=1.0, base_days=5))
     assert alarms == []
     assert any("база короткая" in n for n in notes), notes
+
+
+# ── сползание ─────────────────────────────────────────────────────────────────
+
+def _bk(values):
+    """Недельные корзины из значений алертов/день, от старой к свежей."""
+    return [{"from": "2026-06-%02d" % (1 + 7 * i), "to": "2026-06-%02d" % (8 + 7 * i),
+             "alerts": int(v * 7), "days": 7, "per_day": v}
+            for i, v in enumerate(values)]
+
+
+def test_slide_catches_five_week_decay():
+    # Настоящая кривая июля: 84 → 79 → 49 → 41 → 18 алертов/день.
+    sl = W.trend_slide(_bk([84.0, 79.0, 49.0, 41.0, 18.0]))
+    assert sl is not None and sl["drop"] > 30, sl
+
+
+def test_slide_fires_in_mid_july_when_percent_check_still_silent():
+    # На 12.07 сравнение с базой давало −39.6% и молчало (порог 50%), а форма
+    # кривой уже была сползанием. Ради этого проверка и добавлена.
+    path = [82.0, 70.0, 60.0, 50.0]
+    # Процентная проверка тут по построению молчит: −39% при пороге 50%.
+    assert _pct_drop(82.0, 50.0) < 50
+    sl = W.trend_slide(_bk(path))
+    assert sl is not None, sl
+    alarms, _ = verdict(_rep(per_base=82.0, per_recent=50.0, stages=[]))
+    assert alarms == [], "без проверки на форму кривой тут тихо — это и есть дыра"
+    alarms2, _ = verdict(_rep(per_base=82.0, per_recent=50.0, slide=sl))
+    assert any("сползание" in a for a in alarms2), alarms2
+
+
+def test_one_bad_week_is_not_a_slide():
+    # Разброс: провал и отскок. Звенеть тут значит звенеть на шуме.
+    assert W.trend_slide(_bk([60.0, 40.0, 62.0, 58.0])) is None
+
+
+def test_gentle_decline_below_threshold_is_not_a_slide():
+    # Три шага вниз, но суммарно −10%: это дыхание, а не сползание.
+    assert W.trend_slide(_bk([50.0, 48.0, 46.0, 45.0])) is None
+
+
+def test_recovery_breaks_the_slide():
+    assert W.trend_slide(_bk([84.0, 60.0, 40.0, 55.0])) is None
+
+
+def test_slide_needs_enough_weeks_with_data():
+    assert W.trend_slide(_bk([84.0, 40.0])) is None
 
 
 # ── стадии ────────────────────────────────────────────────────────────────────
