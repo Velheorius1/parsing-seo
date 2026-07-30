@@ -33,6 +33,7 @@ from crawler.core.notifier import (
     MIN_PRICE,
     prefilter,
     _is_deadline_expired,
+    _parse_deadline,
 )
 
 KW = ["печать", "упаковка", "коробка", "этикетка", "полиграфия", "лента"]
@@ -138,6 +139,27 @@ def test_deadline_none_passes_and_today_survives_grace():
 def test_deadline_two_days_ago_expires():
     r = _run([_mk(deadline=(NOW - timedelta(days=2)).strftime("%d.%m.%Y"))])
     assert r.verdicts[0].dropped_at == DropStage.DEADLINE_EXPIRED
+
+
+def test_dash_day_month_year_deadline_expires():
+    # `21-10-2025` не разбирался ни одним шаблоном до 30.07: гейт считал лот
+    # бессрочным, и такие строки не могли просрочиться никогда. Замер по всем
+    # 6 500 алертам: 102 в этом формате, 99 по уже закрытым лотам.
+    r = _run([_mk(deadline=(NOW - timedelta(days=30)).strftime("%d-%m-%Y"))])
+    assert r.verdicts[0].dropped_at == DropStage.DEADLINE_EXPIRED
+
+
+def test_dash_day_month_year_future_deadline_survives():
+    r = _run([_mk(deadline=(NOW + timedelta(days=10)).strftime("%d-%m-%Y"))])
+    assert r.verdicts[0].passed, r.verdicts[0].dropped_at
+
+
+def test_iso_deadline_still_wins_over_dash_pattern():
+    # Дефисный шаблон стоит до ISO, поэтому в строке с двумя датами выигрывает
+    # ISO, а внутрь чистой ISO-даты он не влезает вовсе.
+    assert _parse_deadline("2026-08-04") == datetime(2026, 8, 4)
+    assert _parse_deadline("с 21-10-2025 до 2026-08-04") == datetime(2026, 8, 4)
+    assert _parse_deadline("21-10-2025") == datetime(2025, 10, 21)
 
 
 def test_stale_stage_is_dead_400_days_reports_deadline_expired():
