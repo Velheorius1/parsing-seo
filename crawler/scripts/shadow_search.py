@@ -125,7 +125,7 @@ async def _judge_inscope(tenders):
     key = settings.openrouter_api_key
     if not key or not tenders:
         return None, []
-    fast = getattr(settings, "ai_relevance_model", None) or "deepseek/deepseek-v4-flash"
+    fast = getattr(settings, "ai_relevance_model", None) or "deepseek/deepseek-v4-flash-0731"
 
     async def _one(cl, t):
         prompt = _RELEVANCE_PROMPT.format(

@@ -393,18 +393,23 @@ async def _ai_call_one(
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
                 # Token budget зависит от роли:
-                # - fast (deepseek-v4-flash): 400 хватает, не reasoning model
-                # - max (deepseek-v4-pro): 1200 — это reasoning model с hybrid
-                #   attention, reasoning токены съедают бюджет до text. Compare
-                #   на 1 день после первичного fix (max_tokens=400) показал
-                #   no_json=20% + empty_answer=20% именно на max model.
+                # - fast: 400 хватает, это не reasoning model
+                # - max: 1200 — исторически там стоял deepseek-v4-pro, reasoning
+                #   model с hybrid attention, и reasoning-токены съедали бюджет до
+                #   text (замер за сутки при max_tokens=400: no_json 20% +
+                #   empty_answer 20% именно на max).
+                # С 02.08 гибрид выключен и в роли max ходит flash-0731, которому
+                # 1200 с запасом: живой вызов дал 58 токенов ответа и
+                # reasoning_tokens=0. Потолок не тарифицируется — платим за
+                # фактический выход, поэтому запас безвреден и оставлен как есть.
                 "max_tokens": 1200 if role == "max" else 400,
                 "temperature": 0,
-                # deepseek-v4-pro (max role) is a reasoning model: reasoning
-                # tokens ate the budget -> empty_answer/no_json ~20% -> score=None
-                # -> fail-open (junk like startup announcements alerted). Disable
-                # reasoning: this is product-scope classification, not a reasoning
-                # task. Verified 2026-06-08.
+                # Reasoning отключён у ВСЕХ моделей семейства: reasoning-токены
+                # съедали бюджет ответа -> empty_answer/no_json ~20% -> score=None
+                # -> fail-open (в алерты лез мусор вроде анонсов стартапов).
+                # Это классификация по профилю продукции, а не задача на
+                # рассуждение. Проверено 2026-06-08, подтверждено на flash-0731
+                # 02.08 (reasoning_tokens=0 в живом вызове).
                 "reasoning": {"enabled": False},
                 # OpenRouter structured output — enforce JSON object для моделей
                 # поддерживающих response_format (DeepSeek / OpenAI / большинство Qwen).

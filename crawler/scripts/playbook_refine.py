@@ -5,7 +5,10 @@ Flow (TZ §2.2): fetch corrections -> LLM classify+distil (NO proper names) -> d
 signal_key -> dedup (support_count++ / insert candidate) -> promote candidate->active at
 support_count>=2 (unless --bootstrap) -> report (TG --send). NEVER deletes (retire only).
 
-Model: deepseek-v4-pro (strong, not flash — feedback_no_dumb_model_for_savings).
+Model: settings.ai_relevance_model. До 02.08 здесь стоял deepseek-v4-pro с
+пометкой «strong, not flash» со ссылкой на правило feedback_no_dumb_model_for_savings;
+02.08 Данияр решил перевести весь конвейер на одну модель flash-0731, и дистилляция
+поехала вместе с ним. Прежнее решение отменено сознательно, а не потеряно.
 Usage: --days N (default 30), --bootstrap (all stay candidate), --send (TG report).
 """
 import argparse, json, re, sys

@@ -7,7 +7,7 @@ Pipeline:
   Supabase daily stats → _compute_stats() → _get_ai_recommendations() (LLM)
   → fallback _get_template_recommendations() on LLM failure → Telegram alert.
 
-Model: settings.ai_evaluator_model (default "deepseek/deepseek-v4-pro").
+Model: settings.ai_evaluator_model (default "deepseek/deepseek-v4-flash-0731").
 Rollback to template-only: set AI_EVALUATOR_ENABLED=false in .env.
 """
 
@@ -202,7 +202,7 @@ async def _get_ai_recommendations(stats):
         logger.debug("[AI Eval] No OpenRouter key, skipping LLM")
         return None
 
-    model = getattr(settings, "ai_evaluator_model", "deepseek/deepseek-v4-pro")
+    model = getattr(settings, "ai_evaluator_model", "deepseek/deepseek-v4-flash-0731")
 
     # Slim stats to what the model actually needs (avoid leaking source lists)
     payload = {

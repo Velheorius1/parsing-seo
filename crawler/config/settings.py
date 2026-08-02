@@ -85,23 +85,39 @@ class Settings(BaseSettings):
     # 2026-05-19: switched fast from qwen/qwen3-30b-a3b → deepseek/deepseek-v4-flash
     # (paid: $0.112/$0.224 per M tokens) for A/B comparison. JSONL logs at
     # /var/log/parsing-seo-ai-decisions.jsonl (analyse via scripts/compare_ai_models.py).
-    # Override via env AI_RELEVANCE_MODEL_FAST=qwen/qwen3-30b-a3b to roll back
-    # without redeploy.
-    ai_relevance_model_fast: str = "deepseek/deepseek-v4-flash"
+    #
+    # 2026-08-02: ГИБРИД ВЫКЛЮЧЕН — весь конвейер переведён на одну модель
+    # deepseek/deepseek-v4-flash-0731 (решение Данияра). Пустой fast означает
+    # одномодельный путь: пара «дешёвая + дорогая» существовала ровно ради
+    # второго мнения ДОРОГОЙ модели, а второе мнение той же самой модели — это
+    # просто повторный вызов с тем же ответом.
+    # Откат без передеплоя: в .env AI_RELEVANCE_MODEL_FAST=deepseek/deepseek-v4-flash
+    # и AI_RELEVANCE_MODEL=deepseek/deepseek-v4-pro.
+    ai_relevance_model_fast: str = ""
     # 2026-05-26: max model switched qwen/qwen3.6-max-preview → deepseek/deepseek-v4-pro
-    # after permanent 75% discount ($0.435/$0.87 per M vs Qwen ~$2/$8). Pro is also
-    # ~5-7x faster than Qwen3.6-max-preview p95=42s (was hurting alert latency).
-    # Override via env AI_RELEVANCE_MODEL=qwen/qwen3.6-max-preview to roll back.
-    ai_relevance_model: str = "deepseek/deepseek-v4-pro"
+    # after permanent 75% discount ($0.435/$0.87 per M vs Qwen ~$2/$8).
+    #
+    # 2026-08-02: → deepseek/deepseek-v4-flash-0731. Цена $0.09/$0.18 за M — вдвое
+    # дешевле прежней flash и впятеро дешевле pro, контекст 1M.
+    # ID проверен вызовом API ДО правки: ответ — валидный JSON, reasoning_tokens=0.
+    # Замер на замороженном корпусе (87 записей, по одному прогону каждой
+    # конфигурации, один и тот же день): было 9.9 (recall 97.5%, precision 100%),
+    # стало 9.9 (recall 100%, precision 97.9%). Балл тот же, профиль ошибки
+    # другой: прежняя пара резала один НАШ лот, новая пропускает один чужой.
+    # Разброс между прогонами не нулевой и известен — та же прежняя конфигурация
+    # дала 10.0 (29.07) и 9.9 (02.08), поэтому 0.1 разницы ничего не доказывает.
+    ai_relevance_model: str = "deepseek/deepseek-v4-flash-0731"
     # Structured AI output (migration 017): minimum score 0-100 to pass filter.
     # 70 = "вероятно наш". Lower = noisier alerts, higher = miss edge cases.
     ai_score_threshold: int = 70
 
-    # AI evaluator (daily quality report) — DeepSeek V4 Pro for nuanced analysis
-    # of crawl quality stats. Falls back to template-based recommendations if
-    # LLM call fails (network / 402 / parse). Set ai_eval_enabled=false to skip.
+    # AI evaluator (daily quality report). Falls back to template-based
+    # recommendations if the LLM call fails (network / 402 / parse).
+    # Set ai_eval_enabled=false to skip.
+    # 2026-08-02: pro → flash-0731 вместе со всем конвейером. Замером НЕ покрыт:
+    # корпус меряет гейт релевантности, а не связность суточного разбора.
     ai_eval_enabled: bool = True
-    ai_evaluator_model: str = "deepseek/deepseek-v4-pro"
+    ai_evaluator_model: str = "deepseek/deepseek-v4-flash-0731"
 
     # Crawler behaviour
     dry_run: bool = False

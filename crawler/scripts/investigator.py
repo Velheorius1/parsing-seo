@@ -39,7 +39,10 @@ from crawler.core.models import RawTender
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("investigator")
 
-MODEL = "deepseek/deepseek-v4-pro"  # via OpenRouter (settings.openrouter_api_key)
+# 2026-08-02: pro → flash-0731 вместе со всем конвейером (решение Данияра).
+# Замером НЕ покрыт: корпус меряет гейт релевантности, а не многошаговый
+# разбор лота с вызовом инструментов, который делает этот агент.
+MODEL = "deepseek/deepseek-v4-flash-0731"  # via OpenRouter (settings.openrouter_api_key)
 MAX_TURNS = 10
 DAILY_CAP = 10
 STATE_KEY = "investigations_v1"
