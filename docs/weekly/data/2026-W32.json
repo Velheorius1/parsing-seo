@@ -1,0 +1,213 @@
+{
+  "iso_week": "2026-W32",
+  "this_week": {
+    "date": "2026-08-03",
+    "alerts_sent_cum": 6690,
+    "alerts_week": 336,
+    "active_sources": 77,
+    "total_sources": 106,
+    "dead_sources": 29,
+    "tenders_7d": 77278,
+    "feedback_cum": 859,
+    "ai": {
+      "calls": 591,
+      "err_pct": 0.17,
+      "p95_ms": 10984,
+      "relevant": 121
+    }
+  },
+  "last_week": {
+    "date": "2026-07-27",
+    "alerts_sent_cum": 6354,
+    "alerts_week": 267,
+    "active_sources": 74,
+    "total_sources": 106,
+    "dead_sources": 32,
+    "tenders_7d": 93272,
+    "feedback_cum": 832,
+    "ai": {
+      "calls": 702,
+      "err_pct": 0.0,
+      "p95_ms": 9255,
+      "relevant": 167
+    }
+  },
+  "feedback": {
+    "last_7d": {
+      "total": 23,
+      "false_positives": 10,
+      "false_negatives": 0,
+      "accuracy": 56.5
+    },
+    "last_30d": {
+      "total": 469,
+      "false_positives": 379,
+      "false_negatives": 0,
+      "accuracy": 19.2
+    }
+  },
+  "subscores_deterministic": {
+    "precision": {
+      "score": 5.7,
+      "why": "feedback-based: 10 FP / 23 total"
+    },
+    "platform_health": {
+      "score": 7.3,
+      "why": "active 77 / 106 = 73%"
+    },
+    "recall": {
+      "score": 6.8,
+      "why": "alerts 336 vs 267 (anchor 6.8)"
+    },
+    "cost_reliability": {
+      "score": 8.4,
+      "why": "err 0.17% (9.7) + p95 10984ms (7.5)"
+    }
+  },
+  "weights": {
+    "link_integrity": 0.25,
+    "precision": 0.25,
+    "platform_health": 0.2,
+    "recall": 0.15,
+    "cost_reliability": 0.15
+  },
+  "link_integrity": {
+    "needs_browser_check": true,
+    "instructions": "Navigate 6-10 of the sample URLs; link-integrity = % that render a valid lot. Add as the 25%% sub-score, then composite = sum(weight*score).",
+    "sample_sources": [
+      "UZEX Предквалификации",
+      "UZEX Обратные аукционы",
+      "UZEX Э-магазин издательские услуги",
+      "XT-Xarid встречные аукционы",
+      "ETender UZEX",
+      "Cooperation.uz Лоты"
+    ]
+  },
+  "prune_candidates_report_only": [
+    {
+      "source": "Cooperation.uz Bosma (узб.)",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 993
+    },
+    {
+      "source": "Cooperation.uz Блокноты/Ежедневники",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 213
+    },
+    {
+      "source": "Cooperation.uz Брошюры/Буклеты",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 45
+    },
+    {
+      "source": "Cooperation.uz Календари",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 46
+    },
+    {
+      "source": "Cooperation.uz Конверты",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 328
+    },
+    {
+      "source": "Cooperation.uz Контракты",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 115
+    },
+    {
+      "source": "Cooperation.uz Пакеты",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 276
+    },
+    {
+      "source": "Cooperation.uz Печать",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 22
+    },
+    {
+      "source": "Cooperation.uz Полиграфия",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 174
+    },
+    {
+      "source": "Cooperation.uz Стикеры/Наклейки",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 50
+    },
+    {
+      "source": "Cooperation.uz Этикетки",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 27
+    },
+    {
+      "source": "E-Birja активные аукционы (xarid)",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 25
+    },
+    {
+      "source": "InFinBank",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 2
+    },
+    {
+      "source": "Orient Finance Bank",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 7
+    },
+    {
+      "source": "Sanoat Qurilish Bank",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 5
+    },
+    {
+      "source": "TG: PR UZB (запросы клиентов)",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 1
+    },
+    {
+      "source": "TG: tenderweekcom",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 10
+    },
+    {
+      "source": "TG: Мин ЖКХ",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 3
+    },
+    {
+      "source": "Tashkent Steel (ТМЗ)",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 1
+    },
+    {
+      "source": "TenderWeek.com",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 476
+    },
+    {
+      "source": "Ипотека-банк",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 20
+    },
+    {
+      "source": "Минстрой (tender.mc.uz)",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 440
+    },
+    {
+      "source": "Узбекистон Темир Йуллари",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 6
+    },
+    {
+      "source": "Узтрансгаз",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 6
+    }
+  ],
+  "notes": [
+    "Composite + improvement ideas finalized by the weekly Claude routine (it runs /deep-think and the browser link-check).",
+    "prune_candidates are REPORT-ONLY: nothing is auto-disabled.",
+    "alerts_week = delta of cumulative alerts_sent between weekly snapshots (today snapshot may be mid-day)."
+  ]
+}
