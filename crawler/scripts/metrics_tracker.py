@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import sys
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -47,21 +48,54 @@ def get_client():
 
 def _fetch_all(client, table, select, filters=None, limit_per_page=1000):
     # type: (Any, str, str, Optional[List], int) -> List[Dict]
-    """Fetch all rows with pagination (Supabase returns max 1000 per request)."""
+    """Fetch all rows with pagination (Supabase returns max 1000 per request).
+
+    RESILIENT (2026-08-03 fix). Deep OFFSET pagination over `tenders` outgrew
+    Supabase's statement timeout once the 7d window passed ~68k rows: the page at
+    offset=68000 raised APIError 57014 and the exception propagated all the way out
+    of main(), so THE DAILY SNAPSHOT WAS NEVER WRITTEN. It failed invisibly (the
+    crawler shares this logfile, and cron logged a normal start), which silently
+    broke week-over-week comparison — the weekly routine on 2026-08-03 found the
+    07-27 snapshot sitting in the "this week" slot and scored `alerts_week: 0`.
+
+    Now: retry each page, halving the page size on transient failures so a shorter
+    range finishes inside the timeout. Never truncates silently — if a page still
+    fails after the last retry the error is raised, exactly as before.
+    """
     all_data = []  # type: List[Dict]
     offset = 0
+    page = limit_per_page
+    max_retries = 4
     while True:
-        q = client.table(table).select(select)
-        if filters:
-            for f in filters:
-                q = f(q)
-        result = q.range(offset, offset + limit_per_page - 1).execute()
+        result = None
+        for attempt in range(max_retries):
+            q = client.table(table).select(select)
+            if filters:
+                for f in filters:
+                    q = f(q)
+            try:
+                result = q.range(offset, offset + page - 1).execute()
+                break
+            except Exception as exc:
+                if attempt == max_retries - 1:
+                    logger.error(
+                        "[_fetch_all] %s offset=%d page=%d failed after %d attempts: %s",
+                        table, offset, page, max_retries, exc,
+                    )
+                    raise
+                page = max(100, page // 2)
+                logger.warning(
+                    "[_fetch_all] %s offset=%d failed (attempt %d/%d): %s "
+                    "— retrying with page=%d",
+                    table, offset, attempt + 1, max_retries, exc, page,
+                )
+                time.sleep(2 ** attempt)
         if not result.data:
             break
         all_data.extend(result.data)
-        if len(result.data) < limit_per_page:
+        if len(result.data) < page:
             break
-        offset += limit_per_page
+        offset += len(result.data)
     return all_data
 
 
