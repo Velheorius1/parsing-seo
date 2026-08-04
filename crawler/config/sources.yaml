@@ -1720,12 +1720,20 @@ sources:
       external_id_regex: "/([^/?#]+)/?$"
       container: "div.news_list_wrapper_items"
       title: "h3"
+      # 04.08: это ДАТА ПУБЛИКАЦИИ, а не срок подачи. Проверено по четырём
+      # живым карточкам: на страницах лотов срока приёма заявок нет вообще,
+      # единственное упоминание срока — «Срок изготовления: не более 20
+      # календарных дней с момента подписания договора», то есть про
+      # производство. Пока дата лежала в deadline, каждый лот умирал на гейте
+      # через сутки после публикации: 37 строк за всё время, алертов 2, при
+      # том что лоты прямо наши («изготовление самоклеящихся наклеек формата
+      # A5», «конверты для банковских карт», «производство корпоративного мерча»).
       deadline: "div.news_list_wrapper_items_article-bottom span"
+      deadline_is_publication_date: true
       link: "a.news_list_wrapper_items_article@href"
     field_map:
       title: title
       organization: "Anor Bank"
-      deadline: deadline
       source_url_template: "https://www.anorbank.uz{link}"
     keywords_fields: [title]
 

@@ -177,6 +177,11 @@ class HtmlAdapter(BaseAdapter):
         if deadline == "":
             deadline = None
 
+        # Дата публикации не должна попадать в срок подачи — см. HtmlSelectors.
+        published = None  # type: Optional[str]
+        if deadline is not None and selectors.deadline_is_publication_date:
+            published, deadline = deadline, None
+
         price_str = self._extract_field(container, selectors.price) if selectors.price else None
         price = None  # type: Optional[float]
         if price_str:
@@ -284,7 +289,7 @@ class HtmlAdapter(BaseAdapter):
             price=price,
             currency=cfg.field_map.currency if cfg.field_map.currency else "USD",
             deadline=deadline,
-            date_start=None,
+            date_start=published,
             date_end=deadline,
             region="",
             categories=[],
