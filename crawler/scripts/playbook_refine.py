@@ -129,7 +129,18 @@ def distil(text, verdict, human, direction):
         resp = httpx.post("https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": "Bearer %s" % settings.openrouter_api_key},
             json={"model": settings.ai_relevance_model, "messages": [{"role": "user", "content": prompt}],
-                  "max_tokens": 600, "temperature": 0, "response_format": {"type": "json_object"}},
+                  "max_tokens": 600, "temperature": 0, "response_format": {"type": "json_object"},
+                  # ОБЯЗАТЕЛЬНО (error-log 06-29, здесь пропущено с рождения скрипта):
+                  # deepseek-v4-* — рассуждающие модели, и без этого флага рассуждение
+                  # съедает ВЕСЬ бюджет: замер 04.08 на живом фидбеке — finish=length,
+                  # reasoning_tokens=600 из 600, content='' → distil() возвращает None
+                  # на КАЖДОЙ коррекции. Расширение бюджета не лечит: на 2000 токенов
+                  # рассуждение съедает и 2000. С флагом — валидный JSON за 206 токенов.
+                  # Дефект НЕ от смены модели 02.08: прежняя deepseek-v4-pro на этом же
+                  # промпте отдавала такой же пустой ответ. То есть playbook не учился
+                  # ВООБЩЕ — 358 коррекций за 30 дней ушли в мусор, отсюда «+0 принципов
+                  # за 7д» в скоркарте источников.
+                  "reasoning": {"enabled": False}},
             timeout=40)
         if resp.status_code != 200:
             return None

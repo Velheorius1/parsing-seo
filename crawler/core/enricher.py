@@ -59,6 +59,17 @@ async def _enrich_one(tender, client, semaphore):
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 100,
                     "temperature": 0,
+                    # Добавлено 04.08 после замера: на flash-0731 обогащение молча
+                    # умерло. Прод-форма (без флага, бюджет 100) — finish=length,
+                    # reasoning 112-122 токенов, content='' 3 прогона из 3, то есть
+                    # _enrich_one всегда возвращал False и поля не заполнялись.
+                    # С флагом — 3/3 валидный JSON: организация, цена 57 200 000,
+                    # валюта, дедлайн.
+                    # Здесь дефект ИМЕННО от смены модели 02.08: контроль на прежних
+                    # deepseek-v4-pro и deepseek-v4-flash на этом же промпте даёт
+                    # reasoning_tokens=0 и 90 символов ответа. Хвост `/no_think` в
+                    # промпте — наследие Qwen, на DeepSeek он ничего не выключает.
+                    "reasoning": {"enabled": False},
                 },
                 timeout=10,
             )

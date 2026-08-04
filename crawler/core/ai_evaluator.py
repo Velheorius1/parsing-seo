@@ -232,12 +232,19 @@ async def _get_ai_recommendations(stats):
                 json={
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
-                    # DeepSeek V4 Pro is a reasoning model — actual response
-                    # text shares budget with internal reasoning tokens (smoke
-                    # test: 33 reasoning + 18 text for a one-sentence reply).
-                    # 800 leaves room for ~3 bullets * ~2 sentences + reasoning.
+                    # 800 хватает на ~3 пункта по ~2 предложения.
                     "max_tokens": 800,
                     "temperature": 0.2,
+                    # Флаг добавлен 04.08. Этот тракт, в отличие от enricher и
+                    # audit_quality, на flash-0731 ещё РАБОТАЛ — 3 прогона из 3
+                    # вернули текст. Но запас тонкий: рассуждение съедало 277, 647
+                    # и 695 токенов, то есть один прогон подошёл к 800 вплотную,
+                    # а соседние тракты с бюджетом 80-100 на этом уже умерли.
+                    # Прежний комментарий обещал «33 reasoning + 18 text» — на
+                    # сегодняшней модели это неверно в 20 раз, чинить до отказа
+                    # смысла нет. С флагом ответ стабильно длиннее (798-1182 против
+                    # 659-811 символов), потому что весь бюджет уходит в текст.
+                    "reasoning": {"enabled": False},
                 },
             )
             if resp.status_code != 200:

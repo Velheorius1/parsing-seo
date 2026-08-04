@@ -80,6 +80,12 @@ async def ai_evaluate(title, organization, client):
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 80,
                 "temperature": 0,
+                # Добавлено 04.08 по замеру: без флага на flash-0731 судья молчит —
+                # 3 прогона из 3 дали content='' при reasoning 88-105 токенов из 80
+                # бюджета. С флагом отвечает содержательно (YES/NO + причина).
+                # Датировано: на deepseek-v4-pro и -flash тот же промпт отвечал,
+                # значит сломала смена модели 02.08, а не возраст кода.
+                "reasoning": {"enabled": False},
             },
             timeout=20,
         )
