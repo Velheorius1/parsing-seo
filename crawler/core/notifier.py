@@ -1413,6 +1413,17 @@ def _is_high_signal(t: RawTender) -> bool:
     if (t.relevance_score or 0) >= 95 and t.price and t.price >= 30_000_000:
         return True  # near-certain "наш заказ" AND non-trivial size
     dt = _parse_deadline(t.deadline)
+    # Сильный лот БЕЗ цены и БЕЗ срока (решение Данияра 04.08). До этого все
+    # условия пуша выше требовали цену либо дедлайн, поэтому банки и
+    # корпоративные сайты не могли получить пуш В ПРИНЦИПЕ: они не публикуют
+    # ни того, ни другого. Конверты для банковских карт от Anor Bank со score 90
+    # уходили строкой в дайджест с подписью «не требуют мгновенной реакции».
+    # Замер за 14 дней: таких лотов 12, то есть 0,9 в сутки — по источникам
+    # Cooperation.uz планы (4), Beeline (3), Anor Bank (3), Box Maker, НБУ.
+    # Стоит ПОСЛЕ отсечки каталогов поставщиков, чтобы их не вернуть в пуш.
+    if (t.relevance_score or 0) >= 90 and t.price is None and dt is None:
+        return True
+
     if dt is not None:
         if dt.tzinfo is not None:
             dt = dt.replace(tzinfo=None)

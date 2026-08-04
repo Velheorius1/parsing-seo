@@ -108,6 +108,41 @@ def test_supplier_catalog_never_pushes():
     assert not _is_high_signal(_mk(source="Cooperation.uz Э-магазин лоты", price=200_000_000, deadline=far))
 
 
+
+def test_strong_lot_without_price_and_deadline_pushes():
+    """Решение Данияра 04.08. До этого КАЖДОЕ условие пуша требовало цену либо
+    дедлайн, поэтому банки и корпоративные сайты не могли получить пуш в
+    принципе — они не публикуют ни того, ни другого. Конверты для банковских
+    карт от Anor Bank со score 90 уходили строкой в дайджест «не требуют
+    мгновенной реакции». Замер: 12 таких лотов за 14 дней = 0,9 в сутки."""
+    t = _mk(source="Anor Bank", title="Изготовление конвертов для банковских карт",
+            relevance_score=90, price=None, deadline=None)
+    assert _is_high_signal(t)
+
+
+def test_weak_lot_without_price_stays_in_digest():
+    """Порог 90 обязан отсекать: иначе в пуш уедет весь бесценовой поток."""
+    t = _mk(source="Anor Bank", relevance_score=85, price=None, deadline=None)
+    assert not _is_high_signal(t)
+    assert not _is_high_signal(_mk(source="Anor Bank", relevance_score=None,
+                                   price=None, deadline=None))
+
+
+def test_supplier_catalog_without_price_still_never_pushes():
+    """Новое правило стоит ПОСЛЕ отсечки каталогов — она сильнее (locked-решение
+    Данияра: e-shop только по старту аукциона)."""
+    assert not _is_high_signal(_mk(source="Cooperation.uz Оферты",
+                                   relevance_score=95, price=None, deadline=None))
+    assert not _is_high_signal(_mk(source="Cooperation.uz Э-магазин лоты",
+                                   relevance_score=95, price=None, deadline=None))
+
+
+def test_strong_lot_with_price_is_unaffected_by_the_new_rule():
+    """Лот С ценой ниже порогов остаётся в дайджесте, как и раньше."""
+    far = (datetime.now(timezone.utc) + timedelta(days=30)).date().isoformat()
+    assert not _is_high_signal(_mk(source="X", relevance_score=90,
+                                   price=20_000_000, deadline=far))
+
 if __name__ == "__main__":
     import sys
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
