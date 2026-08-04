@@ -2265,12 +2265,16 @@ sources:
     html_selectors:
       container: ".news_box"
       title: "a"
+      # 04.08: дата ленты. В карточке ровно ОДНА дата, и карточки идут строго
+      # по убыванию (27.07 → 13.07 → 23.06), а сам селектор отдаёт два элемента
+      # — дату и счётчик просмотров («27.07.2026», «170»). Срок подачи у этих
+      # уведомлений живёт на странице лота, в списке его нет.
       deadline: "ul.date_time li"
+      deadline_is_publication_date: true
       link: "a@href"
     field_map:
       title: title
       organization: "Узбекистон металлургия комбинати"
-      deadline: deadline
       source_url_template: "https://www.uzbekistonmet.uz{link}"
     keywords_fields: [title]
 
@@ -2565,12 +2569,23 @@ sources:
     html_selectors:
       container: "div.news-one.news-list-one"
       title: "h4.news-one-title a"
-      deadline: "span.news-one-date"
+      # 04.08: НЕ дата публикации — селектор просто смотрел не туда.
+      # `span.news-one-date` в блоке news-one-info — это дата объявления, у всех
+      # 12 карточек одинаковая (04.05.2026), и по ней лот умирал на гейте.
+      # Настоящий срок лежит в описании, но НЕ у всех карточек:
+      #   «Дата завершения приема предложений: 20.05.2026»  ← срок есть
+      #   «Дата объявления: 04.05.2026»                     ← срока нет
+      # Поэтому селектор с :-soup-contains — он выбирает ТОЛЬКО карточки со
+      # сроком. У остальных deadline остаётся пустым, то есть честное
+      # «неизвестно», и префильтр их пропускает. Если брать всё описание
+      # без этого условия, `_parse_deadline` возьмёт последнюю дату и превратит
+      # дату объявления в просроченный срок — ровно тот же баг с другой стороны.
+      # Проверено: из 2 карточек совпала 1, распарсилось в 2026-05-20.
+      deadline: 'p.news-one-description:-soup-contains("Дата завершения приема предложений")'
       link: "h4.news-one-title a@href"
     field_map:
       title: title
       organization: "Saneg"
-      deadline: deadline
       source_url_template: "{link}"
     keywords_fields: [title]
 
