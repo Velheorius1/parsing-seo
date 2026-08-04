@@ -103,6 +103,15 @@ def fetch_candidates(days, min_price):
 
     Пагинация окнами по суткам: сортированный OFFSET на сотню тысяч строк
     стабильно ловит 57014 (проверено 30.07 — упало на 121-й странице).
+
+    Окно ВКЛЮЧАЕТ сегодняшний день (исправлено 04.08). Раньше сутки строились
+    как [сегодня−(back+1), сегодня−back), то есть при back=0 это «вчера», и
+    строки, собранные сегодня, не попадали НИ В ОДНО окно — их можно было
+    подобрать только на следующие сутки. На лотах Anor Bank это было видно
+    прямо: пересобрались в 10:10 с исправленным дедлайном, а прогон в 10:20 их
+    не увидел вовсе (score остался пустым — AI до них не дошёл). Для крона в
+    06:50 это ещё и означало, что собранное с полуночи до 06:50 пропускается
+    на сутки.
     """
     from crawler.core.db import iter_rows
     from crawler.core.notifier import _NO_PUSH_SOURCES
@@ -111,8 +120,8 @@ def fetch_candidates(days, min_price):
     rows = []           # type: List[Dict]
     truncated = []      # type: List[str]
     for back in range(days):
-        d0 = (today - timedelta(days=back + 1)).isoformat()
-        d1 = (today - timedelta(days=back)).isoformat()
+        d0 = (today - timedelta(days=back)).isoformat()
+        d1 = (today - timedelta(days=back - 1)).isoformat()
         filters = day_filters(d0, d1, min_price, _NO_PUSH_SOURCES)
         pages = 0
         for page in iter_rows("tenders", FIELDS, filters=filters,

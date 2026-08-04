@@ -73,6 +73,19 @@ def test_query_keeps_lots_without_a_price():
         "голый gte по цене вернулся — он снова спрячет лоты без цены: %s" % f)
 
 
+def test_window_includes_today():
+    """Раньше сутки строились как [сегодня−(back+1), сегодня−back): при back=0
+    это «вчера», и собранное сегодня не попадало ни в одно окно. Лоты Anor Bank
+    пересобрались в 10:10, а прогон в 10:20 их не увидел вовсе."""
+    from datetime import date, timedelta
+    today = date(2026, 8, 4)
+    windows = [((today - timedelta(days=b)).isoformat(),
+                (today - timedelta(days=b - 1)).isoformat()) for b in range(3)]
+    assert windows[0] == ("2026-08-04", "2026-08-05"), windows[0]
+    assert any(d0 <= "2026-08-04" < d1 for d0, d1 in windows), (
+        "сегодняшний день не покрыт ни одним окном: %s" % windows)
+
+
 def test_query_excludes_sources_demoted_in_prod():
     f = R.day_filters("2026-07-20", "2026-07-21", 5_000_000,
                       frozenset({"XT-Xarid э-магазин"}))
