@@ -36,10 +36,36 @@ BROKEN_SPA_SOURCES = {
 }
 BROKEN_SPA_PREFIXES = ("Cooperation.uz",)
 
+# Исключения из префикса — источники, у которых deep-link ПРОВЕРЕН и работает.
+# Префикс «Cooperation.uz» накрывает площадку целиком, и это правильно по
+# умолчанию: у `Лоты` ссылка упирается в auth-wall, у предквалификаций
+# резолвится в чужую карточку. Но правило по префиксу не различает маршруты, а
+# они у площадки разные — и из-за этого рабочая ссылка на план закупки
+# выбрасывалась из алерта, оставляя человеку только поиск по первому слову
+# названия. Данияр 04.08: «невозможно перейти по этой ссылке на конкретный лот».
+#
+# Проверка, по которой источник попадает СЮДА (иначе не добавлять):
+#  1. маршрут есть в бандле SPA и публичен — `/plan-schedule/:id`,
+#     name=PlanScheduleDetail, `requiresAuth:!1`;
+#  2. бэкенд отдаёт карточку без авторизации —
+#     `schedule-plan/schedule-plans/for-client/detail/{guid}` → HTTP 200 с полями
+#     name/price/products;
+#  3. страница РЕНДЕРИТСЯ (headless Chromium через резидентный прокси, а не
+#     проверка по HTTP-коду: SPA отдаёт 200 на любой путь). На лоте
+#     bd85f440-76ca-48fd-9353-0118bde0692b в тексте страницы есть позиция
+#     «Kitob nashr etish xizmati».
+# Наш `external_id` для этого источника — это `guid` площадки, то есть ровно
+# тот идентификатор, который ждёт маршрут.
+WORKING_SPA_SOURCES = {
+    "Cooperation.uz Закупочные планы (filtered)",
+}
+
 
 def is_broken_spa(source):
     # type: (str) -> bool
     if not source:
+        return False
+    if source in WORKING_SPA_SOURCES:
         return False
     if source in BROKEN_SPA_SOURCES:
         return True
