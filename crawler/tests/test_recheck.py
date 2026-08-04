@@ -56,9 +56,21 @@ def test_query_requires_never_alerted_and_never_scored():
 
 def test_query_carries_price_floor_and_day_window():
     f = R.day_filters("2026-07-20", "2026-07-21", 7_000_000, frozenset())
-    assert ("gte", ("price", 7_000_000)) in f
+    assert ("or_", ("price.gte.7000000,price.is.null",)) in f, f
     assert ("gte", ("collected_at", "2026-07-20")) in f
     assert ("lt", ("collected_at", "2026-07-21")) in f
+
+
+def test_query_keeps_lots_without_a_price():
+    """`price >= N` в SQL отбрасывает NULL, и второй шанс не видел ни одного
+    лота без цены — банки и корпоративные объявления цену не публикуют.
+    Продовый префильтр их пропускает, выборка обязана делать то же."""
+    f = R.day_filters("2026-07-20", "2026-07-21", 5_000_000, frozenset())
+    price_conditions = [args[0] for method, args in f if method == "or_"]
+    assert price_conditions, "условие по цене исчезло: %s" % f
+    assert "price.is.null" in price_conditions[0], price_conditions
+    assert not any(method == "gte" and args[0] == "price" for method, args in f), (
+        "голый gte по цене вернулся — он снова спрячет лоты без цены: %s" % f)
 
 
 def test_query_excludes_sources_demoted_in_prod():
