@@ -1534,10 +1534,64 @@ sources:
       source_url_template: "https://www.kapitalbank.uz{link}"
     keywords_fields: [title]
 
+  # Bitrix-CMS банков (04.08). Пятеро сидят на одном движке — aab, aloqabank,
+  # turonbank, mkbank, poytaxtbank — и селекторы у них общие. kapitalbank на
+  # том же движке, но отдаёт 403 и напрямую, и через резидентный прокси,
+  # поэтому остаётся выключенным.
+  - id: mkbank
+    name: "Микрокредитбанк"
+    adapter: html
+    enabled: true
+    url: "https://mkbank.uz/ru/press_center/tenders/all/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "mkb"
+    html_selectors:
+      container: "div.post"
+      title: "a.post__title"
+      deadline: 'div.post__date:-soup-contains("Дата истечения") span'
+      link: "a.post__title@href"
+    field_map:
+      title: title
+      organization: "Микрокредитбанк"
+      source_url_template: "https://mkbank.uz{link}"
+    keywords_fields: [title]
+
+  - id: poytaxtbank
+    name: "Пойтахт банк"
+    adapter: html
+    enabled: true
+    url: "https://poytaxtbank.uz/ru/press_center/tenders/all/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "poytaxt"
+    html_selectors:
+      container: "div.post"
+      title: "a.post__title"
+      deadline: 'div.post__date:-soup-contains("Дата истечения") span'
+      link: "a.post__title@href"
+    field_map:
+      title: title
+      organization: "Пойтахт банк"
+      source_url_template: "https://poytaxtbank.uz{link}"
+    keywords_fields: [title]
+
   - id: aloqabank
     name: "Алокабанк"
     adapter: html
-    enabled: false  # Page shows press center, not tenders
+    # Включён 04.08. Прежняя пометка «страница показывает пресс-центр, а не
+    # тендеры» неверна: живая проба даёт 15 карточек с реальными лотами
+    # («текущий ремонт здания ЦКУ», «ежедневная уборка»). Источник не работал
+    # из-за селекторов-заготовок (`.tender-item, .news-item, article, .item`),
+    # которые ни на что не попадали. Банк сидит на той же Bitrix-CMS, что aab,
+    # mkbank, turonbank и poytaxtbank — селекторы общие для всей пятёрки.
+    enabled: true
     url: "https://aloqabank.uz/ru/press_center/tenders/all/"
     method: GET
     headers:
@@ -1546,14 +1600,16 @@ sources:
     timeout: 20
     id_prefix: "aloqa"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item, .list-item"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
-      link: "a@href"
+      container: "div.post"
+      title: "a.post__title"
+      # Два блока дат: «Дата опубликования» и «Дата истечения». Нужен второй —
+      # он и есть срок подачи. Условие на текст обязательно, иначе селектор
+      # возьмёт публикацию и лот умрёт на гейте через сутки.
+      deadline: 'div.post__date:-soup-contains("Дата истечения") span'
+      link: "a.post__title@href"
     field_map:
       title: title
       organization: "Алокабанк"
-      deadline: deadline
       source_url_template: "https://aloqabank.uz{link}"
     keywords_fields: [title]
 
@@ -1609,8 +1665,15 @@ sources:
   - id: turonbank
     name: "Туронбанк"
     adapter: html
-    enabled: false  # Page shows press center, not tenders
-    url: "https://turonbank.uz/ru/press_center/tenders/"
+    # Включён 04.08. Причин было ДВЕ, и обе не в «пресс-центре»: путь без
+    # `/all/` отдавал только обвязку сайта (то же, что у aab 12.06 — там был
+    # скопирован `/last/` от trustbank), плюс селекторы-заготовки. По верному
+    # пути 15 карточек, в первой же «Закупка пластиковых карт с дуальными
+    # микропроцессорными чипами». Оговорка: свежесть проверить не удалось —
+    # верхние лоты датированы 2022 годом, возможно листинг заморожен. Гейт
+    # дедлайна их отсеет сам, так что включение безопасно.
+    enabled: true
+    url: "https://turonbank.uz/ru/press_center/tenders/all/"
     method: GET
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
@@ -1618,14 +1681,13 @@ sources:
     timeout: 20
     id_prefix: "turon"
     html_selectors:
-      container: ".tender-item, .news-item, article, .item"
-      title: "h3, h2, .title, a"
-      deadline: ".date, time"
-      link: "a@href"
+      container: "div.post"
+      title: "a.post__title"
+      deadline: 'div.post__date:-soup-contains("Дата истечения") span'
+      link: "a.post__title@href"
     field_map:
       title: title
       organization: "Туронбанк"
-      deadline: deadline
       source_url_template: "https://turonbank.uz{link}"
     keywords_fields: [title]
 
@@ -1693,15 +1755,16 @@ sources:
     html_selectors:
       container: "div.post"
       title: "a.post__title"
-      # 04.08: селектор отдаёт буквально «Дата опубликования: 05.06.2026» —
-      # это публикация, а не срок подачи. Живая проба 15 карточек.
-      deadline: "div.post__date span"
-      deadline_is_publication_date: true
+      # 04.08: в карточке ДВА блока `div.post__date` — «Дата опубликования» и
+      # «Дата истечения». Прежний селектор брал первый span, то есть публикацию,
+      # и лот умирал на гейте через сутки. Берём именно истечение: это настоящий
+      # срок подачи (проба 15 карточек, у всех 15 блок присутствует).
+      # Условие на текст обязательно: без него вернётся тот же дефект.
+      deadline: 'div.post__date:-soup-contains("Дата истечения") span'
       link: "a.post__title@href"
     field_map:
       title: title
       organization: "Asia Alliance Bank"
-      deadline: deadline
       source_url_template: "https://aab.uz{link}"
     keywords_fields: [title]
 

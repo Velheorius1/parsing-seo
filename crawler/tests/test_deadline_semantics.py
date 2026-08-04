@@ -121,7 +121,6 @@ def test_none_deadline_survives_prefilter():
 # проверки живых карточек — не по догадке про имя CSS-класса.
 KNOWN_PUBLICATION_DATE = {
     "anorbank": "04.08, 4 живые карточки: срока подачи на странице лота нет вообще",
-    "aab": "04.08, 15 карточек: селектор отдаёт буквально «Дата опубликования: 05.06.2026»",
     "uzairports": "04.08, 10 карточек: буквально «Дата публикации: 03-08-2026»",
     "sqb": "04.08, 18 карточек: лента с временем «04.08.2026 09:08», строго по убыванию",
     "mobiuz": "04.08, 20 карточек: лента 04.08 / 03.08 / 31.07 по убыванию",
@@ -134,6 +133,13 @@ KNOWN_PUBLICATION_DATE = {
 # селектор обязан нести условие на текст. Без него `_parse_deadline` возьмёт
 # последнюю дату и превратит «Дата объявления» в просроченный срок.
 SANEG_DEADLINE_GUARD = "Дата завершения приема предложений"
+
+# Пятеро банков на одной Bitrix-CMS. В карточке ДВА блока `div.post__date`:
+# «Дата опубликования» и «Дата истечения». Голый `div.post__date span` берёт
+# ПЕРВЫЙ, то есть публикацию — так и было у aab, и лот умирал через сутки.
+# Условие на текст обязательно для всех пятерых.
+BITRIX_BANK_CMS = ("aab", "aloqabank", "turonbank", "mkbank", "poytaxtbank")
+BITRIX_DEADLINE_GUARD = "Дата истечения"
 
 # Разобрано и НЕ является этим дефектом — держим, чтобы не «чинить» повторно:
 #   trustbank   «Дата опубликования:16.07.2026Дата истечения:27.07.2026» — обе даты
@@ -168,6 +174,22 @@ def test_known_publication_date_sources_keep_the_flag():
     assert not missing, (
         "источник снова кладёт дату публикации в срок подачи — он замолчит "
         "и это будет выглядеть как «площадка ничего не публикует»: %s" % missing)
+
+
+def test_bitrix_bank_cms_selects_the_expiry_not_the_publication_date():
+    srcs = _sources()
+    bad = []
+    for sid in BITRIX_BANK_CMS:
+        s = srcs.get(sid)
+        if s is None:
+            bad.append((sid, "источник исчез из sources.yaml"))
+            continue
+        sel = (s.get("html_selectors") or {}).get("deadline") or ""
+        if BITRIX_DEADLINE_GUARD not in sel:
+            bad.append((sid, sel))
+    assert not bad, (
+        "селектор берёт первый блок даты, то есть публикацию — лоты банка снова "
+        "начнут умирать на гейте через сутки: %s" % bad)
 
 
 def test_saneg_keeps_the_text_condition_on_its_deadline_selector():
