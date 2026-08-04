@@ -1693,7 +1693,10 @@ sources:
     html_selectors:
       container: "div.post"
       title: "a.post__title"
+      # 04.08: селектор отдаёт буквально «Дата опубликования: 05.06.2026» —
+      # это публикация, а не срок подачи. Живая проба 15 карточек.
       deadline: "div.post__date span"
+      deadline_is_publication_date: true
       link: "a.post__title@href"
     field_map:
       title: title
@@ -1978,7 +1981,10 @@ sources:
       external_id_regex: "(\\d+)/?$"
       container: "div.news-item"
       title: "h2.news-line__name a"
+      # 04.08: дата новостной ленты (04.08 / 03.08 / 31.07 по убыванию), а не
+      # срок подачи. Живая проба 20 карточек.
       deadline: "div.news-line__date"
+      deadline_is_publication_date: true
       link: "h2.news-line__name a@href"
     field_map:
       title: title
@@ -2233,7 +2239,10 @@ sources:
       external_id_regex: "/([^/?#]+)/?$"
       container: ".news-item"
       title: "div.news-title a"
+      # 04.08: дата ленты С ВРЕМЕНЕМ («04.08.2026 09:08», «29.07.2026 10:07»,
+      # строго по убыванию) — это публикация, а не срок подачи. Проба 18 карточек.
       deadline: "div.news-date"
+      deadline_is_publication_date: true
       link: "div.news-title a@href"
     field_map:
       title: title
@@ -2528,7 +2537,10 @@ sources:
     html_selectors:
       container: "div.card.card--details.card--traffic-stats"
       title: "p.title"
+      # 04.08: селектор отдаёт буквально «Дата публикации: 03-08-2026» — это
+      # публикация, а не срок подачи. Живая проба 10 карточек.
       deadline: "div.rich-text-content p"
+      deadline_is_publication_date: true
       link: ""
     field_map:
       title: title
