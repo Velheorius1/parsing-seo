@@ -97,6 +97,32 @@ def day_filters(d0, d1, min_price, no_push):
     return filters
 
 
+def _rank_price(tender, batch):
+    # type: (object, List) -> float
+    """Вес лота для капа. Пустая цена — это НЕИЗВЕСТНО, а не ноль.
+
+    Кап берёт самые дорогие. Пока пустая цена считалась нулём, лот без цены
+    оказывался в самом хвосте и отрезался КАЖДЫЙ раз: проверенные получают
+    score и уходят из пула, а непроверенные без цены остаются внизу навсегда.
+    Это голодание, а не приоритизация — и бьёт оно ровно по банкам и
+    корпоративным сайтам, где цену не публикуют (лоты Anor Bank «конверты для
+    банковских карт», «самоклеящиеся наклейки A5» — все без цены).
+
+    Медиана известных цен даёт таким лотам честную середину очереди: они не
+    вытесняют реально крупные, но и не тонут. Если цен нет ни у кого — все
+    равны, порядок задаёт сам список.
+    """
+    price = getattr(tender, "price", None)
+    if price is not None:
+        return float(price)
+    known = sorted(float(getattr(t, "price", None))
+                   for t in batch if getattr(t, "price", None) is not None)
+    if not known:
+        return 0.0
+    mid = len(known) // 2
+    return known[mid] if len(known) % 2 else (known[mid - 1] + known[mid]) / 2.0
+
+
 def fetch_candidates(days, min_price):
     # type: (int, int) -> List[Dict]
     """Лоты без алерта и без вердикта AI за окно сбора.
@@ -202,10 +228,13 @@ async def run(days, min_price, cap, execute):
         logger.info("всё было дублями уже отправленного — досылать нечего")
         return 0
 
-    deduped.sort(key=lambda t: -(getattr(t, "price", None) or 0))
+    deduped.sort(key=lambda t: -_rank_price(t, deduped))
     if len(deduped) > cap:
+        no_price = sum(1 for t in deduped if getattr(t, "price", None) is None)
         logger.warning("⚠️  кандидатов %d, кап %d — беру самые дорогие, "
-                       "остальные НЕ проверены в этом прогоне", len(deduped), cap)
+                       "остальные НЕ проверены в этом прогоне "
+                       "(без цены среди кандидатов: %d, идут по медиане)",
+                       len(deduped), cap, no_price)
         deduped = deduped[:cap]
 
     if not execute:

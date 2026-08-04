@@ -144,6 +144,34 @@ def test_price_is_printed_with_spaces():
     assert R._fmt(None) == "0"
 
 
+
+def _mk(price):
+    """Минимальный объект-лот: _rank_price читает только .price."""
+    return types.SimpleNamespace(price=price)
+
+
+def test_lot_without_price_is_ranked_by_median_not_zero():
+    """Кап берёт самые дорогие. Пока пустая цена считалась нулём, лот без цены
+    отрезался КАЖДЫЙ раз: проверенные уходят из пула, а непроверенные без цены
+    остаются внизу навсегда. Бьёт по банкам, где цену не публикуют."""
+    batch = [_mk(price=100_000_000), _mk(price=10_000_000),
+             _mk(price=6_000_000), _mk(price=None)]
+    ranks = [R._rank_price(t, batch) for t in batch]
+    assert ranks[3] == 10_000_000, ranks
+    assert 0 < ranks[3] < ranks[0], ranks
+
+
+def test_ranking_puts_priceless_lot_above_the_cheapest():
+    batch = [_mk(price=100_000_000), _mk(price=10_000_000),
+             _mk(price=6_000_000), _mk(price=None)]
+    order = sorted(batch, key=lambda t: -R._rank_price(t, batch))
+    assert order[-1].price == 6_000_000, [t.price for t in order]
+
+
+def test_ranking_survives_batch_without_any_price():
+    batch = [_mk(price=None), _mk(price=None)]
+    assert all(R._rank_price(t, batch) == 0.0 for t in batch)
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
