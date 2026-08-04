@@ -101,13 +101,47 @@ def _fetch_all(client, table, select, filters=None, limit_per_page=1000):
 
 def _get_count(client, table, select="*", filters=None):
     # type: (Any, str, str, Optional[List]) -> int
-    """Get exact row count without fetching all data."""
-    q = client.table(table).select(select, count="exact")
-    if filters:
-        for f in filters:
-            q = f(q)
-    result = q.limit(0).execute()
-    return result.count or 0
+    """Row count without fetching the rows. Exact when it fits the timeout.
+
+    ВТОРАЯ ПОЛОВИНА того же дефекта, что чинил 742807b (2026-08-03). Тот фикс
+    сделал устойчивой ПАГИНАЦИЮ `_fetch_all`, но счётчики остались как были, и
+    суточный снапшот продолжил падать: трейс 04.08 00:00:12 —
+
+        _get_count(client, "tenders") -> q.limit(0).execute()
+        postgrest APIError 57014 canceling statement due to statement timeout
+
+    `count="exact"` без фильтров — это COUNT(*) по всей таблице `tenders`, и он
+    перерос statement timeout Supabase. Исключение вылетало из collect_metrics
+    и валило main() целиком, ровно как раньше: снапшот за сутки не писался, а в
+    логе это выглядело как обычный старт крона.
+
+    Лечение — деградация, а не молчание: сначала точный счёт, при таймауте
+    планировщиковая оценка (`planned` берётся из статистики Postgres и стоит
+    милисекунды). Оценка помечается в логе WARNING, чтобы «total_tenders» с
+    погрешностью нельзя было принять за точное число. Фильтрованные счётчики
+    (сутки/неделя) узкие и почти всегда проходят точным путём.
+    """
+    def _run(count_mode):
+        q = client.table(table).select(select, count=count_mode)
+        if filters:
+            for f in filters:
+                q = f(q)
+        return q.limit(0).execute()
+
+    try:
+        return _run("exact").count or 0
+    except Exception as exc:
+        if "57014" not in str(exc) and "statement timeout" not in str(exc):
+            raise
+        logger.warning(
+            "[_get_count] %s: точный счёт не уложился в timeout (%s) — беру оценку",
+            table, str(exc)[:80],
+        )
+
+    result = _run("planned")
+    count = result.count or 0
+    logger.warning("[_get_count] %s: ОЦЕНКА (planned) = %d, не точное число", table, count)
+    return count
 
 
 def collect_metrics(client):
