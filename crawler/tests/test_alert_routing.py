@@ -143,6 +143,26 @@ def test_strong_lot_with_price_is_unaffected_by_the_new_rule():
     assert not _is_high_signal(_mk(source="X", relevance_score=90,
                                    price=20_000_000, deadline=far))
 
+
+def test_unparseable_deadline_is_not_treated_as_absent():
+    """Найдено red-team 04.08 в день внесения правила. `dt is None` значит «не
+    разобрали», а не «срока нет»: uz-kor отдаёт «03 августа 2026», русское
+    название месяца наш парсер не берёт, и лот с ИСТЁКШИМ шесть лет назад
+    сроком уходил бы мгновенным пушем. Гейт просрочки на нём молчит по той же
+    причине, так что второй защиты нет. 54 из 81 включённого источника не имеют
+    селектора цены — радиус был реальный."""
+    t = _mk(source="Уз-Кор Газ Кимё", relevance_score=90, price=None,
+            deadline="15 января 2020")
+    assert not _is_high_signal(t), "нечитаемый срок нельзя считать отсутствующим"
+
+
+def test_empty_deadline_field_still_pushes():
+    """Правило обязано продолжать работать там, ради чего вводилось."""
+    assert _is_high_signal(_mk(source="Anor Bank", relevance_score=90,
+                               price=None, deadline=None))
+    assert _is_high_signal(_mk(source="Anor Bank", relevance_score=90,
+                               price=None, deadline=""))
+
 if __name__ == "__main__":
     import sys
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
