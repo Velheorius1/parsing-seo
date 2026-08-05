@@ -784,7 +784,24 @@ sources:
   - id: ebirja-auction
     name: "Ebirja Аукционы"
     adapter: spa
-    enabled: true
+    # ОТКЛЮЧЁН 05.08 — дубль `ebirja-auctions-active` по тем же аукционам, но
+    # с непригодным ключом и без ссылок.
+    #
+    # У блока нет ни `field_map`, ни `external_id`, поэтому id брался ПОЗИЦИЕЙ
+    # строки в списке: в базе лежат ровно `0..11`. Ключ дедупа — (external_id,
+    # source), и от позиционного ключа он ломается в ОБЕ стороны. Видно на
+    # живых данных: один и тот же лот «Tibbiyot fakultetini tashkil etish…»
+    # приехал как id=1 в 04:00 и как id=0 в 06:00, просто сдвинувшись в
+    # списке, — то есть повторный алерт; и наоборот, новый лот, попавший на
+    # уже виденную позицию, не станет «новым» никогда.
+    # Ссылки не было ни у одной из 12 строк: селектор `a[href*='/auction/']`
+    # есть, а `source_url_template` нет, так что вытащенный href никуда не
+    # клался. Именно так выглядел алерт #6953 — заголовок и «Архив:».
+    #
+    # Замена делает всё то же и лучше: настоящий `id` (631), рабочая ссылка,
+    # `auction_end`, цена, заказчик. Оставлять оба нельзя — это один и тот же
+    # аукцион двумя источниками.
+    enabled: false
     url: "https://xarid.ebirja.uz/ru/auction"
     rate_limit: 0.5
     timeout: 45
@@ -3074,7 +3091,13 @@ sources:
     rate_limit: 2.0
     timeout: 15
     id_prefix: "ebirja-auc"
-    response_path: "data"
+    # 05.08: было "data" — площадка завернула ответ в `result`, и адаптер
+    # молча получал ноль записей с 15 апреля. Тот же класс, что чинили
+    # 30.07 на ebirja-natshop ("data" → "result.data"): конверт меняется,
+    # HTTP остаётся 200, источник тихо становится немым.
+    # Проверено: сейчас отдаёт лот id=631 «Tibbiyot fakultetini tashkil
+    # etish… kitoblari» с auction_end 2026-08-10 и ценой 115 925 500.
+    response_path: "result.data"
     field_map:
       title: "title"
       organization: "company.title"
@@ -3084,7 +3107,10 @@ sources:
       date_start: "begin_date"
       external_id: "id"
       region: "region.title_ru"
-      source_url_template: "https://xarid.ebirja.uz/ru/auction/{id}"
+      # Канонический адрес. `xarid.ebirja.uz/ru/auction/{id}` отдаёт 301 сюда же —
+      # лишний прыжок, который во встроенном браузере Telegram иногда теряется.
+      # Проверено: 631 → HTTP 200 напрямую.
+      source_url_template: "https://ebirja.uz/ru/auction/{id}"
     keywords_fields: ["title", "company.title"]
     pagination:
       type: page
