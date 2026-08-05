@@ -27,8 +27,19 @@ def test_verified_plan_source_is_not_broken():
     assert not is_broken_spa("Cooperation.uz Закупочные планы (filtered)")
 
 
+def test_verified_auction_source_is_not_broken():
+    """05.08: /auction/{числовой id} — рендер 3 из 3 открыл именно наш лот."""
+    assert not is_broken_spa("Cooperation.uz Аукционы")
+
+
 def test_rest_of_cooperation_stays_broken():
-    """Исключение точечное — площадка целиком остаётся под правилом."""
+    """Исключения точечные — остальная площадка остаётся под правилом.
+
+    Все проверены рендером 05.08 и отклонены: у `Лоты` и `Оферты` карточка
+    открывается модалкой без смены URL (в DOM нет <a href> на карточку),
+    у `Э-магазин лоты` маршрут /e-shop/:id адресует товар каталога
+    (id ~180898), а не лот в торгах (id ~13744).
+    """
     for src in ("Cooperation.uz Лоты", "Cooperation.uz Оферты",
                 "Cooperation.uz Контракты", "Cooperation.uz Э-магазин лоты",
                 "Cooperation.uz Закупочные планы"):

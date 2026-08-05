@@ -22,6 +22,11 @@ function isBrokenSpa(url: string): boolean {
   // hayotbirja.uz & xt-xarid.uz /procedure/{id}/core deep-links open publicly
   // for active tenders (verified 2026-06-08) — show the button for those.
   if (/(?:hayotbirja\.uz|xt-xarid\.uz)\/procedure\//.test(url)) return false;
+  // cooperation.uz: площадка глушится целиком, но два маршрута проверены
+  // рендером и открываются анонимно — /plan-schedule/{guid} (04.08) и
+  // /auction/{числовой id} (05.08). Держать в синхроне с
+  // crawler/core/snap.py WORKING_SPA_SOURCES.
+  if (/cooperation\.uz\/(?:plan-schedule|auction)\/[^/]+$/.test(url)) return false;
   return BROKEN_SPA_HOSTS.some((host) => url.includes(host));
 }
 

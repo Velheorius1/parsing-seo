@@ -452,6 +452,11 @@ def fetch_and_transform_auction_lots():
         lot_id = str(item.get('id', '') or item.get('lotNumber', ''))
         if not lot_id:
             continue
+        # `id` (690) и `lotNumber` (AL1000716) — РАЗНЫЕ пространства id.
+        # Маршрут /auction/:id ждёт первый и на втором молча выбрасывает на
+        # главную (рендер 05.08: по lotNumber 3 из 3 ушли на `/`, по id 3 из 3
+        # открыли наш лот). external_id остаётся на lotNumber — менять его
+        # нельзя, иначе вся история станет «новой» и уедет в алерты повторно.
         lot_num = item.get('lotNumber', lot_id)
         title = _extract_ru(item.get('name', '')) or _extract_ru(item.get('productName', ''))
         if not title:
@@ -479,7 +484,7 @@ def fetch_and_transform_auction_lots():
             'date_start': begin_date[:10] if begin_date else None,
             'date_end': end_date[:10] if end_date else None,
             'source': 'Cooperation.uz Аукционы',
-            'source_url': 'https://new.cooperation.uz/supplier/auction/%s' % lot_num,
+            'source_url': 'https://new.cooperation.uz/auction/%s' % lot_id,
             'status': 'active',
             'search_text': search_text[:1000],
             'collected_at': now,
