@@ -24,6 +24,42 @@ def _safe_str(value: Any) -> str:
     return str(value).strip()
 
 
+# Системные наборы корневых сертификатов, по убыванию распространённости:
+# Debian/Ubuntu (VPS), RHEL, Alpine.
+_SYSTEM_CA_PATHS = (
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/etc/ssl/cert.pem",
+)
+
+
+def _ca_bundle(cfg: SourceConfig) -> Any:
+    """Что подсунуть httpx как `verify`.
+
+    По умолчанию — True, то есть certifi. `use_system_ca: true` в конфиге
+    переключает на системное хранилище: у OSCE цепочка опирается на корень,
+    которого в certifi нет, и источник молчал 28 дней с
+    CERTIFICATE_VERIFY_FAILED. Проверку это НЕ выключает.
+
+    Если системного файла нет (например, на Mac разработчика), честно
+    возвращаемся к certifi и пишем предупреждение — молча делать вид, что
+    настройка применилась, нельзя.
+    """
+    if not getattr(cfg, "use_system_ca", False):
+        return True
+    import os
+
+    for path in _SYSTEM_CA_PATHS:
+        if os.path.exists(path):
+            return path
+    logger.warning(
+        "[%s] use_system_ca: системного набора корней не нашлось (%s) — "
+        "остаёмся на certifi, ошибка проверки сертификата может повториться",
+        cfg.name, ", ".join(_SYSTEM_CA_PATHS),
+    )
+    return True
+
+
 class HtmlAdapter(BaseAdapter):
     """Adapter for HTML scraping sources (httpx + BeautifulSoup)."""
 
@@ -54,6 +90,7 @@ class HtmlAdapter(BaseAdapter):
             headers=cfg.headers,
             follow_redirects=True,
             proxy=proxy_url,
+            verify=_ca_bundle(cfg),
         ) as client:
             html = await self._fetch_page(client, cfg.url)
             if not html:

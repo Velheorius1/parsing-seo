@@ -139,6 +139,14 @@ class SourceConfig(BaseModel):
     auth_header_prefix: str = "Bearer"
     # Proxy — use residential proxy for geo-restricted sources
     use_proxy: bool = False
+    # Доверять СИСТЕМНОМУ хранилищу корней вместо certifi. Заведено 05.08 из-за
+    # OSCE: площадка отдаёт цепочку с корнем, которого в certifi 2026.02.25 нет
+    # («AAA Certificate Services»), и httpx падает с CERTIFICATE_VERIFY_FAILED,
+    # хотя curl и браузер открывают её штатно. Источник молчал 28 дней, и по
+    # логам это читалось как «нечего собирать». Проверка сертификата НЕ
+    # отключается — меняется только набор доверенных корней, и только там, где
+    # это явно прописано в конфиге.
+    use_system_ca: bool = False
     # П7: двухшаговый detail-fetch (см. DetailFetchConfig)
     detail_fetch: Optional[DetailFetchConfig] = None
     # Client-side item filter — applied to raw dict items BEFORE _convert_all.

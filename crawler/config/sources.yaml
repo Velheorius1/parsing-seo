@@ -465,6 +465,14 @@ sources:
     name: "OSCE Uzbekistan"
     adapter: html
     enabled: true
+    # 05.08: площадка отдаёт цепочку с корнем «AAA Certificate Services», которого
+    # нет в certifi 2026.02.25 -> httpx падал CERTIFICATE_VERIFY_FAILED, источник
+    # молчал 28 дней и по логам читался как «нечего собирать». curl и браузер её
+    # открывают; системному набору корней она проверяется штатно.
+    # Синтаксис фильтра проверен контролем на фасете «Mission in Kosovo»:
+    # f[]= и f[0]= дают одинаковые 5 карточек — наш URL исправен. У узбекского
+    # офиса сейчас 0 открытых тендеров, фасета «Uzbekistan» на сайте нет вовсе.
+    use_system_ca: true
     url: "https://procurement.osce.org/tenders?f[]=source:OSCE+Project+Co-ordinator+in+Uzbekistan"
     method: GET
     headers:
