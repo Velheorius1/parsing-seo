@@ -58,6 +58,18 @@ MIN_ROWS = 20
 # десять источников с разрывом 21…155 дней.
 FROZEN_DAYS = 21
 
+# Свой порог по объёму, ниже общего MIN_ROWS. MIN_ROWS=20 заведён для проверки
+# на тишину, где мелкий источник шумит по делу: три строки и неделя молчания
+# ничего не значат. У замороженного upstream логика обратная — источник,
+# который собирается каждый день и не дал ни одной новой строки за три месяца,
+# сломан независимо от своего размера, и прячется этот дефект как раз в мелких
+# корпоративных источниках. Замер 05.08: под MIN_ROWS=20 не попадали Saneg (18
+# строк, заморожен 93д), Asia Alliance (15/28д), Ebirja Аукционы (12/46д),
+# E-Birja встречный аукцион (10/123д), Узкимёсаноат (5/55д) — то есть пять из
+# восьми находок. Ниже 5 строк не судим: у такого источника (IsDB — 2 строки за
+# всю историю) «нового нет» неотличимо от «площадка почти не публикует».
+FROZEN_MIN_ROWS = 5
+
 # Sources confirmed dead-by-design (audit 2026-06-06: replaced-not-lost — their
 # products now flow through the live unified feeds). Do NOT alert on these.
 KNOWN_RETIRED = frozenset({
@@ -158,7 +170,7 @@ def _frozen_sources(rows, silent_names):
         src = r.get("source") or ""
         cnt = r.get("cnt") or 0
         last = r.get("last_collected")
-        if not src or not last or cnt < MIN_ROWS:
+        if not src or not last or cnt < FROZEN_MIN_ROWS:
             continue
         if src in KNOWN_RETIRED or src in silent_names:
             continue

@@ -124,8 +124,20 @@ def test_known_retired_is_ignored():
     assert _run([_row(src)], {src: 200}) == []
 
 
-def test_tiny_source_is_ignored():
-    assert _run([_row("A", cnt=W.MIN_ROWS - 1)], {"A": 200}) == []
+def test_small_source_is_still_judged():
+    """Свой порог, ниже MIN_ROWS: дефект прячется как раз в мелких источниках.
+
+    Saneg — 18 строк и 93 дня без единой новой; под общим MIN_ROWS=20 он
+    выпадал из выдачи вместе с четырьмя такими же.
+    """
+    assert W.FROZEN_MIN_ROWS < W.MIN_ROWS
+    got = _run([_row("Saneg", cnt=18)], {"Saneg": 93})
+    assert [g["source"] for g in got] == ["Saneg"], got
+
+
+def test_source_too_thin_to_judge_is_ignored():
+    """2 строки за всю историю: «нового нет» неотличимо от «почти не публикуют»."""
+    assert _run([_row("A", cnt=W.FROZEN_MIN_ROWS - 1)], {"A": 200}) == []
 
 
 def test_failed_query_is_not_treated_as_healthy():
