@@ -46,48 +46,19 @@ def _iso(days_ago):
     return (NOW - timedelta(days=days_ago)).isoformat()
 
 
-class _FakeClient(object):
-    """Минимальный дубль supabase-клиента: отдаёт max(created_at) по источнику.
-
-    `created` — {источник: сколько дней назад появилась последняя новая строка};
-    источник со значением None роняет запрос (проверяем, что это не читается
-    как «свежий»).
-    """
-
-    def __init__(self, created):
-        self._created = created
-        self._src = None
-
-    def table(self, _name):
-        return self
-
-    def select(self, *_a, **_k):
-        return self
-
-    def eq(self, _col, val):
-        self._src = val
-        return self
-
-    def order(self, *_a, **_k):
-        return self
-
-    def limit(self, *_a, **_k):
-        return self
-
-    def execute(self):
-        val = self._created.get(self._src, 0)
-        if val is None:
-            raise RuntimeError("statement timeout (57014)")
-        return types.SimpleNamespace(data=[{"created_at": _iso(val)}])
-
-
 def _run(rows, created, silent_names=None):
-    orig = W._supabase
-    W._supabase = lambda: _FakeClient(created)
-    try:
-        return W._frozen_sources(rows, silent_names or set())
-    finally:
-        W._supabase = orig
+    """`created` — {источник: сколько дней назад появилась последняя новая строка}.
+
+    None означает, что RPC не отдал last_created для этого источника (так
+    выглядит выдача, пока миграция 020 не применена).
+    """
+    enriched = []
+    for r in rows:
+        days_ago = created.get(r["source"], 0)
+        r = dict(r)
+        r["last_created"] = None if days_ago is None else _iso(days_ago)
+        enriched.append(r)
+    return W._frozen_sources(enriched, silent_names or set())
 
 
 def _row(src, cnt=100, collected_days=0):
@@ -140,10 +111,27 @@ def test_source_too_thin_to_judge_is_ignored():
     assert _run([_row("A", cnt=W.FROZEN_MIN_ROWS - 1)], {"A": 200}) == []
 
 
-def test_failed_query_is_not_treated_as_healthy():
-    """Упавший запрос обязан выпасть из выдачи, а не притвориться свежим."""
+def test_missing_field_is_not_treated_as_healthy():
+    """Нет last_created — источник выпадает из выдачи, а не «свежий»."""
     got = _run([_row("A"), _row("B")], {"A": None, "B": 200})
     assert [g["source"] for g in got] == ["B"], got
+
+
+def test_migration_not_applied_yields_nothing_and_warns():
+    """Пока RPC не отдаёт last_created, проверка обязана молчать целиком.
+
+    Молчать — но не притворяться, что всё проверено: в лог уходит warning.
+    Ровно на смешении «сканер не отработал» и «чисто» вставал gitleaks-хук.
+    """
+    seen = []
+    orig = W.logger.warning
+    W.logger.warning = lambda *a, **k: seen.append(a)
+    try:
+        got = _run([_row("A"), _row("B")], {"A": None, "B": None})
+    finally:
+        W.logger.warning = orig
+    assert got == []
+    assert seen and "020" in " ".join(str(x) for x in seen[0])
 
 
 def test_sorted_by_staleness():

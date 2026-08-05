@@ -156,53 +156,47 @@ def _frozen_sources(rows, silent_names):
     # type: (List[Dict], Set[str]) -> List[Dict]
     """Источники, которые СОБИРАЮТСЯ, но давно не дают новых строк.
 
-    `rows` — выдача RPC source_freshness (source, cnt, last_collected).
-    Для каждого живого источника спрашиваем max(created_at) — одну строку,
-    сортировка по индексу; на 74 источниках это меньше минуты раз в сутки.
+    `rows` — выдача RPC source_freshness: source, cnt, last_collected и
+    last_created (миграция 020). Всё берём из одной агрегации: первая версия
+    спрашивала max(created_at) отдельным запросом на источник и на шести самых
+    крупных стабильно падала в 57014 — то есть молча не покрывала ровно те
+    источники, где цена дефекта выше всего.
 
-    Уже молчащие источники исключаем: про них сторож сказал выше, и второе
-    сообщение о том же было бы дублем.
+    `last_created` отсутствует, пока миграция 020 не применена: тогда честно
+    возвращаем пустой список и пишем предупреждение, а не «всё в порядке».
+
+    Уже молчащие источники исключаем: про них сторож сказал первой проверкой,
+    и второе сообщение о том же было бы дублем.
     """
-    client = _supabase()
     now = datetime.now(timezone.utc)
     out = []  # type: List[Dict]
+    saw_field = False
     for r in rows:
         src = r.get("source") or ""
         cnt = r.get("cnt") or 0
         last = r.get("last_collected")
-        if not src or not last or cnt < FROZEN_MIN_ROWS:
+        created = r.get("last_created")
+        if created:
+            saw_field = True
+        if not src or not last or not created or cnt < FROZEN_MIN_ROWS:
             continue
         if src in KNOWN_RETIRED or src in silent_names:
             continue
         try:
             collected_days = (now - datetime.fromisoformat(
                 last.replace("Z", "+00:00"))).days
+            created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
         except (ValueError, AttributeError):
             continue
         if collected_days >= SILENCE_DAYS:
             continue  # молчит целиком — это случай первой проверки
-        try:
-            resp = (client.table("tenders").select("created_at")
-                    .eq("source", src).order("created_at", desc=True)
-                    .limit(1).execute())
-            data = resp.data or []
-        except Exception as exc:
-            # Таймаут запроса не должен читаться как «источник в порядке»:
-            # тот же капкан стоил metrics_tracker падения на 57014.
-            logger.warning("frozen-check: %s — запрос не отработал (%s)",
-                           src, str(exc)[:100])
-            continue
-        if not data or not data[0].get("created_at"):
-            continue
-        try:
-            created_dt = datetime.fromisoformat(
-                data[0]["created_at"].replace("Z", "+00:00"))
-        except (ValueError, AttributeError):
-            continue
         fresh_days = (now - created_dt).days
         if fresh_days >= FROZEN_DAYS:
             out.append({"source": src, "cnt": int(cnt), "days": fresh_days,
-                        "last_new": data[0]["created_at"][:10]})
+                        "last_new": created[:10]})
+    if rows and not saw_field:
+        logger.warning("frozen-check пропущен: RPC source_freshness не отдаёт "
+                       "last_created — миграция 020 не применена")
     out.sort(key=lambda x: -x["days"])
     return out
 
