@@ -146,9 +146,17 @@ def test_row_shape_has_what_the_message_needs():
     assert got["cnt"] == 993 and len(got["last_new"]) == 10
 
 
-def test_disabled_frozen_plans_source_is_allowlisted():
-    """Фетчер отключён 05.08 — сторож не должен звенеть про него через неделю."""
-    assert "Cooperation.uz Закупочные планы" in W.KNOWN_RETIRED
+def test_sources_retired_on_05_08_are_allowlisted():
+    """Отключённые 05.08 — сторож не должен звенеть про них через неделю.
+
+    Все три сняты осознанно: у планов заморожен upstream, у встречного
+    аукциона external_id был порядковым номером строки, «Ebirja Аукционы»
+    заменены источником с настоящим id лота.
+    """
+    for src in ("Cooperation.uz Закупочные планы",
+                "E-Birja встречный аукцион (листинг)",
+                "Ebirja Аукционы"):
+        assert src in W.KNOWN_RETIRED, src
 
 
 if __name__ == "__main__":
