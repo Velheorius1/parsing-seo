@@ -99,6 +99,19 @@ KNOWN_EMPTY_OK = frozenset({
     "TG: Фонд предпринимательства",  # канал почти не постит (последнее — 2024)
 })
 
+# Зеркала: источники, связанные общим `dedup_group` с другим источником, который
+# опрашивается раньше. Их строки схлопываются cross-source дедупом, поэтому ноль
+# новых строк у них — НОРМА, а не смерть. Держим включёнными как резерв: домены
+# площадки падают порознь, и если ляжет основной, зеркало подхватит.
+#
+# Отдельным списком, а не в KNOWN_RETIRED, потому что смысл другой: retired —
+# «источника больше нет», mirror — «источник жив, но его вклад учтён под другим
+# именем». 28.04 общую группу уже разделяли, когда молчание проигравшего
+# приняли за поломку; здесь оно ожидаемо и объяснено.
+DEDUP_MIRRORS = frozenset({
+    "Hayot Birja",  # зеркало xt-xarid.uz, тот же бэкенд, группа xtx-spa-tender
+})
+
 
 def _supabase():
     from supabase import create_client
@@ -127,7 +140,8 @@ def _enabled_sources_missing_in_db(db_source_names):
         logger.warning("load_sources failed: %s", str(exc)[:120])
         return []
     enabled_names = {c.name for c in configs}
-    missing = enabled_names - db_source_names - KNOWN_RETIRED - KNOWN_EMPTY_OK
+    missing = (enabled_names - db_source_names - KNOWN_RETIRED
+               - KNOWN_EMPTY_OK - DEDUP_MIRRORS)
     return sorted(missing)
 
 
@@ -147,7 +161,7 @@ def _silent_sources():
         src = r.get("source") or ""
         cnt = r.get("cnt") or 0
         last = r.get("last_collected")
-        if not last or cnt < MIN_ROWS or src in KNOWN_RETIRED:
+        if not last or cnt < MIN_ROWS or src in KNOWN_RETIRED or src in DEDUP_MIRRORS:
             continue
         try:
             last_dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
@@ -188,7 +202,7 @@ def _frozen_sources(rows, silent_names):
             saw_field = True
         if not src or not last or not created or cnt < FROZEN_MIN_ROWS:
             continue
-        if src in KNOWN_RETIRED or src in silent_names:
+        if src in KNOWN_RETIRED or src in DEDUP_MIRRORS or src in silent_names:
             continue
         try:
             collected_days = (now - datetime.fromisoformat(

@@ -696,6 +696,22 @@ sources:
 
   # ── SPA sources (Playwright) ───────────────────────────────────────
 
+  # xt-xarid.uz и hayotbirja.uz — ОДИН бэкенд под двумя доменами: путь тот же
+  # (/procedure/tender), разметка та же, id лотов совпадают. Замер 05.08 по всей
+  # истории: 91 общий external_id, уникальных у hayotbirja — НОЛЬ, у xt-xarid —
+  # один. То есть второй строго вложен в первый.
+  #
+  # Связаны общим `dedup_group`: строки схлопываются до одной на лот, но ОБА
+  # источника продолжают опрашиваться — это резерв на случай, если один домен
+  # ляжет (у площадки они падают порознь). Выигрывает первый встреченный,
+  # то есть xt-xarid — он идёт выше в этом файле и он же надмножество.
+  # Порядок закреплён тестом `test_dedup_mirrors.py`, иначе при перестановке
+  # блоков победитель молча поменяется.
+  #
+  # ВАЖНО для будущих сессий: `Hayot Birja` теперь всегда даёт 0 новых строк —
+  # это НЕ мёртвый источник, а зеркало. 28.04 общую группу уже разделяли,
+  # когда `XT-Xarid тендеры` из-за неё замолчал и это приняли за поломку;
+  # чтобы не повторилось, зеркало внесено в `DEDUP_MIRRORS` сторожа.
   - id: xt-xarid
     name: "xt-xarid.uz"
     adapter: spa
@@ -704,6 +720,7 @@ sources:
     rate_limit: 0.5
     timeout: 45
     id_prefix: "xt-xarid"
+    dedup_group: "xtx-spa-tender"
     wait_selector: ".data-view-item"
     html_selectors:
       container: ".data-view-item"
@@ -714,6 +731,8 @@ sources:
       link: "a.title"
     keywords_fields: []
 
+  # Зеркало xt-xarid (см. комментарий выше). Держим включённым как резерв по
+  # домену; строки схлопываются cross-source дедупом, 0 новых строк здесь — норма.
   - id: hayotbirja
     name: "Hayot Birja"
     adapter: spa
@@ -722,6 +741,7 @@ sources:
     rate_limit: 0.5
     timeout: 45
     id_prefix: "hayot"
+    dedup_group: "xtx-spa-tender"
     wait_selector: ".data-view-item"
     html_selectors:
       container: ".data-view-item"
