@@ -33,7 +33,21 @@ echo "=== $(date +%Y-%m-%d\ %H:%M:%S) START proxy fetch ===" >> "$LOG"
 # Each source isolated in its own subshell so one failure doesn't kill the rest
 ( .venv/bin/python3 scripts/fetch_cooperation.py --source lots    || echo 'lots FAILED' )    >> "$LOG" 2>&1
 ( .venv/bin/python3 scripts/fetch_cooperation.py --source offers  || echo 'offers FAILED' )  >> "$LOG" 2>&1
-( .venv/bin/python3 scripts/fetch_cooperation.py --source plans   || echo 'plans FAILED' )   >> "$LOG" 2>&1
+# plans ОТКЛЮЧЁН 05.08: эндпоинт ocelot GetAllPlanSchedule заморожен площадкой
+# с 03.02.2026 — самая свежая его запись за полгода имеет createdDate 2026-02-03,
+# и все 1500 верхних id уже лежат у нас (проверено: НОВЫХ 0). То есть три раза
+# в сутки мы перекладывали один и тот же февральский срез.
+#
+# Почему это не читалось как поломка: `collected_at` перезаписывается при каждом
+# upsert (db.py:106), поэтому источник показывал «1000 свежих строк за 14 дней»
+# и был невидим для freshness_watchdog, который сравнивает именно collected_at.
+# Алертов не было и не могло быть — upsert_tenders считает новым только
+# отсутствующий external_id.
+#
+# Планы закупок продолжает собирать ЖИВОЙ близнец на другом API:
+# `cooperation-plans-filtered` (cabinet.cooperation.uz/api/schedule-plan/...) —
+# у него настоящий срок из lockUntil, цена и рабочая ссылка /plan-schedule/{guid}.
+# ( .venv/bin/python3 scripts/fetch_cooperation.py --source plans || echo 'plans FAILED' ) >> "$LOG" 2>&1
 ( .venv/bin/python3 scripts/fetch_cooperation.py --source auction || echo 'auction FAILED' ) >> "$LOG" 2>&1
 ( .venv/bin/python3 scripts/fetch_cooperation.py --source eshop   || echo 'eshop FAILED' )   >> "$LOG" 2>&1
 # Contracts: closed auction deals via stat-new.cooperation.uz (added 2026-05-22).
