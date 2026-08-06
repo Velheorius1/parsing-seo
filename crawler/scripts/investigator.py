@@ -30,6 +30,7 @@ import json
 import logging
 import sys
 from datetime import datetime, timezone
+from typing import Optional
 
 import httpx
 
@@ -53,11 +54,24 @@ SYSTEM = """Ты — тендерный аналитик типографии Wi
 дать владельцу чёткий вердикт: участвовать / пропустить / уточнить.
 
 Используй инструменты чтобы: (1) получить полную деталь лота с площадки,
-(2) проверить его текущий статус, (3) найти этот же лот на других площадках в нашей БД.
+(2) ПРОЧИТАТЬ приложенное ТЗ, (3) проверить его текущий статус, (4) найти этот же лот
+на других площадках в нашей БД.
 Затем выдай вердикт через submit_verdict. Учитывай: профиль типографии (широкоформат/
 наружка/папки — НЕ наш профиль), объёмы и сроки, число конкурентов (part_count),
 дедлайн, полноту данных. Если данных мало — вердикт «уточнить» с конкретным списком.
-Не выдумывай факты: чего нет в данных — того не утверждай."""
+Не выдумывай факты: чего нет в данных — того не утверждай.
+
+ПРО МАТЕРИАЛ И КАТЕГОРИЮ ПЛОЩАДКИ (обязательно).
+Поле категории (`Category_Name`, ЕНКТ, ТНВЭД) заполняет заказчик при публикации, и
+оно РЕГУЛЯРНО не совпадает с тем, что реально закупают. Оно — подсказка, а не факт.
+Никогда не отклоняй лот по одной категории. Порядок доверия такой:
+ТЗ и квалификационные требования > название лота > категория площадки.
+Живой случай (лот 506231, XALQ BANK, 05.08.2026): категория «Кожа и изделия из кожи»,
+а в ТЗ квалификационное требование — опыт производства «kardholder yoki bank kartalari
+qadoqlari yoki kartonli premium qadoqlash». То есть картон, наш профиль; вердикт
+«пропустить» по категории был ошибкой.
+Если ТЗ прочитать не удалось — это НЕ повод считать категорию верной: так и скажи в
+вердикте, что материал не подтверждён, и выбирай «уточнить», а не «пропустить»."""
 
 # OpenAI-style function tools (OpenRouter chat/completions format).
 def _fn(name, description, params=None, required=None):
@@ -69,6 +83,10 @@ def _fn(name, description, params=None, required=None):
 TOOLS = [
     _fn("fetch_lot_detail",
         "Полная деталь лота с площадки (get_proc для birja: позиции закупки, документы, условия; GetTrade для etender)."),
+    _fn("fetch_lot_documents",
+        "Текст приложенного к лоту ТЗ и техдокументации (PDF). Здесь пишут, ИЗ ЧЕГО "
+        "и что именно изготавливают — категория площадки этому часто противоречит. "
+        "Вызывай ВСЕГДА, прежде чем судить о материале и профиле."),
     _fn("check_lot_alive",
         "Текущий статус лота на площадке: ok (активен) / closed / gone / unverifiable."),
     _fn("find_cross_platform",
@@ -124,6 +142,88 @@ async def _tool_fetch_detail(t):
             except Exception as exc:
                 return "detail fetch failed: %s" % str(exc)[:100]
     return "no detail API for source %s; use the alert fields" % t.source
+
+
+# Файлы лота отдаёт сам API площадки, анонимно, но ТОЛЬКО методом POST и только
+# с путём в query-строке: GET и POST с телом дают 405/500 (проверено 05.08 на
+# лоте 506231 — размер ответа совпал с tech_doc_file_sizes из GetTrade).
+_ETENDER_FILE_API = "https://apietender.uzex.uz/api/common/DownloadFile"
+_DOC_FIELDS = (
+    ("tech_doc_file_path", "Техническая документация"),
+    ("tech_file_path", "Техническое задание"),
+    ("add_file_path", "Дополнительный файл"),
+)
+_DOC_CHARS = 7000
+
+
+def _pdf_to_text(blob):
+    # type: (bytes) -> Optional[str]
+    """Текст из PDF. None — если извлечь не удалось.
+
+    Пустая строка и «не смогли» — разные вещи: пустую модель прочтёт как
+    «в ТЗ ничего нет» и снова поверит категории. Поэтому неудача возвращает
+    None, а вызывающий говорит об этом прямым текстом.
+    """
+    import subprocess
+    import tempfile
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf") as fh:
+            fh.write(blob)
+            fh.flush()
+            out = subprocess.run(["pdftotext", "-layout", fh.name, "-"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 timeout=60)
+        if out.returncode == 0 and out.stdout:
+            return out.stdout.decode("utf-8", "replace")
+    except Exception as exc:
+        logger.warning("pdftotext failed: %s", str(exc)[:100])
+    return None
+
+
+async def _tool_fetch_documents(t):
+    """Скачать и прочитать приложенные к лоту документы (пока — etender/PDF)."""
+    import re as _re
+    if not (t.source or "").startswith("ETender"):
+        return ("Для источника %s чтение приложенных документов не реализовано — "
+                "материал по ним НЕ подтверждён." % t.source)
+    m = _re.search(r"/lot/(\d+)", t.source_url or "")
+    if not m:
+        return "Не разобрал id лота из ссылки — документы не прочитаны."
+    try:
+        async with httpx.AsyncClient(timeout=90, follow_redirects=True) as cl:
+            r = await cl.get("https://apietender.uzex.uz/api/common/GetTrade/%s/0"
+                             % m.group(1))
+            meta = r.json() or {}
+            parts = []
+            for field, label in _DOC_FIELDS:
+                path = meta.get(field)
+                if not path:
+                    continue
+                ext = (meta.get(field.replace("_path", "_ext")) or "").upper()
+                if ext and ext != "PDF":
+                    parts.append("[%s] %s (%s) — не PDF, текст НЕ извлечён; "
+                                 "материал по этому файлу не подтверждён."
+                                 % (label, str(path).rsplit("/", 1)[-1], ext))
+                    continue
+                fr = await cl.post(_ETENDER_FILE_API, params={"path": path})
+                if fr.status_code != 200 or fr.content[:4] != b"%PDF":
+                    parts.append("[%s] скачать не удалось (HTTP %s) — "
+                                 "материал не подтверждён." % (label, fr.status_code))
+                    continue
+                txt = _pdf_to_text(fr.content)
+                if txt is None:
+                    parts.append("[%s] PDF получен, но текст извлечь не удалось — "
+                                 "материал не подтверждён." % label)
+                    continue
+                txt = _re.sub(r"[ \t]+", " ", txt)
+                parts.append("[%s]\n%s" % (label, txt[:_DOC_CHARS]))
+    except Exception as exc:
+        return ("Документы прочитать не удалось: %s. Материал НЕ подтверждён — "
+                "не считай категорию площадки доказанной." % str(exc)[:120])
+    if not parts:
+        return ("К лоту не приложено ни одного документа. Материал не подтверждён — "
+                "категория площадки НЕ доказательство.")
+    return "\n\n".join(parts)[:_DOC_CHARS * 2]
 
 
 async def _tool_check_alive(t):
@@ -215,6 +315,8 @@ async def investigate(tender, db_client):
                     out = "принято"
                 elif fn == "fetch_lot_detail":
                     out = await _tool_fetch_detail(tender)
+                elif fn == "fetch_lot_documents":
+                    out = await _tool_fetch_documents(tender)
                 elif fn == "check_lot_alive":
                     out = await _tool_check_alive(tender)
                 elif fn == "find_cross_platform":
