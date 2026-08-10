@@ -15,9 +15,14 @@ import argparse, json, re, sys
 sys.path.insert(0, "/opt/parsing-seo")
 import httpx
 from crawler.config.settings import settings
+from crawler.core.feedback import RECALL_TAXONOMY
 from supabase import create_client
 
-TAXONOMY = ["relevant-rejected", "ad-as-client", "irrelevant-niche", "wrong-score", "trivial"]
+TAXONOMY = [RECALL_TAXONOMY, "ad-as-client", "irrelevant-niche", "wrong-score", "trivial"]
+
+# Куда снимать отказную коррекцию, которую модель по ошибке пометила recall-таксономией.
+# Направление известно ДЕТЕРМИНИРОВАННО — по метке человека, гадать не нужно.
+_REJECT_FALLBACK = {"ad": "ad-as-client", "irrelevant": "irrelevant-niche"}
 
 # Controlled signal_slug vocabulary (E-F fix, 2026-07-06). The free-form slug made
 # every correction a UNIQUE signal_key → support stuck at 1 → nothing ever promoted
@@ -46,14 +51,18 @@ _DISTIL_PROMPT = """Ты дистиллируешь ОДНУ человечес�
 Система решила: %s
 Человек исправил на: %s
 
-Таксономия (выбери ОДНУ): relevant-rejected (наш заказ зарезан), ad-as-client (реклама принята за заказ), irrelevant-niche (вне ниши принято за наше), wrong-score (близко но балл кривой), trivial (разовая мелочь — не возводить в принцип).
+Здесь человек ОТКЛОНИЛ показанный лот, поэтому принцип может быть только СУЖАЮЩИМ.
+Таксономия (выбери ОДНУ): ad-as-client (реклама принята за заказ), irrelevant-niche (вне ниши принято за наше), wrong-score (близко но балл кривой), trivial (разовая мелочь — не возводить в принцип).
+Варианта «наш заказ зарезан» здесь НЕТ — это противоположный случай, он разбирается отдельным промптом.
 
 Сформулируй ПРИНЦИП — обобщённый признак ошибки, КАК ДУМАТЬ (не «что блокировать»), БЕЗ имён собственных (компаний/каналов/доменов). Конкретика — только в example.
 signal_slug — ВЫБЕРИ РОВНО ОДИН из списка (не придумывай свой): self-promo, vacancy,
 non-print-goods, textile-sewing, cutting-outdoor, greeting-offtopic, medicine-food,
 construction, services-nonprint, print-rejected, packaging-rejected, score-borderline, other.
 
-СТРОГО JSON: {"taxonomy":"...","principle":"...","example":"(пример: ...)","signal_slug":"..."}
+effect — что ДЕЛАЕТ твой принцип с сетью отбора: "narrow" (резать больше) или "widen" (ловить больше).
+
+СТРОГО JSON: {"taxonomy":"...","principle":"...","example":"(пример: ...)","signal_slug":"...","effect":"narrow"}
 Если trivial — taxonomy:"trivial", остальное пустое."""
 
 # Readable phrase for the system verdict token stored in original_label (Hole A fix).
@@ -74,9 +83,11 @@ _DISTIL_PROMPT_PROTECT = """Система НЕДООЦЕНИЛА реальны
 Человек: НАШ заказ (client)
 
 Сформулируй ЗАЩИТНЫЙ ПРИНЦИП — обобщённый признак, ПО КОТОРОМУ такой лот НАДО ловить (что система упускает), КАК ДУМАТЬ, БЕЗ имён собственных. Конкретика — только в example.
+ЗАПРЕЩЕНО писать принцип вида «это НЕ наш заказ» / «не является полиграфией» — человек уже сказал, что заказ НАШ. Принцип обязан РАСШИРЯТЬ сеть, а не сужать.
 signal_slug — ВЫБЕРИ РОВНО ОДИН: print-underrated, packaging-underrated, niche-term-missed, format-underrated, other.
+effect — что ДЕЛАЕТ твой принцип с сетью отбора: "widen" (ловить больше) или "narrow" (резать больше). Здесь корректен только "widen".
 
-СТРОГО JSON: {"taxonomy":"relevant-rejected","principle":"...","example":"(пример: ...)","signal_slug":"..."}"""
+СТРОГО JSON: {"taxonomy":"relevant-rejected","principle":"...","example":"(пример: ...)","signal_slug":"...","effect":"widen"}"""
 
 _PROPER_NAME = re.compile(r"[A-ZА-ЯЁ][a-zа-яё]{2,}\s+[A-ZА-ЯЁ]|\.(uz|ru|com)\b|«[^»]*[A-ZА-ЯЁ]{2,}", re.U)
 
@@ -150,6 +161,72 @@ def distil(text, verdict, human, direction):
     except Exception:
         return None
 
+def enforce_direction(taxonomy, direction, human):
+    # type: (str, str, str) -> str
+    """Свести таксономию принципа с НАПРАВЛЕНИЕМ коррекции. Чистая функция.
+
+    Направление известно достоверно — из метки человека; таксономию выбирает модель.
+    Отказная коррекция (человек снял лот) по построению не может родить recall-принцип
+    «наш заказ зарезан», но формулировка в промпте была похожа на «система решила
+    релевантный → человек отклонил», и модели было куда промахнуться. Цена промаха
+    несимметрична: recall-принципы закрепляются в промпте ПЕРВЫМИ и ВСЕ до одного
+    (get_relevance_playbook), тогда как отказные конкурируют за остаток слотов.
+    """
+    if direction == "protect":
+        return RECALL_TAXONOMY
+    if taxonomy == RECALL_TAXONOMY:
+        return _REJECT_FALLBACK.get((human or "").strip().lower(), "irrelevant-niche")
+    return taxonomy
+
+
+_EXPECTED_EFFECT = {"protect": "widen", "reject": "narrow"}
+
+
+def effect_conflicts(effect, direction):
+    # type: (str, str) -> bool
+    """Принцип заявил противоположное тому, что сказал человек? Чистая функция.
+
+    Самопроверка нужна потому, что дистиллятор УЖЕ выворачивал коррекции наизнанку —
+    и это не гипотеза, а сверка с исходными кликами (10.08):
+
+      «Roll up kerak 150x200 cm»          → человек: НАШ  → принцип: «не является
+                                                             заказом на полиграфию»
+      «Бумага и изделия из бумаги»        → человек: НАШ  → принцип: «закупка товара,
+                                                             а не наш тендер»
+      «Ручка металлическая»               → человек: НАШ  → принцип: «мы не принимаем
+                                                             заказы на поставку»
+      «Нужны крафт пакеты с печатью»      → человек: НАШ  → принцип: «относится к
+                                                             поставке упаковки»
+
+    Все четыре осели в recall-таксономии на support_count=1 — то есть одна следующая
+    совпавшая коррекция сделала бы их активными, и промпт получил бы первыми строками
+    ровно те принципы, против которых человек кликал. Родом они из эпохи до появления
+    protect-ветки, когда ВСЕ коррекции шли через отказный промпт, но сама возможность
+    инверсии этим не закрыта — закрывает её вот эта проверка.
+
+    Fail-open: поле не пришло или незнакомое — пропускаем. Молчаливая остановка
+    обучения уже стоила 358 коррекций (см. reasoning:false выше), второй раз не надо.
+    """
+    e = (effect or "").strip().lower()
+    if e not in ("widen", "narrow"):
+        return False
+    want = _EXPECTED_EFFECT.get(direction)
+    return bool(want) and e != want
+
+
+def pinned_recall_principles(client):
+    # type: (object) -> list
+    """Активные recall-принципы — те, что уходят в промпт первыми и безусловно.
+    Печатаются каждый прогон: это единственный список, который влияет на КАЖДУЮ
+    оценку релевантности, и он должен быть перед глазами, а не только в БД."""
+    try:
+        return (client.table("classifier_playbook").select("id,signal_key,support_count,principle")
+                .eq("taxonomy", RECALL_TAXONOMY).eq("status", "active")
+                .order("support_count", desc=True).execute().data or [])
+    except Exception:
+        return []
+
+
 def main(days, bootstrap, send):
     client = _client()
     corr = fetch_corrections(client, days)
@@ -157,7 +234,7 @@ def main(days, bootstrap, send):
     n_reject = sum(1 for c in corr if c.get("direction") == "reject")
     n_protect = sum(1 for c in corr if c.get("direction") == "protect")
     print("  directions: reject(FP)=%d protect(recall)=%d" % (n_reject, n_protect))
-    inserted = updated = skipped = promoted = 0
+    inserted = updated = skipped = promoted = misfiled = inverted = 0
     proposals = []
     for c in corr:
         direction = c.get("direction") or "reject"
@@ -166,9 +243,15 @@ def main(days, bootstrap, send):
             skipped += 1; continue
         if d["taxonomy"] == "trivial":
             skipped += 1; continue
-        # protect = recall guard: always a relevant-rejected principle, regardless of what the model tagged
-        if direction == "protect":
-            d["taxonomy"] = "relevant-rejected"
+        if effect_conflicts(d.get("effect"), direction):
+            # принцип говорит обратное тому, что сказал человек — в playbook не пускаем
+            inverted += 1; skipped += 1
+            proposals.append("[инверсия/%s] %s" % (direction, (c["message_text"] or "")[:60]))
+            continue
+        fixed = enforce_direction(d["taxonomy"], direction, c.get("corrected_label") or "")
+        if fixed != d["taxonomy"] and direction != "protect":
+            misfiled += 1
+        d["taxonomy"] = fixed
         principle = (d.get("principle") or "").strip()
         if not principle or _PROPER_NAME.search(principle):
             # proper-name linter failed -> systemic, send to proposals not playbook
@@ -194,14 +277,23 @@ def main(days, bootstrap, send):
                 "example": d.get("example"), "signal_key": signal_key,
                 "status": "candidate", "support_count": 1}).execute()
             inserted += 1
-    summary = ("playbook_refine: corrections=%d inserted=%d updated=%d promoted=%d skipped=%d | proposals=%d"
-               % (len(corr), inserted, updated, promoted, skipped, len(proposals)))
+    summary = ("playbook_refine: corrections=%d inserted=%d updated=%d promoted=%d skipped=%d "
+               "misfiled=%d inverted=%d | proposals=%d"
+               % (len(corr), inserted, updated, promoted, skipped, misfiled, inverted, len(proposals)))
     print(summary)
     if proposals:
-        print("PROMPT PROPOSALS (systemic / proper-name — not playbook):")
+        print("PROMPT PROPOSALS (systemic / proper-name / инверсия — not playbook):")
         for p in proposals[:10]: print("  -", p)
+    pinned = pinned_recall_principles(client)
+    print("RECALL PINNED (в промпте первыми, безусловно): %d" % len(pinned))
+    for r in pinned:
+        print("  - #%s %s (sup=%s) %s" % (r.get("id"), r.get("signal_key"),
+                                          r.get("support_count"), (r.get("principle") or "")[:90]))
     if send and (inserted or promoted or proposals):
         body = "\U0001f4d8 *Playbook refine*\n" + summary
+        if inverted:
+            body += ("\n\n⚠️ Инверсий отброшено: %d — дистиллятор писал принцип "
+                     "против метки человека." % inverted)
         if proposals:
             body += "\n\n*Prompt proposals* (не playbook):\n" + "\n".join("• " + p for p in proposals[:8])
         try:

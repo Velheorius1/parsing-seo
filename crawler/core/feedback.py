@@ -303,7 +303,14 @@ _playbook_cache_ts = 0.0
 # while false positives are clicked away daily), so a plain support-DESC top-N starves
 # them forever: on 2026-07-25 all 23 active principles were rejection-side and the
 # only real recall guard sat below the cut. Reserve slots for them explicitly.
-_RECALL_TAXONOMY = "relevant-rejected"
+#
+# Public (не `_`) намеренно: этим же именем пользуется playbook_refine, чтобы решить,
+# что НЕЛЬЗЯ класть в эту таксономию. Две копии строки разъехались бы молча — и это
+# не гипотеза: 10.08 в relevant-rejected нашлись 4 кандидата с ОТКАЗНЫМ смыслом
+# («не является заказом на полиграфию»), и закрепление ниже втащило бы их в промпт
+# первыми же строками. См. playbook_refine._audit_recall_purity.
+RECALL_TAXONOMY = "relevant-rejected"
+_RECALL_TAXONOMY = RECALL_TAXONOMY  # обратная совместимость
 
 
 def get_relevance_playbook(limit=20):
