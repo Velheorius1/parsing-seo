@@ -186,6 +186,26 @@ def test_disputed_entries_carry_their_evidence():
             assert e.get("dispute_question"), e["cid"]
 
 
+def test_resolved_disputes_keep_the_original_click():
+    """Метку сменил человек — но исходный клик обязан остаться виден, иначе через
+    месяц не отличить «владелец решил иначе» от «подогнали под систему»."""
+    entries, _ = B.load_corpus()
+    resolved = [e for e in entries if e.get("dispute_resolved")]
+    assert resolved, "спор 10.08 должен остаться в истории корпуса"
+    for e in resolved:
+        assert "клик" in e["ground_truth"].lower(), e["cid"]
+        assert "Данияр" in e["ground_truth"] or "Данияра" in e["ground_truth"], e["cid"]
+
+
+def test_owner_rulings_are_anchored_in_the_prompt():
+    """Решение владельца, не доехавшее до промпта, разборщик повторит как ошибку."""
+    I = _investigator()
+    s = I.SYSTEM
+    assert "501515" in s and "502596" in s, "оба разобранных случая — якорями"
+    assert "экструзия" in s.lower(), "граница по пакетам: печать и материал, а не слово"
+    assert "расходник" in s.lower(), "закупка ДЛЯ типографии — не заказ типографии"
+
+
 # --- корпус -----------------------------------------------------------------
 
 def test_corpus_loads_and_is_not_tiny():
