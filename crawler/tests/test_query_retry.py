@@ -14,16 +14,33 @@ import sys
 import time
 import types
 
+from crawler.tests._stubs import install_stub
+
 
 def _load():
-    for name in ("crawler.config.settings", "crawler.core.models"):
-        if name not in sys.modules:
-            m = types.ModuleType(name)
-            if name.endswith("settings"):
-                m.settings = types.SimpleNamespace(supabase_url="x", supabase_service_role_key="y")
-            else:
-                m.RawTender = object
-            sys.modules[name] = m
+    install_stub("crawler.config.settings",
+                 settings=types.SimpleNamespace(supabase_url="x",
+                                                supabase_service_role_key="y"))
+    install_stub("crawler.core.models", RawTender=object)
+
+    # ЗДЕСЬ НУЖЕН НАСТОЯЩИЙ db.py, а в общем прогоне на его месте лежит заглушка
+    # соседа: test_mute_resilience подменяет crawler.core.db, чтобы не тянуть
+    # клиент при импорте feedback.py, и в той заглушке есть только _get_client.
+    # Отсюда «ImportError: cannot import name query_with_retry ... (unknown
+    # location)» — модуль ЦЕЛИКОМ выпадал из общего прогона, обрывая сбор тестов,
+    # а вместе с ним выпадала проверка контракта ретраев, на котором держится вся
+    # защита от 57014. Поэтому грузим файл по пути, минуя sys.modules.
+    mod = sys.modules.get("crawler.core.db")
+    if mod is not None and getattr(mod, "query_with_retry", None) is None:
+        import importlib.util
+        import os
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "core", "db.py")
+        spec = importlib.util.spec_from_file_location("crawler.core._db_for_test", path)
+        real = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(real)
+        return real.query_with_retry
+
     from crawler.core.db import query_with_retry
     return query_with_retry
 
