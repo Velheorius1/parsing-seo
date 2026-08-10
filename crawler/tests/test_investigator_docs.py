@@ -92,10 +92,51 @@ def test_download_uses_the_verified_endpoint():
     assert "cl.post(_ETENDER_FILE_API, params={" in src
 
 
-def test_non_pdf_attachment_is_reported_not_skipped():
-    """RAR/DOCX пропускаем, но обязаны сказать об этом вслух."""
+def test_archive_and_docx_are_read_not_skipped():
+    """06.08: RAR и DOCX больше не пропускаем — у лота 506231 настоящее
+    техзадание лежало ИМЕННО в архиве, рядом с узбекским DOCX на 38 тыс. знаков."""
     src = open(I.__file__.replace(".pyc", ".py"), encoding="utf-8").read()
-    assert "не PDF, текст НЕ извлечён" in src
+    assert "_archive_to_text" in src and "_docx_to_text" in src
+    assert 'b"Rar!"' in src, "RAR должен опознаваться и по сигнатуре, не только по ext"
+
+
+def test_unknown_format_is_reported_not_silently_dropped():
+    """Чего не прочитали — про то говорим вслух, а не молчим."""
+    src = open(I.__file__.replace(".pyc", ".py"), encoding="utf-8").read()
+    assert "формат не читаем, содержимое не проверено" in src
+
+
+def test_docx_extraction_works_on_a_real_docx():
+    """DOCX читаем без внешних зависимостей — это zip с word/document.xml."""
+    import io as _io
+    import zipfile
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("word/document.xml",
+                   "<w:document><w:body><w:p><w:r><w:t>kartonli qadoq</w:t>"
+                   "</w:r></w:p></w:body></w:document>")
+    got = I._docx_to_text(buf.getvalue())
+    assert got and "kartonli qadoq" in got, got
+
+
+def test_broken_docx_returns_none():
+    assert I._docx_to_text(b"not a zip") is None
+
+
+def test_scanned_pdf_triggers_ocr_and_says_so():
+    """Скан без текстового слоя — самый опасный случай: pdftotext отдаёт пустоту,
+    и это читается как «в ТЗ ничего нет». У лота 506231 именно в скане лежали
+    «offset bosma», CMYK+Pantone и 3D UV лак."""
+    src = open(I.__file__.replace(".pyc", ".py"), encoding="utf-8").read()
+    assert "_ocr_pdf" in src and "tesseract" in src
+    assert "распознано OCR" in src, "пользователь должен знать, что текст распознан"
+    assert I._TEXT_LAYER_MIN > 0
+
+
+def test_missing_external_tool_is_not_a_crash():
+    """Нет утилиты в системе — код 127, а не исключение наружу."""
+    rc, out = I._run(["definitely-not-installed-xyz"], timeout=5)
+    assert rc == 127 and out == b""
 
 
 if __name__ == "__main__":

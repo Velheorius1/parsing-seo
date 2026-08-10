@@ -153,31 +153,156 @@ _DOC_FIELDS = (
     ("tech_file_path", "Техническое задание"),
     ("add_file_path", "Дополнительный файл"),
 )
-_DOC_CHARS = 7000
+# Потолок на файл и на всю выдачу инструмента. 9000/24000 знаков это ~7k токенов
+# при $0.09/M на входе — доли цента, а решение о профиле принимается именно по
+# этому тексту. На лоте 506231 при 7000/14000 узбекский DOCX (38k знаков)
+# срезался целиком, в разбор попадал только распознанный скан.
+_DOC_CHARS = 9000
+_DOC_TOTAL = 24000
+
+
+# Сколько знаков в PDF считаем признаком живого текстового слоя. Ниже —
+# сканированная бумага: у лота 506231 «Техник топшириқ» это 6 страниц с копира
+# Konica Minolta, pdftotext отдаёт 6 байт. Именно там лежала вся суть
+# («offset bosma», CMYK+Pantone, 3D UV лак), и без OCR она была невидима.
+_TEXT_LAYER_MIN = 200
+_OCR_PAGES = 6      # дальше первых страниц техзадания смысла обычно нет
+_OCR_LANGS = "rus+uzb_cyrl+uzb"
+
+
+def _run(cmd, timeout=180):
+    """Внешняя утилита -> (код возврата, stdout). Отсутствие утилиты = код 127."""
+    import subprocess
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           timeout=timeout)
+        return p.returncode, p.stdout
+    except FileNotFoundError:
+        return 127, b""
+    except Exception as exc:
+        logger.warning("%s failed: %s", cmd[0], str(exc)[:100])
+        return 1, b""
+
+
+def _ocr_pdf(path):
+    # type: (str) -> Optional[str]
+    """OCR сканированного PDF (pdftoppm + tesseract). None — если не вышло."""
+    import glob
+    import os
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="ocr-")
+    try:
+        rc, _ = _run(["pdftoppm", "-r", "200", "-f", "1", "-l", str(_OCR_PAGES),
+                      "-png", path, os.path.join(tmp, "pg")], timeout=180)
+        if rc != 0:
+            return None
+        chunks = []
+        for png in sorted(glob.glob(os.path.join(tmp, "pg*.png"))):
+            rc, out = _run(["tesseract", png, "-", "-l", _OCR_LANGS], timeout=180)
+            if rc == 0 and out:
+                chunks.append(out.decode("utf-8", "replace"))
+        return "\n".join(chunks) if chunks else None
+    finally:
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _pdf_to_text(blob):
     # type: (bytes) -> Optional[str]
-    """Текст из PDF. None — если извлечь не удалось.
+    """Текст из PDF, при необходимости через OCR. None — если извлечь не удалось.
 
     Пустая строка и «не смогли» — разные вещи: пустую модель прочтёт как
     «в ТЗ ничего нет» и снова поверит категории. Поэтому неудача возвращает
     None, а вызывающий говорит об этом прямым текстом.
     """
-    import subprocess
+    import os
     import tempfile
+    fd, path = tempfile.mkstemp(suffix=".pdf")
     try:
-        with tempfile.NamedTemporaryFile(suffix=".pdf") as fh:
+        with os.fdopen(fd, "wb") as fh:
             fh.write(blob)
-            fh.flush()
-            out = subprocess.run(["pdftotext", "-layout", fh.name, "-"],
-                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                 timeout=60)
-        if out.returncode == 0 and out.stdout:
-            return out.stdout.decode("utf-8", "replace")
+        rc, out = _run(["pdftotext", "-layout", path, "-"], timeout=90)
+        txt = out.decode("utf-8", "replace") if rc == 0 else ""
+        if len(txt.strip()) >= _TEXT_LAYER_MIN:
+            return txt
+        ocr = _ocr_pdf(path)
+        if ocr and len(ocr.strip()) >= _TEXT_LAYER_MIN:
+            return "[распознано OCR — это скан, возможны ошибки чтения]\n" + ocr
+        return txt if txt.strip() else None
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _docx_to_text(blob):
+    # type: (bytes) -> Optional[str]
+    """Текст из DOCX без внешних зависимостей: это zip с word/document.xml."""
+    import io as _io
+    import re as _re
+    import zipfile
+    try:
+        with zipfile.ZipFile(_io.BytesIO(blob)) as z:
+            xml = z.read("word/document.xml").decode("utf-8", "replace")
     except Exception as exc:
-        logger.warning("pdftotext failed: %s", str(exc)[:100])
-    return None
+        logger.warning("docx read failed: %s", str(exc)[:100])
+        return None
+    xml = _re.sub(r"</w:p>", "\n", xml)
+    xml = _re.sub(r"</w:tc>", " | ", xml)   # ячейки таблиц не должны слипаться
+    txt = _re.sub(r"<[^>]+>", "", xml)
+    return txt or None
+
+
+def _archive_to_text(blob, suffix):
+    # type: (bytes, str) -> Optional[str]
+    """Распаковать архив и прочитать, что внутри (PDF + DOCX).
+
+    Заведено 05.08: у лота 506231 настоящее техзадание лежало ИМЕННО в архиве
+    (`Техник топшириқ.pdf` + `Техник хужжатлар картҳолдер.docx`), а метаданные
+    лота показывали только категорию «Кожа и изделия из кожи».
+    """
+    import glob
+    import os
+    import shutil
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="arc-")
+    fd, apath = tempfile.mkstemp(suffix=suffix)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(blob)
+        rc, _ = _run(["bsdtar", "-xf", apath, "-C", tmp], timeout=180)
+        if rc == 127:
+            return None   # распаковщика в системе нет — честно скажем выше
+        parts = []
+        for path in sorted(glob.glob(os.path.join(tmp, "**", "*"), recursive=True)):
+            if not os.path.isfile(path):
+                continue
+            name = os.path.basename(path)
+            low = name.lower()
+            try:
+                with open(path, "rb") as fh:
+                    inner = fh.read()
+            except OSError:
+                continue
+            if low.endswith(".pdf"):
+                got = _pdf_to_text(inner)
+            elif low.endswith(".docx"):
+                got = _docx_to_text(inner)
+            else:
+                parts.append("<%s: формат не читаем, содержимое не проверено>" % name)
+                continue
+            if got:
+                parts.append("<%s>\n%s" % (name, got[:_DOC_CHARS]))
+            else:
+                parts.append("<%s: текст извлечь не удалось>" % name)
+        return "\n\n".join(parts) if parts else None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+        try:
+            os.unlink(apath)
+        except OSError:
+            pass
 
 
 async def _tool_fetch_documents(t):
@@ -199,31 +324,39 @@ async def _tool_fetch_documents(t):
                 path = meta.get(field)
                 if not path:
                     continue
+                name = str(path).rsplit("/", 1)[-1]
                 ext = (meta.get(field.replace("_path", "_ext")) or "").upper()
-                if ext and ext != "PDF":
-                    parts.append("[%s] %s (%s) — не PDF, текст НЕ извлечён; "
-                                 "материал по этому файлу не подтверждён."
-                                 % (label, str(path).rsplit("/", 1)[-1], ext))
-                    continue
                 fr = await cl.post(_ETENDER_FILE_API, params={"path": path})
-                if fr.status_code != 200 or fr.content[:4] != b"%PDF":
-                    parts.append("[%s] скачать не удалось (HTTP %s) — "
-                                 "материал не подтверждён." % (label, fr.status_code))
+                if fr.status_code != 200 or not fr.content:
+                    parts.append("[%s] %s — скачать не удалось (HTTP %s), "
+                                 "материал по нему не подтверждён."
+                                 % (label, name, fr.status_code))
                     continue
-                txt = _pdf_to_text(fr.content)
-                if txt is None:
-                    parts.append("[%s] PDF получен, но текст извлечь не удалось — "
-                                 "материал не подтверждён." % label)
+                blob = fr.content
+                if blob[:4] == b"%PDF" or ext == "PDF":
+                    txt = _pdf_to_text(blob)
+                elif ext == "DOCX" or blob[:2] == b"PK":
+                    txt = _docx_to_text(blob)
+                elif ext in ("RAR", "ZIP", "7Z") or blob[:4] == b"Rar!":
+                    txt = _archive_to_text(blob, "." + (ext or "rar").lower())
+                else:
+                    parts.append("[%s] %s (%s) — формат не читаем, содержимое "
+                                 "не проверено." % (label, name, ext or "?"))
+                    continue
+                if not txt:
+                    parts.append("[%s] %s (%s) — файл получен, но текст извлечь "
+                                 "не удалось; материал по нему НЕ подтверждён."
+                                 % (label, name, ext or "?"))
                     continue
                 txt = _re.sub(r"[ \t]+", " ", txt)
-                parts.append("[%s]\n%s" % (label, txt[:_DOC_CHARS]))
+                parts.append("[%s: %s]\n%s" % (label, name, txt[:_DOC_CHARS]))
     except Exception as exc:
         return ("Документы прочитать не удалось: %s. Материал НЕ подтверждён — "
                 "не считай категорию площадки доказанной." % str(exc)[:120])
     if not parts:
         return ("К лоту не приложено ни одного документа. Материал не подтверждён — "
                 "категория площадки НЕ доказательство.")
-    return "\n\n".join(parts)[:_DOC_CHARS * 2]
+    return "\n\n".join(parts)[:_DOC_TOTAL]
 
 
 async def _tool_check_alive(t):
