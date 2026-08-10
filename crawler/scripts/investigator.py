@@ -168,14 +168,28 @@ _DOC_TOTAL = 24000
 _TEXT_LAYER_MIN = 200
 _OCR_PAGES = 6      # дальше первых страниц техзадания смысла обычно нет
 _OCR_LANGS = "rus+uzb_cyrl+uzb"
+# Бюджеты OCR. Сам tesseract быстрый — 2,3 с на страницу при трёх языках
+# (замер 10.08). Но на прод-прогоне страницы 2-4 упёрлись в таймаут по 180 с:
+# на 4 ядрах при load average 5,7 несколько его процессов с OpenMP-потоками
+# начинают толкаться. Причина до конца не доказана, поэтому ограничиваем не
+# гипотезу, а ущерб: один поток на процесс, короткий таймаут на страницу и
+# общий потолок на документ — чтобы один плохой скан не съел девять минут
+# разбора.
+_OCR_PAGE_TIMEOUT = 60
+_OCR_TOTAL_BUDGET = 150
 
 
-def _run(cmd, timeout=180):
+def _run(cmd, timeout=180, env_extra=None):
     """Внешняя утилита -> (код возврата, stdout). Отсутствие утилиты = код 127."""
+    import os
     import subprocess
+    env = None
+    if env_extra:
+        env = dict(os.environ)
+        env.update(env_extra)
     try:
         p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                           timeout=timeout)
+                           timeout=timeout, env=env)
         return p.returncode, p.stdout
     except FileNotFoundError:
         return 127, b""
@@ -196,9 +210,19 @@ def _ocr_pdf(path):
                       "-png", path, os.path.join(tmp, "pg")], timeout=180)
         if rc != 0:
             return None
+        import time
         chunks = []
-        for png in sorted(glob.glob(os.path.join(tmp, "pg*.png"))):
-            rc, out = _run(["tesseract", png, "-", "-l", _OCR_LANGS], timeout=180)
+        started = time.time()
+        pages = sorted(glob.glob(os.path.join(tmp, "pg*.png")))
+        for n, png in enumerate(pages, 1):
+            if time.time() - started > _OCR_TOTAL_BUDGET:
+                logger.warning("OCR: бюджет %ds исчерпан на странице %d из %d — "
+                               "остальные не распознаны", _OCR_TOTAL_BUDGET, n, len(pages))
+                break
+            # OMP_THREAD_LIMIT=1: под нагрузкой несколько многопоточных tesseract
+            # мешают друг другу сильнее, чем помогает параллелизм внутри страницы.
+            rc, out = _run(["tesseract", png, "-", "-l", _OCR_LANGS],
+                           timeout=_OCR_PAGE_TIMEOUT, env_extra={"OMP_THREAD_LIMIT": "1"})
             if rc == 0 and out:
                 chunks.append(out.decode("utf-8", "replace"))
         return "\n".join(chunks) if chunks else None

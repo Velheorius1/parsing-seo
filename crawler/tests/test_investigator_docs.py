@@ -139,6 +139,26 @@ def test_missing_external_tool_is_not_a_crash():
     assert rc == 127 and out == b""
 
 
+def test_ocr_has_bounded_cost():
+    """Один плохой скан не должен съесть весь разбор.
+
+    На прод-прогоне 10.08 страницы 2-4 упирались в таймаут по 180с — девять
+    минут на документ. Бюджеты и однопоточность ограничивают ущерб независимо
+    от того, была причина в нагрузке или в самом файле.
+    """
+    src = open(I.__file__.replace(".pyc", ".py"), encoding="utf-8").read()
+    assert I._OCR_PAGE_TIMEOUT <= 90, I._OCR_PAGE_TIMEOUT
+    assert I._OCR_TOTAL_BUDGET <= 300, I._OCR_TOTAL_BUDGET
+    assert "OMP_THREAD_LIMIT" in src
+    assert "бюджет" in src, "исчерпание бюджета должно попадать в лог, а не молчать"
+
+
+def test_env_extra_is_passed_through():
+    rc, out = I._run(["sh", "-c", "echo $OMP_THREAD_LIMIT"], timeout=10,
+                     env_extra={"OMP_THREAD_LIMIT": "1"})
+    assert rc == 0 and out.strip() == b"1", (rc, out)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
