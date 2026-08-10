@@ -177,6 +177,25 @@ def test_counts_add_up():
     assert sum(st["buckets"].values()) == st["measured"]
 
 
+def test_long_expired_rows_are_archive_not_missed_money():
+    """Прогон 10.08 по всей выборке: у банковских источников дедлайны 2020 года —
+    площадка отдаёт архив, а мы читаем его впервые. Такие строки утащили счётчик
+    «увидели уже закрытыми» на 2934,8 млрд сум. Показывать это как потери нельзя."""
+    rows = [_row(src="Банк", dl="2020-05-01", price=9e11),
+            _row(dl="2026-08-09", price=1e9)]   # закрыт вчера — настоящее опоздание
+    st = R.finalize(R.summarize(rows, set()))
+    assert st["archive"] == 1 and st["archive_by_source"]["Банк"] == 1, st
+    assert st["buckets"].get("уже закрыт") == 1, st["buckets"]
+    assert abs(st["late_price"] - 1e9) < 1, "архивные деньги не должны попадать в потери"
+    assert st["measured"] == 1, st
+
+
+def test_archive_rows_stay_out_of_percentiles():
+    rows = [_row(src="Банк", dl="2019-01-01")] * 5 + [_row(dl="2026-08-20")]
+    st = R.finalize(R.summarize(rows, set()))
+    assert st["p50"] is not None and st["p50"] > 0, st["p50"]
+
+
 def test_empty_input_gives_none_percentiles():
     st = R.finalize(R.summarize([], set()))
     assert st["measured"] == 0 and st["p50"] is None

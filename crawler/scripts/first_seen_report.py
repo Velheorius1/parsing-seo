@@ -47,6 +47,14 @@ from crawler.core.notifier import _parse_deadline
 # Узбекистан: UTC+5 круглый год, перехода на летнее время нет с 1995.
 _TASHKENT = timezone(timedelta(hours=5))
 
+# Лот, впервые увиденный СИЛЬНО позже своего дедлайна, — не упущенная возможность,
+# а архивная строка: площадка отдаёт старый список, мы его читаем впервые. Прогон
+# 10.08 по всей выборке: у Туронбанка медиана запаса вышла минус 6,7 года, и такие
+# строки утащили счётчик «увидели уже закрытыми» на 2934,8 млрд сум — число, которое
+# нельзя показывать как потери. Порог в месяц: реальное опоздание конвейера меряется
+# часами (медиана задержки обнаружения — 1,4 ч), месяц туда не попадает никогда.
+_ARCHIVE_HOURS = -24.0 * 30
+
 _BUCKETS = (
     ("уже закрыт", None, 0.0),
     ("меньше суток", 0.0, 24.0),
@@ -214,7 +222,7 @@ def new_stats():
     # type: () -> dict
     return {"seen": 0, "excluded": 0, "unparsed": 0, "measured": 0,
             "buckets": {}, "by_source": {}, "hours": [], "late_price": 0.0,
-            "unparsed_by_source": {}}
+            "unparsed_by_source": {}, "archive": 0, "archive_by_source": {}}
 
 
 def finalize(stats):
@@ -242,6 +250,12 @@ def summarize(rows, excluded_sources, stats=None):
             # ни успеть. Показываем поимённо, иначе она прячется за средними.
             stats["unparsed"] += 1
             stats["unparsed_by_source"][src] = stats["unparsed_by_source"].get(src, 0) + 1
+            continue
+        if h < _ARCHIVE_HOURS:
+            # площадка отдала архив, а не пропущенную возможность — ни в проценты,
+            # ни в деньги; но и не молча: считаем и показываем поимённо
+            stats["archive"] += 1
+            stats["archive_by_source"][src] = stats["archive_by_source"].get(src, 0) + 1
             continue
         stats["measured"] += 1
         stats["hours"].append(h)
@@ -325,6 +339,19 @@ def main(days, only_alerted, send):
           % (st["seen"], st["excluded"], st["unparsed"]))
     print("  измерено: %d (%.0f%% выборки — остальное меряем вслепую)"
           % (st["measured"], 100.0 * st["measured"] / max(1, st["seen"])))
+    if st["archive"]:
+        top = sorted(st["archive_by_source"].items(), key=lambda kv: -kv[1])[:6]
+        print("  архивные строки (дедлайн раньше первой встречи больше чем на месяц —")
+        print("  площадка отдала старый список, это НЕ упущенные возможности): %d"
+              % st["archive"])
+        for s, n in top:
+            print("    %-40s %d" % (s[:40], n))
+    if st["measured"]:
+        big = max(st["by_source"].items(), key=lambda kv: kv[1]["n"])
+        share = 100.0 * big[1]["n"] / st["measured"]
+        if share >= 40:
+            print("  ВНИМАНИЕ: %.0f%% измеренного — один источник «%s». Медиана ниже "
+                  "описывает в основном его, а не конвейер." % (share, big[0][:40]))
     if st["unparsed_by_source"]:
         top = sorted(st["unparsed_by_source"].items(), key=lambda kv: -kv[1])[:8]
         print("  без срока в лоте (у этих форматов дедлайна не существует: заявка")
