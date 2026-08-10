@@ -178,8 +178,31 @@ def test_counts_add_up():
 
 
 def test_empty_input_gives_none_percentiles():
-    st = R.summarize([], set())
+    st = R.finalize(R.summarize([], set()))
     assert st["measured"] == 0 and st["p50"] is None
+
+
+def test_streaming_accumulates_across_pages():
+    """Выборка за месяц приходит страницами и целиком в память не кладётся —
+    накопитель обязан переживать несколько вызовов (иначе счёт будет по
+    последней странице, а отчёт этого не покажет)."""
+    st = R.new_stats()
+    R.summarize([_row(), _row()], set(), st)
+    R.summarize([_row(dl="2026-08-01")], set(), st)
+    R.finalize(st)
+    assert st["seen"] == 3 and st["measured"] == 3, st
+    assert st["buckets"].get("уже закрыт") == 1
+    assert st["p50"] is not None
+
+
+def test_lag_accumulates_across_pages():
+    page = [{"source": "A", "created_at": "2026-08-10T08:59:00Z",
+             "extra_info": {"Опубликовано": "10.08.2026 10:59"}}]
+    lag = R.new_lag()
+    R.summarize_lag(page, lag)
+    R.summarize_lag(page, lag)
+    R.finalize_lag(lag)
+    assert lag["n"] == 2 and lag["p50"] is not None, lag
 
 
 # --- задержка обнаружения ---------------------------------------------------
@@ -235,8 +258,8 @@ if __name__ == "__main__":
         try:
             fn()
             print("PASS", fn.__name__)
-        except AssertionError as exc:
-            print("FAIL", fn.__name__, exc)
+        except Exception as exc:  # падение — тоже провал, а не остановка прогона
+            print("FAIL", fn.__name__, "%s: %s" % (type(exc).__name__, exc))
             fails += 1
     print("\n%d/%d passed" % (len(tests) - fails, len(tests)))
     sys.exit(1 if fails else 0)

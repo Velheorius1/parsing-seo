@@ -145,9 +145,22 @@ def detection_lag_hours(extra_info, created_at):
     return lag if lag >= 0 else None
 
 
-def summarize_lag(rows):
-    # type: (list) -> dict
-    out = {"n": 0, "hours": [], "by_source": {}, "negative": 0}
+def new_lag():
+    # type: () -> dict
+    return {"n": 0, "hours": [], "by_source": {}, "negative": 0}
+
+
+def finalize_lag(out):
+    # type: (dict) -> dict
+    for p in (50, 90):
+        out["p%d" % p] = percentile(out["hours"], p)
+    return out
+
+
+def summarize_lag(rows, out=None):
+    # type: (list, dict) -> dict
+    if out is None:
+        out = new_lag()
     for r in rows:
         created = _parse_ts(r.get("created_at"))
         if published_utc(r.get("extra_info")) is None:
@@ -159,9 +172,8 @@ def summarize_lag(rows):
         out["n"] += 1
         out["hours"].append(lag)
         out["by_source"].setdefault(r.get("source") or "", []).append(lag)
-    for p in (50, 90):
-        out["p%d" % p] = percentile(out["hours"], p)
-    return out
+    return out  # перцентили считает finalize_lag: пересчёт на каждой странице
+                # превратил бы линейный проход в пересортировку растущего списка
 
 
 def percentile(values, p):
@@ -198,12 +210,27 @@ def _parse_ts(s):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def summarize(rows, excluded_sources):
-    # type: (list, set) -> dict
-    """Чистая агрегация. rows: dicts с created_at/deadline/source/price."""
-    stats = {"seen": len(rows), "excluded": 0, "unparsed": 0, "measured": 0,
-             "buckets": {}, "by_source": {}, "hours": [], "late_price": 0.0,
-             "unparsed_by_source": {}}
+def new_stats():
+    # type: () -> dict
+    return {"seen": 0, "excluded": 0, "unparsed": 0, "measured": 0,
+            "buckets": {}, "by_source": {}, "hours": [], "late_price": 0.0,
+            "unparsed_by_source": {}}
+
+
+def finalize(stats):
+    # type: (dict) -> dict
+    for p in (10, 25, 50, 75, 90):
+        stats["p%d" % p] = percentile(stats["hours"], p)
+    return stats
+
+
+def summarize(rows, excluded_sources, stats=None):
+    # type: (list, set, dict) -> dict
+    """Агрегация страницы. Накопитель передаётся снаружи, чтобы считать потоком:
+    полная выборка за месяц в память не влезает, а держать её там незачем."""
+    if stats is None:
+        stats = new_stats()
+    stats["seen"] += len(rows)
     for r in rows:
         src = r.get("source") or ""
         if src in excluded_sources:
@@ -229,43 +256,54 @@ def summarize(rows, excluded_sources):
                 stats["late_price"] += float(r.get("price") or 0)
             except (TypeError, ValueError):
                 pass
-    for p in (10, 25, 50, 75, 90):
-        stats["p%d" % p] = percentile(stats["hours"], p)
     return stats
 
 
-_MAX_PAGES = 400
-_PAGE = 1000
+_MAX_PAGES = 60      # на суточный срез с запасом: ~4.5 тыс. строк/день
+_PAGE = 500
 
 
-def _fetch(days, only_alerted):
-    """Строки за окно. Возвращает (rows, truncated) — усечение НЕ проглатываем:
-    молча упереться в кап и отчитаться процентами по обрезку уже случалось."""
+def _fetch_pages(days, only_alerted):
+    """Страницы за окно, ПОСУТОЧНЫМИ срезами.
+
+    Одним запросом на 30 дней сюда приезжает 57014 (statement timeout): глубокие
+    offset'ы поверх jsonb-колонки Postgres не тянет. Суточный срез держит offset
+    мелким, и каждая страница считается сразу — вся выборка в память не кладётся.
+    """
     from crawler.core.db import iter_rows
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    filters = [("gte", ("created_at", since))]
-    if only_alerted:
-        # not-null через сравнение: NULL не проходит ни один компаратор,
-        # а filters-список умеет только одноимённые методы билдера.
-        filters.append(("gte", ("alert_seq", 0)))
-    rows = []
-    pages = 0
-    for page in iter_rows("tenders",
-                          "created_at,deadline,source,price,alert_seq,title,extra_info",
-                          filters=filters, page_size=_PAGE, order_col="created_at",
-                          label="first_seen", max_pages=_MAX_PAGES):
-        rows.extend(page)
-        pages += 1
-    return rows, pages >= _MAX_PAGES
+    now = datetime.now(timezone.utc)
+    for d in range(days):
+        hi = now - timedelta(days=d)
+        lo = now - timedelta(days=d + 1)
+        filters = [("gte", ("created_at", lo.isoformat())),
+                   ("lt", ("created_at", hi.isoformat()))]
+        if only_alerted:
+            # not-null через сравнение: NULL не проходит ни один компаратор,
+            # а filters-список умеет только одноимённые методы билдера.
+            filters.append(("gte", ("alert_seq", 0)))
+        pages = 0
+        for page in iter_rows("tenders",
+                              "created_at,deadline,source,price,alert_seq,title,extra_info",
+                              filters=filters, page_size=_PAGE, order_col="created_at",
+                              label="first_seen d%d" % d, max_pages=_MAX_PAGES):
+            pages += 1
+            yield page, (pages >= _MAX_PAGES)
 
 
 def main(days, only_alerted, send):
-    rows, truncated = _fetch(days, only_alerted)
-    if truncated:
-        print("ВНИМАНИЕ: упёрлись в лимит выгрузки (%d строк) — охват неполный, "
-              "цифры ниже занижены по объёму." % (_MAX_PAGES * _PAGE))
     excluded = publication_date_sources()
-    st = summarize(rows, excluded)
+    st = new_stats()
+    lag = new_lag()
+    truncated = False
+    for page, hit_cap in _fetch_pages(days, only_alerted):
+        summarize(page, excluded, st)
+        summarize_lag(page, lag)
+        truncated = truncated or hit_cap
+    finalize(st)
+    finalize_lag(lag)
+    if truncated:
+        print("ВНИМАНИЕ: суточный срез упёрся в лимит страниц (%d x %d) — охват "
+              "неполный, цифры ниже занижены по объёму." % (_MAX_PAGES, _PAGE))
 
     scope = "алерты" if only_alerted else "все собранные строки"
     head = ("Запас до дедлайна на момент ПЕРВОГО появления (%s, %d дн)" % (scope, days))
@@ -294,7 +332,6 @@ def main(days, only_alerted, send):
     if late:
         print("  увидели уже закрытыми: %d лотов на %.1f млрд сум"
               % (late, st["late_price"] / 1e9))
-    lag = summarize_lag(rows)
     if lag["n"]:
         print("\nЗадержка обнаружения (публикация -> первое появление у нас), %d лотов:"
               % lag["n"])
