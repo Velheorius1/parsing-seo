@@ -144,6 +144,47 @@ def _get_count(client, table, select="*", filters=None):
     return count
 
 
+def _active_sources_7d(client, all_sources, week_ago):
+    # type: (Any, Any, str) -> set
+    """Sources with >=1 row in the 7d window, WITHOUT reading the window itself.
+
+    ТРЕТЬЯ ИТЕРАЦИЯ того же дефекта (742807b 03.08 — пагинация, затем `_get_count`
+    04.08 — счётчики). Обе правки лечили симптом, а не причину. Причина в том, что
+    множество активных источников (<=110 строк-имён) добывалось вычиткой ВСЕХ строк
+    окна: 90 328 строк за 7 дней = 90 страниц с растущим OFFSET. Стоимость страницы
+    задаёт OFFSET, а не LIMIT, поэтому уполовинивание page не помогает — замер
+    10.08 02:00: `offset=76000` упал 57014 на page=1000, потом на 500, 250 и 125,
+    после чего `main()` умер и суточный снапшот снова не записался.
+
+    Здесь то же самое множество считается точно, но по-другому: имена источников
+    уже известны из `source_counts` (all-time множество, оно надмножество недельного),
+    и для каждого достаточно спросить «есть ли хоть одна строка за неделю» —
+    это индексный `limit(1)` по (source, collected_at) вместо скана окна.
+    Результат идентичен старому по определению; отличается только цена.
+
+    Ошибка отдельного источника не валит снапшот: источник считается активным по
+    последнему успешному ответу, а сбой логируется WARNING — тихого «умер» нет.
+    """
+    active = set()
+    failed = []
+    for src in sorted(all_sources):
+        try:
+            res = (client.table("tenders").select("source")
+                   .eq("source", src).gte("collected_at", week_ago)
+                   .limit(1).execute())
+            if res.data:
+                active.add(src)
+        except Exception as exc:
+            failed.append(src)
+            logger.warning("[_active_sources_7d] %s: проба упала (%s) — "
+                           "источник НЕ помечен мёртвым", src, str(exc)[:80])
+            active.add(src)
+    if failed:
+        logger.warning("[_active_sources_7d] проб упало: %d из %d",
+                       len(failed), len(all_sources))
+    return active
+
+
 def collect_metrics(client):
     # type: (Any) -> Dict[str, Any]
     """Collect all key metrics from Supabase."""
@@ -182,14 +223,8 @@ def collect_metrics(client):
     logger.info("Tenders 7d: %d", metrics["tenders_7d"])
 
     # 5. Sources with 0 records in last 7 days (dead sources)
-    recent_sources_data = _fetch_all(
-        client, "tenders", "source",
-        filters=[lambda q: q.gte("collected_at", week_ago)]
-    )
-    recent_sources = set()
-    for row in recent_sources_data:
-        recent_sources.add(row.get("source", ""))
     all_sources = set(source_counts.keys())
+    recent_sources = _active_sources_7d(client, all_sources, week_ago)
     dead_sources = sorted(all_sources - recent_sources)
     metrics["active_sources"] = len(recent_sources)
     metrics["dead_sources"] = dead_sources
