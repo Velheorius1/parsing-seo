@@ -295,10 +295,23 @@ def main(days, only_alerted, send):
     st = new_stats()
     lag = new_lag()
     truncated = False
-    for page, hit_cap in _fetch_pages(days, only_alerted):
-        summarize(page, excluded, st)
-        summarize_lag(page, lag)
-        truncated = truncated or hit_cap
+    try:
+        for page, hit_cap in _fetch_pages(days, only_alerted):
+            summarize(page, excluded, st)
+            summarize_lag(page, lag)
+            truncated = truncated or hit_cap
+    except Exception as exc:
+        # 57014 на полной выборке — не наша ошибка счёта, а отсутствие индекса
+        # по created_at (см. supabase/migrations/021_created_at_index.sql).
+        # Отчёт по алертам проходит через tenders_alert_seq_key и не страдает.
+        if "57014" in str(exc) or "statement timeout" in str(exc):
+            print("Выборка оборвалась по таймауту БД. Причина известна: индекса по "
+                  "created_at нет, полный охват без него не считается.")
+            print("Лечится миграцией supabase/migrations/021_created_at_index.sql")
+            print("Ниже — то, что успели набрать; это НЕ полные данные.\n")
+            truncated = True
+        else:
+            raise
     finalize(st)
     finalize_lag(lag)
     if truncated:
