@@ -160,6 +160,32 @@ def test_profile_is_shown_to_daniyar_not_just_measured():
     assert B.OURS in msg, msg
 
 
+# --- спорные записи ---------------------------------------------------------
+
+def test_disputed_entries_are_scored_both_ways():
+    """Снятие спорных записей даёт другой балл, и оба обязаны быть на виду:
+    иначе мерило подгоняется под измеряемое."""
+    rs = [_res("a", B.OURS, B.OURS), _res("bad", B.OURS, B.THEIRS)]
+    full, clean = B.score_split(rs, {"bad"})
+    assert full["accuracy"] == 0.5, full
+    assert clean["accuracy"] == 1.0, clean
+
+
+def test_score_split_survives_everything_being_disputed():
+    rs = [_res("x", B.OURS, B.THEIRS)]
+    full, clean = B.score_split(rs, {"x"})
+    assert full["accuracy"] == 0.0 and clean is None
+
+
+def test_disputed_entries_carry_their_evidence():
+    """Спор без доказательства — это просто «мне не понравился результат»."""
+    entries, _ = B.load_corpus()
+    for e in entries:
+        if e.get("disputed"):
+            assert e.get("dispute_evidence") and len(e["dispute_evidence"]) > 60, e["cid"]
+            assert e.get("dispute_question"), e["cid"]
+
+
 # --- корпус -----------------------------------------------------------------
 
 def test_corpus_loads_and_is_not_tiny():

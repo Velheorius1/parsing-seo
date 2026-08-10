@@ -98,6 +98,23 @@ def score(results):
     return out
 
 
+def score_split(results, disputed_cids):
+    # type: (list, set) -> tuple
+    """Балл со спорными записями и без них. ОБА, и всегда вместе.
+
+    Спорная запись — та, где разметка (клик по карточке алерта: название + цена)
+    расходится с документами, которые прочитал разборщик. Прогон 10.08 вскрыл
+    именно это: «Типография махсулотларини харид қилиш» оказалась закупкой
+    картриджей и роликов ДЛЯ типографии, «Полиэтиленовые пакеты» — мешками для
+    отходов 650 мкм. Разборщик мог быть прав — для того он и заведён.
+
+    Почему оба числа обязательны: спорных ровно столько же, сколько промахов,
+    и подать балл без них одним числом = подогнать мерило под измеряемое."""
+    all_sc = score(results)
+    kept = [r for r in results if r["cid"] not in disputed_cids]
+    return all_sc, (score(kept) if kept else None)
+
+
 def format_report(sc, corpus_version):
     lines = ["Разборщик лотов на корпусе %s: %d записей (меряется ПРОФИЛЬ)"
              % (corpus_version, sc["n"])]
@@ -157,8 +174,19 @@ async def main(limit, only_cid, send):
         results.append(r)
         print("  %-8s %-13s -> %-13s %s"
               % (r["cid"], r["expect"], r["got"] or "—", r["outcome"]))
-    sc = score(results)
+    disputed = set(e["cid"] for e in entries if e.get("disputed"))
+    sc, sc_clean = score_split(results, disputed)
     report = format_report(sc, meta.get("corpus_version", "?"))
+    if disputed:
+        report += ("\n  спорных записей: %d (разметка по карточке против документов) — "
+                   "ждут решения Данияра" % len(disputed))
+        for e in entries:
+            if e.get("disputed"):
+                report += "\n    %s — %s" % (e["cid"], e["dispute_evidence"][:150])
+        if sc_clean and sc_clean["accuracy"] is not None:
+            report += ("\n  без спорных: %.0f%% (%d из %d). Оба числа печатаются нарочно: "
+                       "спорных ровно столько же, сколько промахов."
+                       % (100 * sc_clean["accuracy"], sc_clean["верно"], sc_clean["decisive"]))
     print("\n" + report)
     spent = sum(float(r.get("cost") or 0) for r in results)
     print("  потрачено: $%.2f" % spent)
