@@ -733,7 +733,6 @@ class HealthCheck:
         }
         try:
             client = self._get_client()
-            week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
 
             # Load enabled sources from yaml
             import yaml as _yaml
@@ -742,25 +741,49 @@ class HealthCheck:
                 cfg = _yaml.safe_load(f)
             enabled_names = [s.get('name') for s in cfg.get('sources', []) if s.get('enabled') and s.get('name')]
 
-            # Get source→count map for last 7d via pagination (Supabase default limit=1000)
-            counts = {}
-            offset = 0
-            while True:
-                r = client.table('tenders').select('source').gte('collected_at', week_ago).range(offset, offset + 999).execute()
-                if not r.data:
-                    break
-                for row in r.data:
-                    src = row.get('source')
-                    if src:
-                        counts[src] = counts.get(src, 0) + 1
-                if len(r.data) < 1000:
-                    break
-                offset += 1000
-                if offset > 200000:  # safety cap
-                    break
+            # «Ноль строк за 7 дней» == «последняя строка старше недели». Второе
+            # берётся одной серверной агрегацией source_freshness() вместо того,
+            # чтобы тащить сюда всю таблицу.
+            #
+            # Как было: постраничный обход tenders по collected_at за неделю с
+            # растущим offset и капом на 200 тыс. Под условие подходит почти вся
+            # активная таблица (строки перечитываются каждый проход), то есть
+            # обход шёл на сотни страниц с глубокими offset'ами и упирался в 57014
+            # — 10.08 это наблюдалось живьём, три ретрая подряд. Отказ приходил в
+            # WARN «Dead-source check failed», и мёртвый источник в этот момент
+            # выглядел так же, как исправный: жёлтая лампочка вместо слепоты.
+            # Кап в 200 тыс. добавлял второй способ соврать — молча обрезать выборку
+            # и объявить живым источник, чьи строки не попали в окно.
+            rows = (client.rpc('source_freshness').execute().data) or []
+            last_seen = {}
+            for row in rows:
+                src = row.get('source')
+                if src:
+                    last_seen[src] = row.get('last_collected')
+
+            cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+
+            def _parse(ts):
+                # Сравнивать метки строками нельзя: 'Z' и '+00:00' — один момент,
+                # но 'Z' лексикографически больше, и живой источник стал бы мёртвым
+                # (или наоборот) из-за формы записи.
+                if not ts:
+                    return None
+                txt = str(ts).replace('Z', '+00:00')
+                try:
+                    d = datetime.fromisoformat(txt)
+                except ValueError:
+                    return None
+                return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+            def _is_dead(name):
+                last = _parse(last_seen.get(name))
+                if last is None:
+                    return True                      # нет строк вовсе или дата не читается
+                return last < cutoff
 
             dead = [name for name in enabled_names
-                    if name not in DEAD_SOURCES_WHITELIST and counts.get(name, 0) == 0]
+                    if name not in DEAD_SOURCES_WHITELIST and _is_dead(name)]
             if dead:
                 # Show up to 8 dead sources in message; rest in details
                 head = ', '.join(dead[:8])
