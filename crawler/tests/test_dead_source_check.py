@@ -100,6 +100,24 @@ def test_missing_source_counts_as_dead():
     assert "return True" in b
 
 
+def test_no_check_in_healthcheck_paginates_the_tenders_table_anymore():
+    """Обе проверки болели одним и тем же; вылечить одну — оставить мину.
+
+    `sources.dead_7d` падала совсем, `sources` дотягивала только с ретраями на
+    каждой странице. Разница лишь в том, сколько строк успело накопиться.
+    """
+    s = open(_SRC, encoding="utf-8").read()
+    assert ".range(" not in s, "постраничный обход таблицы вернулся в healthcheck"
+    assert "200000" not in s, "молчаливый кап вернулся"
+
+
+def test_source_counts_come_from_the_aggregate():
+    s = open(_SRC, encoding="utf-8").read()
+    i = s.find("def check_sources")
+    body = s[i:s.find("\n    # ── Check 4", i)]
+    assert "cnt_7d" in body, "недельный счётчик должен приходить из source_freshness()"
+
+
 def test_failure_and_finding_are_still_distinguishable_in_text():
     """Отказ проверки обязан называть себя отказом, а не сливаться с находкой."""
     s = open(_SRC, encoding="utf-8").read()

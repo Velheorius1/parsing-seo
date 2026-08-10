@@ -196,29 +196,22 @@ class HealthCheck:
     def check_sources(self):
         # type: () -> None
         """Check which sources have data and which are dead."""
-        from crawler.core.db import query_with_retry
         try:
             client = self._get_client()
-            # Get sources with recent data (last 7 days)
-            week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-            # Paginate to bypass Supabase default limit=1000
+            # Недельные счётчики — одной серверной агрегацией (миграция 022).
+            #
+            # Было: постраничный обход tenders по collected_at за неделю с растущим
+            # offset и капом 200 тыс. Под условие подходит почти вся активная таблица
+            # (строки перечитываются каждым проходом краулера), поэтому обход шёл на
+            # сотни страниц с глубокими offset'ами: 10.08 каждая страница проезжала
+            # только со второй попытки, а соседняя проверка на том же паттерне уже
+            # падала совсем. Кап при этом давал молчаливое враньё — обрезать выборку
+            # и не досчитать источник, чьи строки не влезли в окно.
             source_counts = {}  # type: dict
-            offset = 0
-            while True:
-                result = query_with_retry(
-                    lambda o=offset: client.table("tenders").select("source")
-                    .gte("collected_at", week_ago).range(o, o + 999).execute(),
-                    label="healthcheck sources page")
-                if not result.data:
-                    break
-                for row in result.data:
-                    src = row.get("source", "unknown")
-                    source_counts[src] = source_counts.get(src, 0) + 1
-                if len(result.data) < 1000:
-                    break
-                offset += 1000
-                if offset > 200000:
-                    break
+            for row in (client.rpc("source_freshness").execute().data or []):
+                n = row.get("cnt_7d")
+                if n:
+                    source_counts[row.get("source") or "unknown"] = n
 
             if not source_counts:
                 self._add("sources", FAIL, "No tenders collected in last 7 days")
