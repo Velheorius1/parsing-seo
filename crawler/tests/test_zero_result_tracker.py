@@ -217,9 +217,12 @@ class TestRecoverySchedule:
 
 class TestTrackAndAlert:
     def _run(self, outcomes, dry_run=False):
-        return asyncio.get_event_loop().run_until_complete(
-            zrt.track_and_alert(outcomes, dry_run=dry_run)
-        )
+        # asyncio.run, а НЕ get_event_loop().run_until_complete: второе берёт
+        # ГЛОБАЛЬНЫЙ цикл, а его закрывает любой сосед, вызвавший asyncio.run
+        # раньше по алфавиту. Поодиночке файл проходил, в общем прогоне все
+        # восемь тестов этого класса падали «There is no current event loop» —
+        # и выглядело это как поломка трекера, хотя ломался способ запуска.
+        return asyncio.run(zrt.track_and_alert(outcomes, dry_run=dry_run))
 
     def test_new_source_in_grace_no_alert(self, fake_store, capture_tg):
         out = {"sid-1": {"count": 0, "skipped_no_auth": False, "error": None}}
