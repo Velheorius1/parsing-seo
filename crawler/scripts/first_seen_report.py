@@ -112,6 +112,58 @@ def bucket_of(hours):
     return _BUCKETS[-1][0]
 
 
+_PUBLISHED_KEY = "Опубликовано"          # '10.08.2026 10:59', местное время
+_PUBLISHED_FMT = "%d.%m.%Y %H:%M"
+
+
+def published_utc(extra_info):
+    # type: (dict) -> datetime
+    """Момент публикации на площадке, если источник его отдаёт. Иначе None."""
+    if not isinstance(extra_info, dict):
+        return None
+    raw = (extra_info.get(_PUBLISHED_KEY) or "").strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.strptime(raw, _PUBLISHED_FMT)
+    except ValueError:
+        return None
+    return dt.replace(tzinfo=_TASHKENT).astimezone(timezone.utc)
+
+
+def detection_lag_hours(extra_info, created_at):
+    # type: (dict, datetime) -> float
+    """Через сколько часов ПОСЛЕ публикации лот впервые попал к нам.
+
+    В отличие от запаса до дедлайна, это мера НАШЕЙ скорости — её задаёт частота
+    обхода, и на неё мы влияем. Отрицательное значение физически невозможно и
+    означает расхождение часов или формата, поэтому наружу не выпускается."""
+    pub = published_utc(extra_info)
+    if pub is None or created_at is None:
+        return None
+    lag = (created_at - pub).total_seconds() / 3600.0
+    return lag if lag >= 0 else None
+
+
+def summarize_lag(rows):
+    # type: (list) -> dict
+    out = {"n": 0, "hours": [], "by_source": {}, "negative": 0}
+    for r in rows:
+        created = _parse_ts(r.get("created_at"))
+        if published_utc(r.get("extra_info")) is None:
+            continue
+        lag = detection_lag_hours(r.get("extra_info"), created)
+        if lag is None:
+            out["negative"] += 1
+            continue
+        out["n"] += 1
+        out["hours"].append(lag)
+        out["by_source"].setdefault(r.get("source") or "", []).append(lag)
+    for p in (50, 90):
+        out["p%d" % p] = percentile(out["hours"], p)
+    return out
+
+
 def percentile(values, p):
     # type: (list, float) -> float
     """Nearest-rank. Пустой вход -> None (а не 0: ноль здесь означал бы «в обрез»)."""
@@ -198,7 +250,8 @@ def _fetch(days, only_alerted):
         filters.append(("gte", ("alert_seq", 0)))
     rows = []
     pages = 0
-    for page in iter_rows("tenders", "created_at,deadline,source,price,alert_seq,title",
+    for page in iter_rows("tenders",
+                          "created_at,deadline,source,price,alert_seq,title,extra_info",
                           filters=filters, page_size=_PAGE, order_col="created_at",
                           label="first_seen", max_pages=_MAX_PAGES):
         rows.extend(page)
@@ -223,7 +276,8 @@ def main(days, only_alerted, send):
           % (st["measured"], 100.0 * st["measured"] / max(1, st["seen"])))
     if st["unparsed_by_source"]:
         top = sorted(st["unparsed_by_source"].items(), key=lambda kv: -kv[1])[:8]
-        print("  без срока в лоте (дошло до человека, но успеть нельзя):")
+        print("  без срока в лоте (у этих форматов дедлайна не существует: заявка")
+        print("  в чате и стоячая оферта Э-магазина живут до снятия, а не до даты):")
         for s, n in top:
             print("    %-40s %d" % (s[:40], n))
     if not st["measured"]:
@@ -240,6 +294,17 @@ def main(days, only_alerted, send):
     if late:
         print("  увидели уже закрытыми: %d лотов на %.1f млрд сум"
               % (late, st["late_price"] / 1e9))
+    lag = summarize_lag(rows)
+    if lag["n"]:
+        print("\nЗадержка обнаружения (публикация -> первое появление у нас), %d лотов:"
+              % lag["n"])
+        print("  медиана %.1f ч | p90 %.1f ч" % (lag["p50"], lag["p90"]))
+        for s, hs in sorted(lag["by_source"].items(), key=lambda kv: -len(kv[1]))[:6]:
+            print("    %-40s n=%-5d медиана %5.1f ч" % (s[:40], len(hs), percentile(hs, 50)))
+        if lag["negative"]:
+            print("  (отброшено как невозможное — публикация позже находки: %d)"
+                  % lag["negative"])
+
     worst = sorted(((s, a) for s, a in st["by_source"].items() if a["n"] >= 5),
                    key=lambda kv: percentile(kv[1]["hours"], 50))[:8]
     if worst:

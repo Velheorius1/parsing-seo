@@ -182,6 +182,43 @@ def test_empty_input_gives_none_percentiles():
     assert st["measured"] == 0 and st["p50"] is None
 
 
+# --- задержка обнаружения ---------------------------------------------------
+
+def test_published_time_is_read_as_tashkent_local():
+    """'10.08.2026 10:59' — местное время площадки, 05:59 UTC."""
+    got = R.published_utc({"Опубликовано": "10.08.2026 10:59"})
+    assert got == datetime(2026, 8, 10, 5, 59, tzinfo=UTC), got
+
+
+def test_missing_or_broken_publication_time_is_none():
+    for ei in (None, {}, {"Опубликовано": ""}, {"Опубликовано": "вчера"}, "не словарь"):
+        assert R.published_utc(ei) is None, ei
+
+
+def test_detection_lag_is_measured_from_publication():
+    created = datetime(2026, 8, 10, 8, 59, tzinfo=UTC)   # 13:59 по Ташкенту
+    lag = R.detection_lag_hours({"Опубликовано": "10.08.2026 10:59"}, created)
+    assert abs(lag - 3.0) < 0.01, lag
+
+
+def test_impossible_negative_lag_is_dropped_not_reported():
+    """Найти раньше публикации нельзя — такое значение означает расхождение
+    часов или формата, и в среднее оно попадать не должно."""
+    created = datetime(2026, 8, 10, 0, 0, tzinfo=UTC)
+    assert R.detection_lag_hours({"Опубликовано": "10.08.2026 23:00"}, created) is None
+
+
+def test_lag_summary_counts_only_rows_that_have_a_publication_time():
+    rows = [{"source": "A", "created_at": "2026-08-10T08:59:00Z",
+             "extra_info": {"Опубликовано": "10.08.2026 10:59"}},
+            {"source": "B", "created_at": "2026-08-10T08:59:00Z", "extra_info": {}},
+            {"source": "A", "created_at": "2026-08-10T00:00:00Z",
+             "extra_info": {"Опубликовано": "10.08.2026 23:00"}}]  # невозможный
+    lag = R.summarize_lag(rows)
+    assert lag["n"] == 1 and lag["negative"] == 1, lag
+    assert list(lag["by_source"]) == ["A"], lag["by_source"]
+
+
 # --- связь с реальным конфигом ----------------------------------------------
 
 def test_exclusion_list_is_actually_wired_to_sources_yaml():
