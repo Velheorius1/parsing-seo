@@ -150,7 +150,8 @@ def summarize(rows, excluded_sources):
     # type: (list, set) -> dict
     """Чистая агрегация. rows: dicts с created_at/deadline/source/price."""
     stats = {"seen": len(rows), "excluded": 0, "unparsed": 0, "measured": 0,
-             "buckets": {}, "by_source": {}, "hours": [], "late_price": 0.0}
+             "buckets": {}, "by_source": {}, "hours": [], "late_price": 0.0,
+             "unparsed_by_source": {}}
     for r in rows:
         src = r.get("source") or ""
         if src in excluded_sources:
@@ -158,7 +159,10 @@ def summarize(rows, excluded_sources):
             continue
         h = hours_left(r.get("deadline"), _parse_ts(r.get("created_at")))
         if h is None:
+            # Слепая зона: лот дошёл до человека, но СРОКА в нём нет — ни померить,
+            # ни успеть. Показываем поимённо, иначе она прячется за средними.
             stats["unparsed"] += 1
+            stats["unparsed_by_source"][src] = stats["unparsed_by_source"].get(src, 0) + 1
             continue
         stats["measured"] += 1
         stats["hours"].append(h)
@@ -215,7 +219,13 @@ def main(days, only_alerted, send):
     print(head)
     print("  строк: %d | исключено (дедлайн=дата публикации): %d | без разбора даты: %d"
           % (st["seen"], st["excluded"], st["unparsed"]))
-    print("  измерено: %d" % st["measured"])
+    print("  измерено: %d (%.0f%% выборки — остальное меряем вслепую)"
+          % (st["measured"], 100.0 * st["measured"] / max(1, st["seen"])))
+    if st["unparsed_by_source"]:
+        top = sorted(st["unparsed_by_source"].items(), key=lambda kv: -kv[1])[:8]
+        print("  без срока в лоте (дошло до человека, но успеть нельзя):")
+        for s, n in top:
+            print("    %-40s %d" % (s[:40], n))
     if not st["measured"]:
         print("  нечего мерить")
         return 0
