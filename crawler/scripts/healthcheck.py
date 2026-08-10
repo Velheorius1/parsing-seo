@@ -45,6 +45,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def is_source_file(name):
+    # type: (str) -> bool
+    """Настоящий исходник, а не macOS-огрызок.
+
+    `scp` с Мака вместе с `foo.py` кладёт рядом `._foo.py` — ресурсную вилку
+    AppleDouble: бинарный мусор с расширением .py. На проде их 59 штук от 16.03,
+    и они делают ровно две гадости. Первая уже случилась: обход исходников в
+    test_reasoning_disabled падает на них UnicodeDecodeError, и проверка флага
+    reasoning:false молча не работает. Вторая — хуже и ещё не случилась: свежесть
+    кода здесь меряется по mtime файлов в core/, и огрызок из нового scp окажется
+    НОВЕЕ времени старта сервиса, то есть healthcheck выдаст «STALE CODE» на
+    ровном месте и пошлёт перезапускать исправный бот.
+    """
+    return name.endswith(".py") and not name.startswith("._")
+
+
 # ── Status codes ──
 OK = "ok"
 WARN = "warn"
@@ -253,7 +270,7 @@ class HealthCheck:
                 newest = max(
                     _os.path.getmtime(_os.path.join(r, f))
                     for r, _d, fs in _os.walk(_os.path.join(code_dir, "core"))
-                    for f in fs if f.endswith(".py"))
+                    for f in fs if is_source_file(f))
                 newest = max(newest, _os.path.getmtime(
                     _os.path.join(code_dir, "scripts", "feedback_bot.py")))
                 if newest > started.timestamp() + 60:
@@ -542,7 +559,7 @@ class HealthCheck:
             prod_newest = max(
                 _os.path.getmtime(_os.path.join(r, f))
                 for r, _d, fs in _os.walk(_os.path.join(code_dir, "core"))
-                for f in fs if f.endswith(".py"))
+                for f in fs if is_source_file(f))
         except Exception:
             return out  # can't establish a baseline → don't guess
         for name in sorted(running):

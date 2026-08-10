@@ -37,7 +37,11 @@ def _python_sources():
     for dirpath, dirnames, filenames in os.walk(_ROOT):
         dirnames[:] = [d for d in dirnames if d not in (".git", "__pycache__", "tests")]
         for name in filenames:
-            if name.endswith(".py"):
+            # `._foo.py` — не исходник, а ресурсная вилка AppleDouble от scp с Мака:
+            # бинарь с расширением .py. На проде их лежало 59 штук от 16.03, и эта
+            # проверка падала на них UnicodeDecodeError — то есть флаг reasoning:false
+            # на проде не проверялся вообще ни разу с того дня.
+            if name.endswith(".py") and not name.startswith("._"):
                 out.append(os.path.join(dirpath, name))
     return sorted(out)
 
