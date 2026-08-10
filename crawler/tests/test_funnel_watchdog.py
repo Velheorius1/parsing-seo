@@ -10,16 +10,15 @@ Run: python3 -m crawler.tests.test_funnel_watchdog   (exit 1 on any failure)
 import sys
 import types
 
+from crawler.tests._stubs import install_stub
+
 
 def _load():
     """Импорт сторожа с заглушками прод-зависимостей (как в test_scout_store_roundtrip):
     pydantic_settings и Telegram-креды в тестовой среде отсутствуют."""
-    name = "crawler.auth.session_store"
-    if name not in sys.modules:
-        m = types.ModuleType(name)
-        m.session_store = types.SimpleNamespace(get_setting=lambda k: None,
-                                                set_setting=lambda k, v: True)
-        sys.modules[name] = m
+    install_stub("crawler.auth.session_store",
+                 session_store=types.SimpleNamespace(get_setting=lambda k: None,
+                                                     set_setting=lambda k, v: True))
     cfg = "crawler.config.settings"
     if cfg not in sys.modules:
         m = types.ModuleType(cfg)

@@ -19,14 +19,13 @@ import sys
 import types
 from datetime import datetime, timedelta, timezone
 
+from crawler.tests._stubs import install_stub
+
 
 def _load():
-    name = "crawler.auth.session_store"
-    if name not in sys.modules:
-        m = types.ModuleType(name)
-        m.session_store = types.SimpleNamespace(get_setting=lambda k: None,
-                                                set_setting=lambda k, v: True)
-        sys.modules[name] = m
+    install_stub("crawler.auth.session_store",
+                 session_store=types.SimpleNamespace(get_setting=lambda k: None,
+                                                     set_setting=lambda k, v: True))
     cfg = "crawler.config.settings"
     if cfg not in sys.modules:
         m = types.ModuleType(cfg)

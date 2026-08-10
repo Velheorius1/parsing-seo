@@ -22,6 +22,8 @@ import types
 
 import yaml
 
+from crawler.tests._stubs import install_stub
+
 CFG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    "config", "sources.yaml")
 RAW = yaml.safe_load(open(CFG))
@@ -35,21 +37,14 @@ GROUP = "xtx-spa-tender"
 
 
 def _load_watchdog():
-    for name, attrs in (
-        ("crawler.auth.session_store",
-         {"session_store": types.SimpleNamespace(get_setting=lambda k: None,
-                                                 set_setting=lambda k, v: True)}),
-        ("crawler.config.settings",
-         {"settings": types.SimpleNamespace(telegram_bot_token="",
-                                            telegram_alert_chat_id="",
-                                            supabase_url="",
-                                            supabase_service_role_key="")}),
-    ):
-        if name not in sys.modules:
-            m = types.ModuleType(name)
-            for k, v in attrs.items():
-                setattr(m, k, v)
-            sys.modules[name] = m
+    install_stub("crawler.auth.session_store",
+                 session_store=types.SimpleNamespace(get_setting=lambda k: None,
+                                                     set_setting=lambda k, v: True))
+    install_stub("crawler.config.settings",
+                 settings=types.SimpleNamespace(telegram_bot_token="",
+                                                telegram_alert_chat_id="",
+                                                supabase_url="",
+                                                supabase_service_role_key=""))
     import crawler.scripts.freshness_watchdog as W
     return W
 

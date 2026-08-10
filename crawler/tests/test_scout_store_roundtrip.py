@@ -19,21 +19,18 @@ Run: python3 -m crawler.tests.test_scout_store_roundtrip   (exit 1 on any failur
 import sys
 import types
 
+from crawler.tests._stubs import install_stub
+
 
 def _load():
     """Import source_scout with the network-touching deps stubbed out."""
-    name = "crawler.auth.session_store"
-    if name not in sys.modules:
-        m = types.ModuleType(name)
-        m.session_store = types.SimpleNamespace(get_setting=lambda k: None,
-                                                set_setting=lambda k, v: True)
-        sys.modules[name] = m
-    cfg = "crawler.config.settings"
-    if cfg not in sys.modules:      # pydantic_settings is a prod-only dep
-        m = types.ModuleType(cfg)
-        m.settings = types.SimpleNamespace(telegram_bot_token="", telegram_alert_chat_id="",
-                                           openrouter_api_key="test-key")
-        sys.modules[cfg] = m
+    install_stub("crawler.auth.session_store",
+                 session_store=types.SimpleNamespace(get_setting=lambda k: None,
+                                                     set_setting=lambda k, v: True))
+    install_stub("crawler.config.settings",   # pydantic_settings is a prod-only dep
+                 settings=types.SimpleNamespace(telegram_bot_token="",
+                                                telegram_alert_chat_id="",
+                                                openrouter_api_key="test-key"))
     import crawler.scripts.source_scout as S
     return S
 
