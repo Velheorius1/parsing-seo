@@ -69,21 +69,42 @@ def answer_callback(callback_query_id, text):
         logger.warning("Failed to answer callback: %s", str(exc))
 
 
-def edit_message_markup(chat_id, message_id, label_info, seq):
-    # type: (int, int, dict, int) -> None
-    """Replace inline keyboard with a label showing the user's choice."""
-    new_text = "%s %s #%03d" % (label_info["emoji"], label_info["text"], seq)
+def remaining_keyboard(old_rows, seq, label_info):
+    # type: (list, int, dict) -> list
+    """Клавиатура ПОСЛЕ клика. Чистая функция — вся суть правки 11.08 здесь.
+
+    Раньше любой клик заменял всю клавиатуру одной кнопкой-подписью. Для
+    отдельного алерта это верно: сообщение про один лот, выбор сделан. Но
+    дайджест — ОДНО сообщение на десять лотов, и там такой обмен означал бы:
+    отметил третью строку — потерял кнопки у остальных девяти. То есть оценить
+    можно было бы ровно один лот из десяти.
+
+    Поэтому: строку кликнутого лота подменяем подписью, остальные оставляем
+    как есть. Для одиночного алерта поведение прежнее (строка всего одна).
+    """
+    mark = "%s %s #%03d" % (label_info["emoji"], label_info["text"], seq)
+    prefix = "fb:%d:" % seq
+    out = []
+    for row in (old_rows or []):
+        # строка «принадлежит» лоту, если её кнопки ведут на этот номер
+        if any(str(b.get("callback_data", "")).startswith(prefix) for b in row):
+            out.append([{"text": mark, "callback_data": "done"}])
+        else:
+            out.append(row)
+    return out or [[{"text": mark, "callback_data": "done"}]]
+
+
+def edit_message_markup(chat_id, message_id, label_info, seq, old_rows=None):
+    # type: (int, int, dict, int, list) -> None
+    """Отметить выбор, не стирая кнопки соседних строк дайджеста."""
     try:
-        # Replace buttons with a single "label" button (disabled feel)
         httpx.post(
             BOT_URL + "/editMessageReplyMarkup",
             json={
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "reply_markup": {
-                    "inline_keyboard": [[
-                        {"text": new_text, "callback_data": "done"},
-                    ]]
+                    "inline_keyboard": remaining_keyboard(old_rows, seq, label_info),
                 },
             },
             timeout=10,
@@ -147,7 +168,8 @@ def process_callback(update):
         chat_id = msg.get("chat", {}).get("id")
         message_id = msg.get("message_id")
         if chat_id and message_id:
-            edit_message_markup(chat_id, message_id, label_info, seq)
+            old_rows = (msg.get("reply_markup") or {}).get("inline_keyboard")
+            edit_message_markup(chat_id, message_id, label_info, seq, old_rows)
     else:
         answer_callback(callback_id, "\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u043f\u0438\u0441\u0438")
 

@@ -1456,24 +1456,67 @@ def _digest_score(t: RawTender) -> float:
     return value * (0.4 + demand)
 
 
+DIGEST_SHOWN = 10          # сколько позиций попадает в текст и получает кнопки
+
+
+def _rank_digest(tenders: List[RawTender]) -> List[RawTender]:
+    """Порядок дайджеста. Вынесен отдельно, потому что от него теперь зависят
+    ТРИ вещи разом: нумерация в тексте, кнопка под этим номером и номер алерта
+    в callback_data. Разъедутся — клик по строке 3 пометит чужой лот, и
+    обучение начнёт травиться молча."""
+    return sorted(tenders, key=lambda t: -_digest_score(t))
+
+
 def _build_digest_text(tenders: List[RawTender]) -> str:
     from crawler.core.snap import is_broken_spa
-    ranked = sorted(tenders, key=lambda t: -_digest_score(t))
+    ranked = _rank_digest(tenders)
     n = len(tenders)
     parts = ["📋 *Дайджест* — %d менее срочных лотов (не требуют мгновенной реакции)" % n, ""]
-    for t in ranked[:10]:
+    for i, t in enumerate(ranked[:DIGEST_SHOWN], 1):
         price = "{:,.0f} сум".format(t.price) if t.price else "цена н/у"
-        line = "• *%s* — %s" % (_escape_md((t.title or "")[:48]), price)
+        # Номер — не украшение: он связывает строку с кнопкой под сообщением.
+        line = "*%d.* *%s* — %s" % (i, _escape_md((t.title or "")[:48]), price)
         if t.source_url and not is_broken_spa(t.source):
             line += "\n  %s" % t.source_url
         parts.append(line)
-    if n > 10:
-        parts.append("\n…и ещё %d — все на https://parsing-seo.vercel.app/tenders" % (n - 10))
+    if n > DIGEST_SHOWN:
+        parts.append("\n…и ещё %d — все на https://parsing-seo.vercel.app/tenders"
+                     % (n - DIGEST_SHOWN))
+    parts.append("\n_Кнопки ниже — по номеру строки._")
     return "\n".join(parts)
 
 
-async def _send_digest(tenders: List[RawTender]) -> bool:
-    """Send ONE compact ranked digest message. Returns True on HTTP 200."""
+def _build_digest_keyboard(tenders: List[RawTender], start_seq: int) -> dict:
+    """Клавиатура дайджеста: по строке на позицию, две кнопки в строке.
+
+    Зачем вообще. До 11.08 у дайджеста не было кнопок НИ ОДНОЙ, а уходит в него
+    примерно две трети алертов (у источников «э-магазин»/«оферт» — все 100%).
+    То есть большую часть показанного человеку нельзя было оценить в принципе,
+    и обучение питалось только пуш-хвостом. Замер 11.08: кликов нет с 01.08,
+    понедельничный прогон дистиллятора обработал ноль коррекций.
+
+    Две кнопки, а не три: в дайджесте лежат площадочные лоты, рекламы там не
+    бывает — третий вариант только удлинял бы выбор. Метки прежние (`ok`/`skip`),
+    поэтому бот и playbook принимают их без изменений.
+    """
+    rows = []
+    for i, _t in enumerate(_rank_digest(tenders)[:DIGEST_SHOWN], 1):
+        seq = start_seq + i - 1
+        rows.append([
+            {"text": "%d ✅ наше" % i, "callback_data": "fb:%d:ok" % seq},
+            {"text": "%d ❌ мимо" % i, "callback_data": "fb:%d:skip" % seq},
+        ])
+    return {"inline_keyboard": rows}
+
+
+async def _send_digest(tenders: List[RawTender], start_seq: int) -> bool:
+    """Send ONE compact ranked digest message. Returns True on HTTP 200.
+
+    `start_seq` выделяется ДО отправки: иначе номер алерта неизвестен на момент
+    сборки клавиатуры и в кнопку класть нечего. Цена — неудачная отправка сжигает
+    диапазон номеров. Это осознанно и совпадает с пуш-веткой, которая жжёт номера
+    с рождения; зато не бывает кнопки, ведущей в никуда.
+    """
     if not tenders:
         return False
     url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
@@ -1484,10 +1527,13 @@ async def _send_digest(tenders: List[RawTender]) -> bool:
             "parse_mode": "Markdown",
             "disable_web_page_preview": True,
             "protect_content": True,
+            "reply_markup": _build_digest_keyboard(tenders, start_seq),
         })
     ok = resp.status_code == 200
-    logger.info("[Digest] %s — %d items in one message",
-                "sent" if ok else "FAILED %d" % resp.status_code, len(tenders))
+    logger.info("[Digest] %s — %d items (%d с кнопками, seq #%d-#%d)",
+                "sent" if ok else "FAILED %d" % resp.status_code, len(tenders),
+                min(len(tenders), DIGEST_SHOWN), start_seq,
+                start_seq + min(len(tenders), DIGEST_SHOWN) - 1)
     return ok
 
 
@@ -1761,9 +1807,12 @@ async def send_alerts(
     # alerted so a same-content re-issue is later suppressed by the dedup window.
     if digest_tenders:
         try:
-            if await _send_digest(digest_tenders):
-                _dstart = get_next_seq(len(digest_tenders))
-                for _j, _t in enumerate(digest_tenders):
+            # Номера выделяем ДО отправки — они уезжают в кнопки. И сохраняем их
+            # в ТОМ ЖЕ порядке, в каком дайджест отранжирован: кнопка «3» обязана
+            # указывать на лот, стоящий в тексте третьим.
+            _dstart = get_next_seq(len(digest_tenders))
+            if await _send_digest(digest_tenders, _dstart):
+                for _j, _t in enumerate(_rank_digest(digest_tenders)):
                     save_alert_seq(_t.external_id, _t.source, _dstart + _j)
         except Exception as _exc:
             logger.warning("[Digest] send failed (push unaffected): %s", str(_exc)[:120])
