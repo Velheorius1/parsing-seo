@@ -695,47 +695,89 @@ class HealthCheck:
         Fired as WARN per source (not FAIL — we already alert globally via freshness).
         Whitelist for legitimately low-volume sources lives in DEAD_SOURCES_WHITELIST.
         """
-        # Sources expected to be silent for stretches (legacy/low-volume) — don't alert.
-        # Sources that are legitimately low-volume — alerting on them is noise.
-        # International (low UZ relevance), banks (slow updates), niche TG channels.
-        # Re-evaluate this list quarterly.
+        # Источники, чьё молчание объяснено и тревоги не требует.
+        #
+        # ЗАЧЕМ ЗДЕСЬ ПРИЧИНЫ. До 11.08 это было просто множество имён с групповыми
+        # комментариями и припиской «пересматривать ежеквартально» — пересматривать
+        # было НЕ ПО ЧЕМУ: ни даты, ни замера, ни того, кто и почему внёс. Список
+        # такого вида растёт и молча глушит сторожа. Формат теперь тот же, что у
+        # funnel_watchdog.KNOWN_SILENT: причина с датой и проверяемым фактом.
+        #
+        # Проверка принадлежности работает по ключам, поэтому `name not in ...`
+        # ниже читается как раньше.
+        _LEGACY = "унаследовано до 11.08 без записанной причины — перепроверить"
         DEAD_SOURCES_WHITELIST = {
-            # International orgs — UZ tenders are rare
-            'UNDP Procurement',
-            'UN Global Marketplace',
-            'World Bank',
-            'Asian Development Bank',
-            'Islamic Development Bank (IsDB)',
-            'EBRD',
-            'GIZ',
-            'JICA',
-            'KOICA',
-            'USAID',
-            'EU TED',
-            # Banks — quarterly tender publishers
-            'InFinBank',
-            'Orient Finance Bank',
-            'Sanoat Qurilish Bank',
-            'Asia Alliance Bank',
-            'Hamkorbank',
-            # Low-volume TG mirrors
-            'TG: PR UZB (запросы клиентов)',
-            'TG: UZEX Xarid Official',
-            'TG: Закупки Prom.uz',
-            'TG: Фонд предпринимательства',
-            'TG: Узбекистон Темир Йуллари',
-            'TG: Хамкорбанк',
-            'TG: Мин ИТ',
-            # Cooperation legacy (replaced by cooperation-plans-filtered)
-            'Cooperation.uz Брошюры/Буклеты',
-            'Cooperation.uz Аукционы',
-            'Cooperation.uz Закупочные планы',
-            'Cooperation.uz Э-магазин лоты',
-            'Cooperation.uz Bosma (узб.)',
-            # Other quiet mirrors
-            'Узбекистон Темир Йуллари',
-            'Минстрой (tender.mc.uz)',
-            'E-Birja активные аукционы (xarid)',
+            # Международные организации — узбекских тендеров у них мало
+            'UNDP Procurement': _LEGACY,
+            'UN Global Marketplace': _LEGACY,
+            'World Bank': _LEGACY,
+            'Asian Development Bank': _LEGACY,
+            'Islamic Development Bank (IsDB)': _LEGACY,
+            'EBRD': _LEGACY,
+            'GIZ': _LEGACY,
+            'JICA': _LEGACY,
+            'KOICA': _LEGACY,
+            'USAID': _LEGACY,
+            'EU TED': _LEGACY,
+            # Банки — публикуют тендеры раз в квартал
+            'InFinBank': _LEGACY,
+            'Orient Finance Bank': _LEGACY,
+            'Sanoat Qurilish Bank': _LEGACY,
+            'Asia Alliance Bank': _LEGACY,
+            'Hamkorbank': _LEGACY,
+            # Малообъёмные TG-зеркала
+            'TG: PR UZB (запросы клиентов)': _LEGACY,
+            'TG: UZEX Xarid Official': _LEGACY,
+            'TG: Закупки Prom.uz': _LEGACY,
+            'TG: Фонд предпринимательства': _LEGACY,
+            'TG: Узбекистон Темир Йуллари': _LEGACY,
+            'TG: Хамкорбанк': _LEGACY,
+            'TG: Мин ИТ': _LEGACY,
+            # Cooperation legacy (заменены на cooperation-plans-filtered)
+            'Cooperation.uz Брошюры/Буклеты': _LEGACY,
+            'Cooperation.uz Аукционы': _LEGACY,
+            'Cooperation.uz Закупочные планы': _LEGACY,
+            'Cooperation.uz Э-магазин лоты': _LEGACY,
+            'Cooperation.uz Bosma (узб.)': _LEGACY,
+            # Прочие тихие зеркала
+            'Узбекистон Темир Йуллари': _LEGACY,
+            'Минстрой (tender.mc.uz)': _LEGACY,
+            'E-Birja активные аукционы (xarid)': _LEGACY,
+
+            # --- Разбор 11.08: семь источников, на которые сторож звенел ежедневно.
+            # Общая причина не чинить: пять из шести не дали НИ ОДНОГО алерта за всю
+            # историю наблюдений, у TenderWeek — 9 алертов на 476 строк.
+            'OSCE Uzbekistan':
+                'у узбекистанского офиса ОБСЕ нет открытых тендеров: прогон источника '
+                'проходит без ошибок и отдаёт 0, нефильтрованный /tenders отдаёт 10 лотов '
+                '(Косово, Албания, Ашхабад, Бишкек, Душанбе), Узбекистана ни одного. '
+                'Соединение починено 05.08 (use_system_ca), дело не в нас (11.08)',
+            'TG: Beeline Tenders':
+                'канал пишет 0-1 сообщение в НЕДЕЛЮ: 12 прогонов в день, ошибок нет, '
+                'по истории fetched=1 за 03.08 и 28.07. Недельное окно для него слишком '
+                'узкое, это не поломка (11.08)',
+            'TG: UNDP UZB Tenders':
+                'то же, что Beeline: канал молчит неделями, механизм исправен — 13 других '
+                'TG-каналов собрались в тот же день (11.08)',
+            'Хамкорбанк':
+                'на странице банка тендерных позиций в серверном HTML нет, но покрытие НЕ '
+                'потеряно: TG-канал того же банка жив и дал 19 строк за 7 дней. '
+                'HTML-источник избыточен (11.08)',
+            'TenderWeek.com':
+                'листинг ушёл за логин: в серверном HTML только навигация и «Войти / Стать '
+                'закупщиком». Регистрация — за Данияром; выхлоп исторически мал, '
+                '9 алертов на 476 строк (11.08)',
+            'Tashkent Steel (ТМЗ)':
+                'СЛОМАН У НАС, чинить решено не стоит: сайт перестроен (был Elementor, стал '
+                '«XARID TMZ»), селектор h2.elementor-heading-title мёртв, на странице 4 '
+                'активных лота. Но за всю историю источник дал 1 строку и 0 алертов — '
+                'сталелитейный завод закупает подшипники и прокат. Если понадобится — '
+                'переписать селекторы (11.08)',
+            'Ипотека-банк':
+                'СЛОМАНА СВЯЗЬ, чинить решено не стоит: с Мака страница отдаёт HTTP 301 за '
+                '5,6 с, с VPS — таймаут SSL-рукопожатия, то есть площадка не пускает '
+                'датацентровый IP (тот же класс, что cooperation.uz — лечится резидентным '
+                'прокси). За всю историю 20 строк и 0 алертов (11.08)',
         }
         try:
             client = self._get_client()
@@ -790,6 +832,20 @@ class HealthCheck:
 
             dead = [name for name in enabled_names
                     if name not in DEAD_SOURCES_WHITELIST and _is_dead(name)]
+
+            # Белый список гасит ТРЕВОГУ, но не должен прятать сам факт. Иначе
+            # список превращается в чёрную дыру: источник тихо умер, объяснение
+            # написано полгода назад и давно неверно, а увидеть это неоткуда.
+            # Поэтому — отдельная строка со счётчиком: не будит, но и не молчит.
+            excused = [n for n in enabled_names
+                       if n in DEAD_SOURCES_WHITELIST and _is_dead(n)]
+            if excused:
+                self._add('sources.dead_excused', OK,
+                          '%d молчат с объяснением: %s%s'
+                          % (len(excused), ', '.join(excused[:6]),
+                             '' if len(excused) <= 6 else ' (+%d)' % (len(excused) - 6)),
+                          details={'excused': {n: DEAD_SOURCES_WHITELIST[n] for n in excused}})
+
             if dead:
                 # Show up to 8 dead sources in message; rest in details
                 head = ', '.join(dead[:8])

@@ -145,6 +145,49 @@ def _body_of(fn):
     return s[i:j if j > i else len(s)]
 
 
+# --- белый список с причинами (11.08) ---------------------------------------
+
+def _whitelist_block():
+    s = open(_SRC, encoding="utf-8").read()
+    i = s.index("DEAD_SOURCES_WHITELIST = {")
+    j = s.index("\n        }", i)
+    return s[i:j]
+
+
+def test_whitelist_is_a_mapping_with_reasons_not_a_bare_set():
+    """До 11.08 это было множество имён с припиской «пересматривать ежеквартально»
+    — пересматривать было НЕ ПО ЧЕМУ: ни даты, ни замера, ни автора. Такой список
+    растёт и молча глушит сторожа."""
+    b = _whitelist_block()
+    assert "': _LEGACY" in b or "': '" in b, "белый список снова стал множеством"
+    assert b.count(":") > 30, "у записей должны быть причины"
+
+
+def test_todays_seven_are_listed_with_a_dated_reason():
+    """Каждая из семи разобранных 11.08 записей обязана нести дату и факт."""
+    b = _whitelist_block()
+    for name in ("OSCE Uzbekistan", "TG: Beeline Tenders", "TG: UNDP UZB Tenders",
+                 "Хамкорбанк", "TenderWeek.com", "Tashkent Steel (ТМЗ)", "Ипотека-банк"):
+        assert "'%s'" % name in b, name
+    assert b.count("(11.08)") >= 7, "у каждой новой записи должна быть дата"
+
+
+def test_broken_sources_say_they_are_broken():
+    """Два источника внесены СЛОМАННЫМИ — решение не чинить принято по экономике.
+    Причина обязана говорить это прямо, иначе через полгода прочитается как
+    «источник просто тихий»."""
+    b = _whitelist_block()
+    assert "СЛОМАН У НАС" in b and "СЛОМАНА СВЯЗЬ" in b, b[:200]
+
+
+def test_excused_sources_stay_visible():
+    """Белый список гасит тревогу, но не факт. Иначе он — чёрная дыра: источник
+    умер, объяснение устарело, увидеть неоткуда."""
+    b = _body()
+    assert "dead_excused" in b, "нет строки со счётчиком объяснённых"
+    assert "excused" in b
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
