@@ -240,6 +240,44 @@ def test_render_marks_healthy_and_broken():
     assert "просела" in bad and "объём: упал" in bad
 
 
+# ── объяснения к просадке объёма (разбор 11.08) ──────────────────────────────
+
+def test_volume_alarm_carries_the_known_causes():
+    """Сторож кричал «−66% алертов» с 14.07 и был прав по цифре. Причины лежали
+    в коммитах (01.07 отключение sell-side каталога, 13.07 гейт на лиды, 30.07
+    мьюты новостных каналов), но рядом с тревогой их не было — и три недели
+    никто их не свёл. Теперь тревога приходит вместе с уже разобранным."""
+    alarms, notes = verdict(_rep(per_base=54.0, per_recent=12.0))
+    assert any("объём:" in a for a in alarms), alarms
+    joined = " | ".join(notes)
+    assert "часть падения объяснена" in joined, notes
+    assert "PR Media Group" in joined, notes
+
+
+def test_explanations_do_not_silence_the_alarm():
+    """Ключевое: объяснение — это подпись под тревогой, а не её отмена.
+    Иначе настоящая регрессия спрячется за списком старых причин."""
+    alarms, _notes = verdict(_rep(per_base=54.0, per_recent=12.0))
+    assert any("−77.8%" in a or "объём:" in a for a in alarms), alarms
+
+
+def test_no_explanations_when_volume_is_fine():
+    """Пояснения не должны сыпаться в спокойный отчёт."""
+    _alarms, notes = verdict(_rep(per_base=54.0, per_recent=50.0))
+    assert not any("часть падения объяснена" in n for n in notes), notes
+
+
+def test_every_excuse_names_a_date_and_a_measurement():
+    """Список объяснений — не свалка: без даты и цифры он глушит сторожа.
+    Правило записано в шапке KNOWN_SILENT, тут оно проверяется."""
+    import re
+    for table in (W.KNOWN_SILENT, W.KNOWN_TIGHTENED):
+        for src, why in table.items():
+            assert re.search(r"\d{2}\.\d{2}", why), (src, why)
+            assert re.search(r"\d", why), (src, why)
+
+
+
 if __name__ == "__main__":
     import sys
     tests = [v for k, v in sorted(globals().items())

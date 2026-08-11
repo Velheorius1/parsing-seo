@@ -214,7 +214,20 @@ class HealthCheck:
                     source_counts[row.get("source") or "unknown"] = n
 
             if not source_counts:
-                self._add("sources", FAIL, "No tenders collected in last 7 days")
+                # Пусто может значить две разные вещи, и путать их нельзя.
+                # Если RPC ответила, но поля cnt_7d нет (миграция 022 не
+                # применена / функция пересоздана иначе) — это отказ ПРИБОРА, и
+                # кричать «сбор встал» нельзя: 21.07 такой ложный FAIL уже
+                # будили Данияра, отсюда и WARN «transient?» ниже. Настоящая
+                # остановка сбора выглядит иначе: строки есть, cnt_7d нулевые.
+                probe = client.rpc("source_freshness").execute().data or []
+                if probe and "cnt_7d" not in (probe[0] or {}):
+                    self._add("sources", WARN,
+                              "Проверка недоступна: в source_freshness() нет cnt_7d "
+                              "— не применена миграция 022. Это отказ проверки, "
+                              "а не остановка сбора.")
+                else:
+                    self._add("sources", FAIL, "No tenders collected in last 7 days")
                 return
 
             active = len(source_counts)

@@ -124,6 +124,27 @@ def test_failure_and_finding_are_still_distinguishable_in_text():
     assert "Dead-source check failed" in s
 
 
+def test_missing_rpc_field_is_a_broken_instrument_not_an_outage():
+    """Регрессия, внесённая 10.08 и пойманная независимой оценкой 11.08.
+
+    Перевод check_sources на source_freshness() создал путь, где отсутствие поля
+    cnt_7d (миграция не применена) давало FAIL «No tenders collected in last 7
+    days» — то есть отказ ПРИБОРА выглядел как остановка сбора. Ровно от такого
+    ложного FAIL 21.07 уже уходили, добавив WARN «transient?». Пин на то, что
+    два случая различаются в коде."""
+    b = _body_of("check_sources")
+    assert "cnt_7d" in b and "миграция" in b.lower(), b[:200]
+    assert b.index("WARN") < b.index('FAIL, "No tenders'), \
+        "ветка отказа прибора должна стоять ДО ветки настоящей остановки"
+
+
+def _body_of(fn):
+    s = open(_SRC, encoding="utf-8").read()
+    i = s.find("def %s" % fn)
+    j = s.find("\n    # ── Check", i + 10)
+    return s[i:j if j > i else len(s)]
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
