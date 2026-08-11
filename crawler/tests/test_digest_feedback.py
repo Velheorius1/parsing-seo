@@ -151,6 +151,16 @@ def test_second_click_on_the_same_line_is_idempotent():
     assert twice == once, twice
 
 
+def test_title_with_stray_spaces_still_renders_bold():
+    """У части площадок заголовок приходит с ведущим/хвостовым пробелом.
+    «* Название*» Telegram жирным не покажет: звёздочка с пробелом после неё
+    разметку не открывает. Замер на живых строках 11.08: 3 из 6 заголовков
+    Э-магазина были с пробелами."""
+    text = _build_digest_text([_t("x", "  Лот с пробелами  ")])
+    assert "* Лот" not in text, text
+    assert "*Лот с пробелами*" in text, text
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

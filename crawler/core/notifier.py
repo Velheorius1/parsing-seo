@@ -1475,7 +1475,10 @@ def _build_digest_text(tenders: List[RawTender]) -> str:
     for i, t in enumerate(ranked[:DIGEST_SHOWN], 1):
         price = "{:,.0f} сум".format(t.price) if t.price else "цена н/у"
         # Номер — не украшение: он связывает строку с кнопкой под сообщением.
-        line = "*%d.* *%s* — %s" % (i, _escape_md((t.title or "")[:48]), price)
+        # strip() обязателен: у части площадок заголовок приходит с ведущим
+        # пробелом, и «* Название*» Telegram жирным уже не покажет — звёздочка
+        # с пробелом после неё не открывает разметку, а остаётся текстом.
+        line = "*%d.* *%s* — %s" % (i, _escape_md((t.title or "").strip()[:48]), price)
         if t.source_url and not is_broken_spa(t.source):
             line += "\n  %s" % t.source_url
         parts.append(line)
