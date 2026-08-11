@@ -33,6 +33,13 @@ _fb.get_next_seq = _poison
 _fb.save_alert_seq = _poison
 _fb.get_active_mutes = _poison
 _fb.get_relevance_playbook = lambda limit=20: ""
+# Заглушка остаётся в sys.modules до конца ВСЕГО прогона и достаётся каждому,
+# кто импортирует этот модуль позже. Значит она обязана нести все имена, что
+# есть у настоящего модуля, — иначе ломается не replay, а чужой тест, и
+# виноватым выглядит он. Так 11.08 упали четыре теста дайджеста: feedback_bot
+# импортирует record_feedback, которого здесь не было. Смысл заглушки при этом
+# цел: вызов по-прежнему взрывается, просто на вызове, а не на импорте.
+_fb.record_feedback = _poison
 sys.modules["crawler.core.feedback"] = _fb
 
 _db = types.ModuleType("crawler.core.db")

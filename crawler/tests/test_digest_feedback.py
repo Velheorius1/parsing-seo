@@ -103,9 +103,14 @@ def test_text_tells_that_buttons_are_numbered():
 
 # --- клик по одной строке не гасит остальные ---------------------------------
 
+# Импорт на уровне модуля, а не внутри теста: подмены соседей попадают в
+# sys.modules при ИХ импорте, и лениво импортированный бот может достаться уже
+# отравленным. Здесь же он берётся на сборе — до того, как соседи отработают.
+import crawler.scripts.feedback_bot as _B
+
+
 def _bot():
-    import crawler.scripts.feedback_bot as B
-    return B
+    return _B
 
 
 def test_clicking_one_digest_line_keeps_the_others():
