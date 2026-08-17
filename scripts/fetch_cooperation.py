@@ -811,6 +811,19 @@ def upsert_to_supabase(rows):
     from supabase import create_client
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+    # Deduplicate by (external_id, source), keeping the last occurrence — the same
+    # thing crawler/core/db.py does before its upsert. Postgres aborts the WHOLE
+    # batch with 21000 "ON CONFLICT DO UPDATE command cannot affect row a second
+    # time" if even one key repeats, so a single duplicated upstream id silently
+    # dropped every row in the batch (Cooperation.uz Контракты: 196 fetched /
+    # 0 written on every run since 2026-04-02, source frozen at 2026-06-09).
+    seen = {}
+    for row in rows:
+        seen[(row.get('external_id'), row.get('source'))] = row
+    if len(seen) < len(rows):
+        logger.info('[Upsert] Deduplicated %d -> %d rows', len(rows), len(seen))
+    rows = list(seen.values())
+
     upserted = 0
     batch_size = 500
 
