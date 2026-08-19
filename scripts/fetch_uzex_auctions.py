@@ -267,6 +267,21 @@ def upsert_to_supabase(rows, dry_run=False):
     """Upsert rows to Supabase tenders table."""
     if not rows:
         return 0
+
+    # Deduplicate by (external_id, source), keeping the last occurrence. A single
+    # repeated key inside one batch makes Postgres raise 21000 ("ON CONFLICT DO
+    # UPDATE command cannot affect row a second time") and roll back the WHOLE
+    # batch — up to 500 rows lost silently. Upstream really does emit repeats:
+    # 2026-08-19 probe saw uzex-prq-98829 twice at indices 499/500, one row away
+    # from splitting a batch. Same class as the Cooperation bug fixed in 3a4eb7c;
+    # canonical pattern lives in crawler/core/db.py:211.
+    seen = {}
+    for r in rows:
+        seen[(r.get('external_id'), r.get('source'))] = r
+    if len(seen) < len(rows):
+        logger.info('[Upsert] Deduplicated %d -> %d rows', len(rows), len(seen))
+    rows = list(seen.values())
+
     if dry_run:
         logger.info('[DRY-RUN] Would upsert %d rows', len(rows))
         for r in rows[:3]:
