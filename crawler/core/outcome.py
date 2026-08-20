@@ -254,6 +254,50 @@ def record_result(alert_seq, lot_result, winner=None, note=None):
         return False
 
 
+# PostgREST отдаёт максимум 1000 строк на запрос, СКОЛЬКО БЫ ни просил limit,
+# и делает это молча. 20.08 первый же отчёт из-за этого показал 1000 алертов
+# вместо 7553 и «исход неизвестен 98%» вместо честной картины — то есть
+# усечение выглядело как результат. Ровно от этого уже уходили в healthcheck
+# (10.08, кап 200 тыс.), и повторили в другом месте.
+#
+# Идём keyset'ом по alert_seq вниз, а не offset'ом: под alert_seq есть
+# уникальный индекс, а глубокие offset'ы на 870-тысячной таблице — это тот
+# самый 57014.
+_PAGE = 1000
+
+
+def iter_by_seq(build_query, page=_PAGE, runner=None):
+    # type: (Any, int, Any) -> List[Dict[str, Any]]
+    """Все строки запроса, страницами по убыванию alert_seq.
+
+    build_query(last_seq) должен вернуть готовый запрос; last_seq=None на
+    первой странице. Полнота выборки здесь важнее скорости: неполный список
+    алертов молча превращается в заниженный знаменатель.
+
+    `runner` — как выполнять запрос; по умолчанию db.query_with_retry (защита
+    от 57014). Параметром он стал, чтобы тесты не зависели от того, лежит ли
+    в sys.modules настоящий crawler.core.db: соседние файлы законно подменяют
+    его заглушкой, и без явной передачи чистый тест пагинации падал бы в общем
+    прогоне по чужой причине.
+    """
+    if runner is None:
+        from crawler.core.db import query_with_retry as runner  # noqa: F811
+    out = []  # type: List[Dict[str, Any]]
+    last = None  # type: Optional[int]
+    while True:
+        res = runner(lambda l=last: build_query(l).limit(page).execute(),
+                     label="outcome.page")
+        rows = list(getattr(res, "data", None) or [])
+        out.extend(rows)
+        if len(rows) < page:
+            return out
+        try:
+            last = int(rows[-1]["alert_seq"])
+        except (KeyError, TypeError, ValueError):
+            logger.error("[Outcome] пагинация без alert_seq — выборка неполна")
+            return out
+
+
 def _alerted_lots(client):
     # type: (Any) -> List[Dict[str, Any]]
     """Алерченные строки, у которых ссылка ведёт на лот площадки.
@@ -262,17 +306,16 @@ def _alerted_lots(client):
     оставить 361, — ровно тот способ упереться в 57014, от которого уже
     уходили в healthcheck (10.08).
     """
-    from crawler.core.db import query_with_retry
-    res = query_with_retry(
-        lambda: (client.table("tenders")
-                 .select("alert_seq,id,source,source_url,title,price,created_at")
-                 .not_.is_("alert_seq", "null")
-                 .like("source_url", "%/lot/%")
-                 .order("alert_seq", desc=True)
-                 .limit(5000)
-                 .execute()),
-        label="outcome.alerted_lots")
-    return list(getattr(res, "data", None) or [])
+    def build(last):
+        q = (client.table("tenders")
+             .select("alert_seq,id,source,source_url,title,price,created_at")
+             .not_.is_("alert_seq", "null")
+             .like("source_url", "%/lot/%"))
+        if last is not None:
+            q = q.lt("alert_seq", last)
+        return q.order("alert_seq", desc=True)
+
+    return iter_by_seq(build)
 
 
 def _feed_rows(client, source, keys):
@@ -319,12 +362,11 @@ def sync_auto(dry_run=False):
     notdealed = _feed_rows(client, NOTDEALED_SOURCE, keys)
 
     existing = {}  # type: Dict[int, Dict[str, Any]]
-    try:
-        res = client.table(TABLE).select("*").execute()
-        for row in (getattr(res, "data", None) or []):
+    for row in load_all():
+        try:
             existing[int(row["alert_seq"])] = row
-    except Exception as exc:
-        logger.error("[Outcome] read existing failed: %s", str(exc)[:150])
+        except (KeyError, TypeError, ValueError):
+            continue
 
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat()
@@ -378,9 +420,16 @@ def sync_auto(dry_run=False):
 def load_all():
     # type: () -> List[Dict[str, Any]]
     """Все строки исходов (таблица маленькая — по одной на алерт)."""
+    client = _client()
+
+    def build(last):
+        q = client.table(TABLE).select("*")
+        if last is not None:
+            q = q.lt("alert_seq", last)
+        return q.order("alert_seq", desc=True)
+
     try:
-        res = _client().table(TABLE).select("*").execute()
-        return list(getattr(res, "data", None) or [])
+        return iter_by_seq(build)
     except Exception as exc:
         logger.error("[Outcome] load_all failed: %s", str(exc)[:150])
         return []

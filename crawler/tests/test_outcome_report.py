@@ -169,6 +169,41 @@ def test_nudge_survives_a_missing_title():
     assert "#100" in text
 
 
+# --- имя победителя в разметке ---------------------------------------------
+
+def test_winner_name_is_cut_by_word_not_mid_paren():
+    """Слепой срез по 44 давал «OOO "PREMIUM POLIGRAF BIZNES" (ИНН 303018986»
+    — незакрытая скобка. С * или _ то же самое уронило бы разметку ВСЕГО
+    сообщения, а не одной строки."""
+    from crawler.scripts.outcome_report import _short
+    out = _short('OOO "PREMIUM POLIGRAF BIZNES" (ИНН 303018986)')
+    assert not out.endswith("("), out
+    assert out.count("(") == out.count(")"), out
+
+
+def test_winner_name_drops_markdown_active_characters():
+    from crawler.scripts.outcome_report import _short
+    out = _short("ЧП *A* _B_ `C` [D]")
+    assert not any(ch in out for ch in "*_`[]"), out
+
+
+def test_short_name_passes_through_untouched():
+    from crawler.scripts.outcome_report import _short
+    assert _short("ЧП A") == "ЧП A"
+
+
+def test_report_reads_all_alerts_not_the_first_page():
+    """Пин на источник: первый прогон 20.08 показал 1000 алертов вместо 7553."""
+    import io as _io, os as _os
+    here = _os.path.dirname(_os.path.abspath(__file__))
+    src = _io.open(_os.path.join(_os.path.dirname(here), "scripts",
+                                 "outcome_report.py"), encoding="utf-8").read()
+    i = src.index("def _alerted_rows")
+    j = src.index("def _top_winners")
+    assert "iter_by_seq" in src[i:j], "отчёт снова читает одной страницей"
+    assert "limit(20000)" not in src, "вернулся limit, который PostgREST игнорирует"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

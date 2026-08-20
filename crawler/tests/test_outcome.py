@@ -203,6 +203,94 @@ def test_funnel_of_nothing_does_not_divide_by_zero():
     assert f["rows"] == 0 and f["result_unknown"] == 0
 
 
+# --- полнота выборки (20.08, поймано первым же прогоном отчёта) -------------
+
+class _FakeRes(object):
+    def __init__(self, data):
+        self.data = data
+
+
+class _FakeQuery(object):
+    """Имитация PostgREST: отдаёт не больше `cap` строк, СКОЛЬКО БЫ ни просили."""
+    def __init__(self, rows, cap):
+        self._rows, self._cap = rows, cap
+
+    def limit(self, n):
+        self._n = min(n, self._cap)
+        return self
+
+    def execute(self):
+        return _FakeRes(self._rows[:self._n])
+
+
+def _run(fn, label=None):
+    """Выполнить запрос без ретраев. Передаётся явно: соседние тесты законно
+    подменяют crawler.core.db заглушкой (одна — без query_with_retry, другая
+    с намеренно отравленной), и без явной передачи чистый тест пагинации падал
+    бы в общем прогоне по чужой причине."""
+    return fn()
+
+
+def _pager(total, cap=1000, seq_field=True):
+    rows = [{"alert_seq": total - i, "x": i} for i in range(total)]
+    calls = []
+
+    def build(last):
+        calls.append(last)
+        rest = [r for r in rows if last is None or r["alert_seq"] < last]
+        if not seq_field:
+            rest = [{"x": r["x"]} for r in rest]
+        return _FakeQuery(rest, cap)
+
+    return build, calls
+
+
+def test_pager_returns_everything_past_the_thousand_row_wall():
+    """ГЛАВНОЕ. PostgREST молча отдаёт максимум 1000 строк, и первый же прогон
+    отчёта 20.08 напечатал «показано 1000» при 7553 и «исход неизвестен 98%».
+    Заниженный знаменатель опаснее отказа: он выглядит как результат."""
+    from crawler.core.outcome import iter_by_seq
+    build, calls = _pager(2500)
+    got = iter_by_seq(build, runner=_run)
+    assert len(got) == 2500, len(got)
+    assert len(calls) == 3 and calls[0] is None
+
+
+def test_pager_stops_on_a_short_page():
+    from crawler.core.outcome import iter_by_seq
+    build, calls = _pager(400)
+    assert len(iter_by_seq(build, runner=_run)) == 400
+    assert len(calls) == 1
+
+
+def test_pager_on_empty_result():
+    from crawler.core.outcome import iter_by_seq
+    build, _ = _pager(0)
+    assert iter_by_seq(build, runner=_run) == []
+
+
+def test_pager_cannot_spin_forever_without_the_key():
+    """Если в выборке нет alert_seq, курсор не сдвинется и цикл крутился бы
+    вечно, забирая одну и ту же страницу. Лучше неполный ответ и ошибка в
+    лог, чем зависший крон."""
+    from crawler.core.outcome import iter_by_seq
+    build, calls = _pager(2500, seq_field=False)
+    got = iter_by_seq(build, runner=_run)
+    assert len(got) == 1000 and len(calls) == 1
+
+
+def test_no_single_shot_reads_left_in_the_module():
+    """Пин на источник: одиночный .execute() без пагинации — это тот же кап,
+    просто в другом месте файла."""
+    import io as _io, os as _os
+    here = _os.path.dirname(_os.path.abspath(__file__))
+    src = _io.open(_os.path.join(_os.path.dirname(here), "core", "outcome.py"),
+                   encoding="utf-8").read()
+    i = src.index("def load_all")
+    j = src.index("def pending_confirmations")
+    assert "iter_by_seq" in src[i:j], "load_all снова читает одной страницей"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

@@ -99,6 +99,23 @@ def by_month(alerted_rows, outcome_rows):
     return out
 
 
+def _short(name, width=42):
+    # type: (str, int) -> str
+    """Имя победителя для отчёта: без markdown-активных символов и обрезанное
+    по слову. Слепой срез по 44 давал «... (ИНН 303018986» — незакрытая
+    скобка, а незакрытая * или _ уронила бы разметку всего сообщения."""
+    clean = "".join(ch for ch in str(name) if ch not in "*_`[]")
+    clean = " ".join(clean.split())
+    if len(clean) <= width:
+        return clean
+    cut = clean[:width].rsplit(" ", 1)[0] or clean[:width]
+    # хвост вида «… (ИНН» — открытая скобка без закрывающей; обрезаем группу
+    # целиком, иначе строка читается как оборванная на полуслове
+    if cut.count("(") > cut.count(")"):
+        cut = cut[:cut.rindex("(")]
+    return cut.rstrip(" ,(\"«") + "…"
+
+
 def _pct(part, whole):
     # type: (int, int) -> str
     return "—" if not whole else "%d%%" % round(100.0 * part / whole)
@@ -139,7 +156,7 @@ def build_report_text(months, top_winners=None):
         lines.append("")
         lines.append("*Кто забирал наши лоты:*")
         for name, cnt in top_winners[:5]:
-            lines.append("· %s — %d" % (name[:44], cnt))
+            lines.append("· %s — %d" % (_short(name), cnt))
     return "\n".join(lines)
 
 
@@ -178,17 +195,26 @@ def build_nudge_text(rows, titles=None):
 
 def _alerted_rows():
     # type: () -> List[Dict[str, Any]]
-    from crawler.core.db import _get_client, query_with_retry
+    """ВСЕ алерты, а не первая страница.
+
+    Первый же прогон отчёта 20.08 напечатал «показано 1000» при 7553 и
+    «исход неизвестен 98%»: PostgREST отдаёт максимум 1000 строк, сколько бы
+    ни просил limit, и делает это молча. Занижённый знаменатель тут опаснее
+    отказа — он выглядит как результат.
+    """
+    from crawler.core.db import _get_client
+    from crawler.core.outcome import iter_by_seq
     client = _get_client()
-    res = query_with_retry(
-        lambda: (client.table("tenders")
-                 .select("alert_seq,created_at,title")
-                 .not_.is_("alert_seq", "null")
-                 .order("alert_seq", desc=True)
-                 .limit(20000)
-                 .execute()),
-        label="outcome_report.alerted")
-    return list(getattr(res, "data", None) or [])
+
+    def build(last):
+        q = (client.table("tenders")
+             .select("alert_seq,created_at,title")
+             .not_.is_("alert_seq", "null"))
+        if last is not None:
+            q = q.lt("alert_seq", last)
+        return q.order("alert_seq", desc=True)
+
+    return iter_by_seq(build)
 
 
 def _top_winners(outcome_rows, limit=5):
