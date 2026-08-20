@@ -1492,6 +1492,27 @@ def _build_digest_text(tenders: List[RawTender]) -> str:
     return "\n".join(parts)
 
 
+def _build_outcome_row(seq, is_lead=False):
+    # type: (int, bool) -> list
+    """Вторая строка пуш-алерта: «мы взялись за этот лот».
+
+    Из чего выросло (разбор 20.08). Полгода алертов и ни одной записи о том,
+    что после них произошло: отличить «система работает вхолостую» от «Данияр
+    участвует мимо системы» было НЕЧЕМ. Для площадочных лотов исход часто
+    известен площадке, для лидов из Telegram — никогда и никому, кроме нас.
+
+    Один клик и только на пуше. В дайджест не добавляем: там десять строк, и
+    третья кнопка в каждой превратила бы сообщение в частокол — а действуем мы
+    по пушам, не по дайджесту.
+
+    Формулировка по типу: заявку ПОДАЮТ на тендер, лид БЕРУТ в работу.
+    Callback один и тот же — ось одна: взялись или нет.
+    """
+    text = "\U0001f4c4 \u0412\u0437\u044f\u043b \u0432 \u0440\u0430\u0431\u043e\u0442\u0443" if is_lead \
+        else "\U0001f4c4 \u041f\u043e\u0434\u0430\u043b \u0437\u0430\u044f\u0432\u043a\u0443"
+    return [{"text": text, "callback_data": "out:%d:bid" % seq}]
+
+
 def _build_digest_keyboard(tenders: List[RawTender], start_seq: int) -> dict:
     """Клавиатура дайджеста: по строке на позицию, две кнопки в строке.
 
@@ -1750,7 +1771,7 @@ async def send_alerts(
                     {"text": "\U0001f4e2 \u0420\u0435\u043a\u043b\u0430\u043c\u0430", "callback_data": "fb:%d:ad" % seq},
                     {"text": "\u274c \u041d\u0435 \u043c\u043e\u0451", "callback_data": "fb:%d:skip" % seq},
                 ]
-            reply_markup = {"inline_keyboard": [_fb_row]}
+            reply_markup = {"inline_keyboard": [_fb_row, _build_outcome_row(seq, _is_tg_lead(tender))]}
 
             # Attempt to capture our /tenders/{uuid} page if the source is a broken SPA
             photo_url = None
