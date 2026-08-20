@@ -187,6 +187,14 @@ def test_winner_name_drops_markdown_active_characters():
     assert not any(ch in out for ch in "*_`[]"), out
 
 
+def test_uzbek_apostrophe_is_converted_not_deleted():
+    """FARG`ONA / G`ULOM — обратный апостроф часть имени, но в Telegram он
+    открывает code-span и рвёт разметку всего сообщения. Выбросить его —
+    исказить имя, оставить — сломать отчёт."""
+    from crawler.scripts.outcome_report import _short
+    assert _short("FARG`ONA KITOB") == "FARG'ONA KITOB"
+
+
 def test_short_name_passes_through_untouched():
     from crawler.scripts.outcome_report import _short
     assert _short("ЧП A") == "ЧП A"

@@ -104,7 +104,11 @@ def _short(name, width=42):
     """Имя победителя для отчёта: без markdown-активных символов и обрезанное
     по слову. Слепой срез по 44 давал «... (ИНН 303018986» — незакрытая
     скобка, а незакрытая * или _ уронила бы разметку всего сообщения."""
-    clean = "".join(ch for ch in str(name) if ch not in "*_`[]")
+    # Обратный апостроф у узбекских названий (FARG`ONA, G`ULOM) — часть имени,
+    # но в Telegram он открывает code-span и рвёт разметку. Меняем на обычный
+    # апостроф, а не выбрасываем: без него имя читается неправильно.
+    clean = str(name).replace("`", "'")
+    clean = "".join(ch for ch in clean if ch not in "*_[]")
     clean = " ".join(clean.split())
     if len(clean) <= width:
         return clean
