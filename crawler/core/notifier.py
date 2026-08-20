@@ -905,9 +905,12 @@ _NO_PUSH_SOURCES = {
 # Winch's own org/vendor strings — never alert (a self-alert for an already-won lot
 # erodes trust). Normalized substring match. Bare surname EXCLUDED (collision risk);
 # only the full ЧП legal form.
-_OWN_ORG_FRAGMENTS = frozenset({
-    "winch", "винч", "салахутдинов д.у", "salakhutdinov d.u",
-})
+#
+# Список переехал в core/outcome.py (20.08.2026) и здесь только импортируется:
+# «мы разместили этот лот» (здесь) и «мы выиграли этот лот» (outcome.is_our_win) —
+# один и тот же вопрос об идентичности. Две копии разошлись бы, и выигранный
+# нами лот в отчёте об исходах засчитался бы конкуренту.
+from crawler.core.outcome import OWN_ORG_FRAGMENTS as _OWN_ORG_FRAGMENTS
 
 
 def _is_own_lot(org: Optional[str]) -> bool:
