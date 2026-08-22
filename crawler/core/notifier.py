@@ -912,6 +912,24 @@ _NO_PUSH_SOURCES = {
 # нами лот в отчёте об исходах засчитался бы конкуренту.
 from crawler.core.outcome import OWN_ORG_FRAGMENTS as _OWN_ORG_FRAGMENTS
 
+# Источники ПЛАНОВ закупок, а не объявленных процедур (22.08). Данияр:
+# «часто кликаешь, а там не тендер, а закупочные планы». План — строка в
+# годовом плане заказчика: подать по ней нельзя, ссылка ведёт на
+# /plan-schedule/, а не на лот. Ценность у него разведывательная (заказчик
+# СОБИРАЕТСЯ покупать), поэтому не выключаем, но обязаны называть вещи своими
+# именами ДО клика.
+_PLAN_SOURCES = frozenset({
+    "Cooperation.uz Закупочные планы",
+    "Cooperation.uz Закупочные планы (filtered)",
+    "B2Biz.uz (Планы закупок)",
+})
+
+
+def is_plan_source(source):
+    # type: (Optional[str]) -> bool
+    return (source or "") in _PLAN_SOURCES
+
+
 
 def _is_own_lot(org: Optional[str]) -> bool:
     """True if the organization is Winch's own (suppress — it's our posting)."""
@@ -1272,6 +1290,9 @@ def _format_alert(
         parts.append("%s🔥🔥🔥 ГОРЯЧИЙ ЛИД" % prefix)
     elif tender.message_type == "info":
         parts.append("%s[ИНФО]" % prefix)
+    elif is_plan_source(tender.source):
+        # Не «[ТЕНДЕР]»: подать по плану нельзя, это намерение заказчика.
+        parts.append("%s\U0001f4cb [ПЛАН ЗАКУПОК — не объявленный тендер]" % prefix)
     else:
         parts.append("%s[ТЕНДЕР]" % prefix if prefix else "")
     # Reverse auction badge — distinct bidding dynamic (price goes down).
@@ -1481,7 +1502,11 @@ def _build_digest_text(tenders: List[RawTender]) -> str:
         # strip() обязателен: у части площадок заголовок приходит с ведущим
         # пробелом, и «* Название*» Telegram жирным уже не покажет — звёздочка
         # с пробелом после неё не открывает разметку, а остаётся текстом.
-        line = "*%d.* *%s* — %s" % (i, _escape_md((t.title or "").strip()[:48]), price)
+        # Метка плана — В САМОЙ СТРОКЕ, а не только в одиночном алерте:
+        # большинство планов уходит именно дайджестом, и клик по строке — это
+        # и есть тот случай, на который жаловался Данияр («там не тендер»).
+        tag = "\U0001f4cb ПЛАН " if is_plan_source(t.source) else ""
+        line = "*%d.* %s*%s* — %s" % (i, tag, _escape_md((t.title or "").strip()[:48]), price)
         if t.source_url and not is_broken_spa(t.source):
             line += "\n  %s" % t.source_url
         parts.append(line)

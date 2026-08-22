@@ -165,6 +165,49 @@ def test_lost_does_not_claim_a_named_competitor():
     assert "winner=" not in src[i:j]
 
 
+# --- план против тендера (22.08) --------------------------------------------
+
+def _plan_lot():
+    from crawler.core.models import RawTender
+    return RawTender(id="1", external_id="1", title="Стикер самоклеящийся",
+                     organization="KETRING", price=60_000_000.0, currency="UZS",
+                     source="Cooperation.uz Закупочные планы (filtered)",
+                     source_url="https://new.cooperation.uz/plan-schedule/1")
+
+
+def test_plan_sources_are_recognized():
+    assert N.is_plan_source("Cooperation.uz Закупочные планы (filtered)")
+    assert N.is_plan_source("B2Biz.uz (Планы закупок)")
+    assert not N.is_plan_source("ETender UZEX")
+    assert not N.is_plan_source(None)
+
+
+def test_plan_is_marked_in_the_digest_line():
+    """Данияр: «часто кликаешь, а там не тендер, а закупочные планы».
+    Большинство планов уходит именно дайджестом, поэтому метка обязана быть В
+    СТРОКЕ — иначе она не спасает от клика."""
+    line = [l for l in N._build_digest_text([_plan_lot()]).split("\n") if "Стикер" in l][0]
+    assert "ПЛАН" in line
+
+
+def test_plan_is_not_called_a_tender_in_the_push():
+    head = N._format_alert(_plan_lot(), "стикер", alert_seq=1).split("\n")[0]
+    assert "ПЛАН" in head
+    assert "[ТЕНДЕР]" not in head
+
+
+def test_real_tender_keeps_its_label():
+    """Метка не должна протечь на обычные лоты."""
+    from crawler.core.models import RawTender
+    t = RawTender(id="2", external_id="2", title="Печать буклетов", organization="X",
+                  price=20_000_000.0, currency="UZS", source="ETender UZEX",
+                  source_url="https://etender.uzex.uz/lot/1")
+    head = N._format_alert(t, "печать", alert_seq=2).split("\n")[0]
+    assert "ПЛАН" not in head
+    line = [l for l in N._build_digest_text([t]).split("\n") if "Печать" in l][0]
+    assert "ПЛАН" not in line
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
