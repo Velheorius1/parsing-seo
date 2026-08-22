@@ -110,6 +110,30 @@ def test_no_push_source_drops():
     assert r.verdicts[0].dropped_at == DropStage.NO_PUSH_SOURCE
 
 
+def test_every_uzex_eshop_is_dropped_from_alerts():
+    """Решение Данияра 22.08 после ручной проверки девяти крупнейших алертов
+    дороже 15 млн: каждая карточка `/home/shop/detail/` — ОФЕРТА ПРОДАВЦА, а
+    не запрос покупателя. «Ежедневник» на 100 млн = 500 шт по 200 тыс. и одна
+    из 139 аналогичных оферт. Подать по ним нельзя в принципе.
+
+    Цена решения — −443 алерта за 30 дней, поэтому каждое имя пинится
+    поимённо: тихо выпавшее из набора вернуло бы поток обратно."""
+    for src in ("UZEX Э-магазин печатные услуги",
+                "UZEX Э-магазин бумага и изделия",
+                "UZEX Э-магазин издательские услуги",
+                "UZEX Э-магазин рекламные услуги"):
+        r = _run([_mk(source=src)])
+        assert r.verdicts[0].dropped_at == DropStage.NO_PUSH_SOURCE, src
+
+
+def test_dropping_eshops_did_not_touch_real_platforms():
+    """Границу легко перетянуть подстрокой «магазин»: рядом живут источники,
+    по которым подать МОЖНО."""
+    for src in ("ETender UZEX", "UZEX Предквалификации", "XT-Xarid встречные аукционы"):
+        r = _run([_mk(source=src)])
+        assert r.verdicts[0].dropped_at != DropStage.NO_PUSH_SOURCE, src
+
+
 def test_own_lot_drops():
     r = _run([_mk(organization="ЧП WINCH GROUP")])
     assert r.verdicts[0].dropped_at == DropStage.OWN_LOT
