@@ -112,14 +112,28 @@ def test_nothing_to_add_returns_none_not_empty():
 
 
 def test_missing_detail_never_blanks_the_text():
-    """ГЛАВНОЕ свойство отказа. Пустой search_text хуже категории: модель
-    увидела бы вообще ничего и решала бы по одному заголовку."""
-    assert merged_search_text(_BASE, []) is None
-    # вызывающий при None оставляет прежнее значение — пин на источник:
-    src = io.open(os.path.join(_ROOT, "crawler/core/prequal_detail.py"), encoding="utf-8").read()
-    i = src.index("merged = merged_search_text")
-    assert "if not merged:" in src[i:i + 200]
-    assert "continue" in src[i:i + 200]
+    """ГЛАВНОЕ свойство отказа, проверенное ПОВЕДЕНИЕМ, а не текстом кода.
+
+    Пустой search_text хуже категории: модель увидела бы вообще ничего и
+    решала бы по одному заголовку. Раньше этот тест пинил строку `continue` в
+    исходнике — и покраснел, как только цикл стал корутиной, хотя само
+    свойство не менялось. Пин на текст ломается от рефакторинга и молчит о
+    сути; пин на поведение — наоборот.
+    """
+    import crawler.core.prequal_detail as M
+
+    async def _no_detail(client, lid):
+        return None
+
+    orig = M._fetch_detail
+    M._fetch_detail = _no_detail
+    try:
+        t = _T(PREQUAL_SOURCE, ext="100486", st=_BASE)
+        n = asyncio.run(M.enrich([t], dry_run=True))
+    finally:
+        M._fetch_detail = orig
+    assert n == 0
+    assert t.search_text == _BASE, "search_text затёрт при отказе детали"
 
 
 def test_long_position_list_is_capped():

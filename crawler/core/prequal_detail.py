@@ -31,6 +31,7 @@ AI уже вынес вердикт. Вдобавок в крон его так 
 пустой search_text хуже категории, модель увидела бы вообще ничего.
 """
 
+import asyncio
 import logging
 import re
 from typing import Any, Dict, List, Optional
@@ -44,6 +45,9 @@ _API_URL = "https://xarid-api-prequest.uzex.uz/api/Public/GetLot"
 # из него берутся первые 320 знаков — больше просто не доедет, а платить за
 # токены смысла нет.
 _MAX_POSITIONS_CHARS = 300
+
+# Параллельность запросов деталей. См. замер в enrich().
+_CONCURRENCY = 4
 
 _DIGITS = re.compile(r"(\d+)")
 
@@ -158,22 +162,32 @@ async def enrich(tenders, dry_run=False, max_lots=200):
         headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
         timeout=20, trust_env=False, proxy=proxy_url,
     ) as client:
-        for t in targets:
+        # Замер на проде: один лот через прокси — 3,2 с. Последовательно сотня
+        # новых лотов добавила бы к каждому краулу пять минут. Ограниченная
+        # параллельность держится НИЖЕ вежливости самой площадки: у источника в
+        # sources.yaml `rate_limit: 2` (2 запроса в секунду), четыре потока по
+        # 3,2 с дают ~1,25/с.
+        sem = asyncio.Semaphore(_CONCURRENCY)
+
+        async def _one(t):
             lid = lot_id(getattr(t, "external_id", None))
             if not lid:
-                continue
-            data = await _fetch_detail(client, lid)
+                return 0
+            async with sem:
+                data = await _fetch_detail(client, lid)
             if not data:
-                continue
+                return 0
             positions = positions_from_detail(data)
             merged = merged_search_text(getattr(t, "search_text", None), positions)
             if not merged:
-                continue
+                return 0
             t.search_text = merged
             extra = dict(getattr(t, "extra_info", None) or {})
             extra["lots"] = data.get("details") or []
             t.extra_info = extra
-            enriched += 1
+            return 1
+
+        enriched = sum(await asyncio.gather(*[_one(t) for t in targets]))
 
     if enriched and not dry_run:
         _persist(targets)
