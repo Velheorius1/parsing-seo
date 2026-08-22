@@ -137,10 +137,26 @@ async def enrich(tenders, dry_run=False, max_lots=200):
 
     import httpx
 
+    # ЧЕРЕЗ РЕЗИДЕНТНЫЙ ПРОКСИ — как и сам источник (`use_proxy: true` в
+    # sources.yaml, «UZ geo-IP required: Russian VPS blocked»). Первый прогон
+    # на проде без прокси дал 0 обогащённых за 30 с на двух лотах, то есть
+    # чистые таймауты, — при том что с Мака тот же запрос отвечает мгновенно.
+    # Отказ здесь fail-open, поэтому без замера правка выглядела бы рабочей и
+    # молча не делала бы ничего.
+    proxy_url = None
+    try:
+        from crawler.config.settings import settings as _st
+        proxy_url = getattr(_st, "residential_proxy_url", None) or None
+    except Exception:
+        proxy_url = None
+    if not proxy_url:
+        logger.warning("[Prequal] нет резидентного прокси — площадка блокирует "
+                       "датацентровые IP, предмет дотянуть не выйдет")
+
     enriched = 0
     async with httpx.AsyncClient(
         headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
-        timeout=20, trust_env=False,
+        timeout=20, trust_env=False, proxy=proxy_url,
     ) as client:
         for t in targets:
             lid = lot_id(getattr(t, "external_id", None))

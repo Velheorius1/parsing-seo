@@ -154,6 +154,23 @@ def test_empty_input_is_a_noop():
     assert asyncio.run(enrich(None, dry_run=True)) == 0
 
 
+def test_detail_fetch_goes_through_the_residential_proxy():
+    """Поймано замером на проде, а не рассуждением. Первый прогон дал 0
+    обогащённых за 30 с на двух лотах — чистые таймауты: площадка требует
+    UZ-IP (`use_proxy: true` у источника), а клиент ходил напрямую. Отказ тут
+    fail-open, поэтому правка выглядела бы рабочей и молча не делала ничего."""
+    src = io.open(os.path.join(_ROOT, "crawler/core/prequal_detail.py"), encoding="utf-8").read()
+    i = src.index("async with httpx.AsyncClient")
+    assert "proxy=proxy_url" in src[i:i + 300], "запрос снова идёт мимо прокси"
+    assert "residential_proxy_url" in src
+
+
+def test_missing_proxy_is_said_out_loud():
+    """Молчаливое «ничего не обогатили» неотличимо от «нечего обогащать»."""
+    src = io.open(os.path.join(_ROOT, "crawler/core/prequal_detail.py"), encoding="utf-8").read()
+    assert "нет резидентного прокси" in src
+
+
 def test_enrichment_runs_before_alerts_not_after():
     """Место важнее самой правки: после префильтра лот с непрофильной
     категорией уже отсеян ключевым гейтом и до AI не доедет."""
