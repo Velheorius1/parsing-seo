@@ -202,6 +202,21 @@ async def run(
     logger.info("Upserted %d / %d tenders to Supabase (%d new)", upserted, total, len(new_tenders))
     crawl_log.log_upsert(upserted, len(new_tenders))
 
+    # Предмет лота у предквалификаций — ДО гейтов (22.08). Список GetLots
+    # отдаёт только категорию, поэтому и ключевой гейт, и AI до сих пор судили
+    # по названию рубрики: «Услуги издательские» на деле оказывались публикацией
+    # статьи (349 млн, #7751), «Услуги печатные» — установкой баннеров (#7737).
+    # Дыра двусторонняя: без предмета не только чужой лот проходит, но и НАШ не
+    # проходит, если категория непрофильная. Отсюда место — перед send_alerts,
+    # а не внутри него после префильтра.
+    try:
+        from crawler.core.prequal_detail import enrich as _enrich_prequal
+        await _enrich_prequal(new_tenders, dry_run=dry_run)
+    except Exception as exc:
+        # Обогащение — улучшение, а не условие работы: его отказ не должен
+        # останавливать доставку алертов.
+        logger.warning("[Prequal] обогащение пропущено: %s", str(exc)[:150])
+
     # Deduplicate cross-source before alerting
     from crawler.core.dedup import group_for_alerts, load_recent_alerted_fingerprints
 
