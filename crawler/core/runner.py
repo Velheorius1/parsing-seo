@@ -303,7 +303,7 @@ async def run(
 
     from crawler.core.quality_tracker import (
         QualitySnapshot, compare_snapshots, load_baseline, save_snapshot,
-        flush_snapshot_to_supabase,
+        flush_snapshot_to_supabase, profile_signature,
     )
 
     dedup_info = {
@@ -317,19 +317,26 @@ async def run(
     snapshot.alerts_sent = alerts_sent
     snapshot.errors_count = len(crawl_log.errors)
 
-    baseline = load_baseline()
+    # Сравниваем с базой ТОГО ЖЕ набора источников (22.08). Раньше база была
+    # одна на всех, а `0 */2` ходит по API-источникам, `30 */2` — по Telegram:
+    # каждый прогон видел «чужую» базу и рапортовал катастрофу. 12 ложных
+    # тревог в сутки, все в telegram-прогон.
+    profile = profile_signature(stats.keys() if stats else [])
+    baseline = load_baseline(profile)
     if baseline:
         report = compare_snapshots(baseline, snapshot)
         if report.has_regression:
-            logger.warning("Quality regression detected:\n%s", report.summary())
-        if report.has_critical:
-            # Send critical regression alert to Telegram
-            from crawler.core.notifier import send_quality_alert
-            await send_quality_alert(report, dry_run=dry_run)
+            # ТОЛЬКО В ЛОГ. Поштучная отправка убрана 22.08 по решению Данияра:
+            # сигнал уезжает в недельную сводку `source_scorecard` (Пн 06:15),
+            # где он сравнивается по-честному и не тонет в собственном шуме.
+            # Настоящая поломка ловится healthcheck'ом (06:00, alert-on-fail) и
+            # freshness_watchdog (07:00) — они и остались ежедневными.
+            logger.warning("Quality regression detected (profile=%s):\n%s",
+                           profile, report.summary())
     else:
-        logger.info("First quality snapshot recorded (baseline)")
+        logger.info("First quality snapshot for profile=%s (baseline)", profile)
 
-    save_snapshot(snapshot)
+    save_snapshot(snapshot, profile)
     if not dry_run:
         flush_snapshot_to_supabase(snapshot)
     logger.info("Quality score: %.1f (org=%.1f%% price=%.1f%% deadline=%.1f%%)",

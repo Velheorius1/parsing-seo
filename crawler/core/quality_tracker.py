@@ -29,6 +29,41 @@ _QUALITY_LOG = os.path.join(_LOG_DIR, "quality_history.jsonl")
 _BASELINE_FILE = os.path.join(_LOG_DIR, "quality_baseline.json")
 
 
+def profile_signature(source_ids):
+    # type: (Any) -> str
+    """Короткая подпись НАБОРА источников прогона.
+
+    Из чего выросло (22.08). База качества была одна на всех, а краулы ходят
+    РАЗНЫМИ подмножествами: `0 */2` берёт только API-источники, `30 */2` —
+    только Telegram. Каждый прогон сравнивался с базой предыдущего, то есть с
+    другим набором, и потому выглядел катастрофой: `active_sources 51 -> 2`,
+    `NEW DEAD SOURCES` сплошь `tg-*`, а в следующем прогоне те же источники
+    «воскресали». За сутки — 12 ложных «Quality regression detected», все в
+    :30 чётного часа, то есть ровно в telegram-прогон.
+
+    Для `lite` guard уже стоял (см. runner) с той же формулировкой — «subset
+    затёр бы baseline полного краула». Здесь та же болезнь у второй пары
+    прогонов, просто её не заметили.
+
+    Подпись берётся из самого набора, а не из флагов CLI: `run_crawl.sh`
+    разворачивает `--no-telegram` в явный `--sources <список>`, так что режим
+    до runner не доезжает, а набор — доезжает всегда.
+    """
+    import hashlib
+    ids = sorted(str(x) for x in (source_ids or []))
+    if not ids:
+        return "empty"
+    return hashlib.sha1(",".join(ids).encode("utf-8")).hexdigest()[:12]
+
+
+def _baseline_path(profile=None):
+    # type: (Optional[str]) -> str
+    """Путь базы для набора. Без профиля — историческое имя (совместимость)."""
+    if not profile:
+        return _BASELINE_FILE
+    return os.path.join(_LOG_DIR, "quality_baseline_%s.json" % profile)
+
+
 class FieldCompleteness:
     """Percentage of tenders with each field filled."""
 
@@ -381,9 +416,9 @@ def compare_snapshots(baseline, current):
 # ── Persistence ──────────────────────────────────────────────────
 
 
-def save_snapshot(snapshot):
-    # type: (QualitySnapshot) -> None
-    """Append snapshot to JSONL history and update baseline."""
+def save_snapshot(snapshot, profile=None):
+    # type: (QualitySnapshot, Optional[str]) -> None
+    """Append snapshot to JSONL history and update baseline OF ITS OWN PROFILE."""
     os.makedirs(_LOG_DIR, exist_ok=True)
 
     data = snapshot.to_dict()
@@ -395,9 +430,9 @@ def save_snapshot(snapshot):
     except Exception as exc:
         logger.warning("Failed to write quality log: %s", str(exc)[:100])
 
-    # Update baseline (latest snapshot is the new baseline)
+    # Update baseline (latest snapshot is the new baseline) — ДЛЯ СВОЕГО НАБОРА
     try:
-        with open(_BASELINE_FILE, "w", encoding="utf-8") as f:
+        with open(_baseline_path(profile), "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as exc:
         logger.warning("Failed to write quality baseline: %s", str(exc)[:100])
@@ -495,14 +530,15 @@ def flush_snapshot_to_supabase(snapshot):
         return 0
 
 
-def load_baseline():
-    # type: () -> Optional[QualitySnapshot]
-    """Load the latest baseline snapshot."""
-    if not os.path.exists(_BASELINE_FILE):
+def load_baseline(profile=None):
+    # type: (Optional[str]) -> Optional[QualitySnapshot]
+    """База ТОГО ЖЕ набора источников. Чужой набор — не база, а другой прогон."""
+    path = _baseline_path(profile)
+    if not os.path.exists(path):
         return None
 
     try:
-        with open(_BASELINE_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return _snapshot_from_dict(data)
     except Exception as exc:

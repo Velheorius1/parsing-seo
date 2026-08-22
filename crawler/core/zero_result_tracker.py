@@ -167,6 +167,23 @@ def should_send_recovery(prior, new_state):
     return new_state.get("last_outcome") == OK_WITH_DATA
 
 
+def _weekly_digest(alerts, recoveries):
+    # type: (List[str], List[str]) -> str
+    """Одно сообщение вместо пачки. Чистая функция — тестируется без сети."""
+    lines = ["\U0001f4e1 *Источники за неделю*", ""]
+    if alerts:
+        lines.append("*Молчат (%d):*" % len(alerts))
+        lines.extend("· " + a.replace("\U0001f507 \u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a ", "") for a in alerts)
+    if recoveries:
+        if alerts:
+            lines.append("")
+        lines.append("*Снова с данными (%d):*" % len(recoveries))
+        lines.extend("· " + r.replace("\U0001f514 \u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a ", "") for r in recoveries)
+    lines.append("")
+    lines.append("_Поломка сбора приходит не отсюда, а из healthcheck (06:00)._")
+    return "\n".join(lines)
+
+
 def recovery_is_due(now=None):
     # type: (Optional[datetime]) -> bool
     """Шлём ли сегодня «снова с данными».
@@ -233,15 +250,20 @@ async def track_and_alert(outcomes, dry_run=False):
 
     sent = 0
     if not dry_run:
-        # «Молчит N циклов» — всегда (поломка сбора, требует действия).
-        # «Снова с данными» — по расписанию из recovery_is_due (понедельник UTC).
-        # State сохраняется в любом случае, чтобы recovery не задваивался.
-        bodies = list(alerts_to_send)
-        if recovery_is_due():
-            bodies += recoveries_to_send
-        for body in bodies:
-            if await _send_telegram(body):
-                sent += 1
+        # 22.08 — решение Данияра «убрать миллиард алертов, оставить недельную
+        # сводку». Раньше «молчит N циклов» уходило В КАЖДОМ цикле и отдельным
+        # сообщением на источник: 1-5 штук каждые два часа. Порог GRACE_CYCLES=3
+        # это ~6 часов тишины — осмысленно для площадки с ежечасными лотами и
+        # бессмысленно для Telegram-канала, который пишет 0-1 раз в НЕДЕЛЮ.
+        # Отсюда весь шум: tg-uzex, tg-mitc, tg-hamkorbank «молчали» по расписанию.
+        #
+        # Теперь: состояние считается каждый цикл (машина состояний не тронута),
+        # а доставка — раз в неделю и ОДНИМ сообщением. Настоящая поломка сбора
+        # ловится не отсюда, а healthcheck'ом (06:00, --alert-on-fail) и
+        # freshness_watchdog (07:00) — они остались ежедневными.
+        if recovery_is_due() and (alerts_to_send or recoveries_to_send):
+            if await _send_telegram(_weekly_digest(alerts_to_send, recoveries_to_send)):
+                sent = 1
         _save_state(state)
     else:
         logger.info(

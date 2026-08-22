@@ -231,7 +231,7 @@ class TestTrackAndAlert:
         assert capture_tg == []
         assert fake_store.saved["sources"]["sid-1"]["cycles_observed"] == 1
 
-    def test_three_consecutive_zeros_alerts(self, fake_store, capture_tg):
+    def test_three_consecutive_zeros_alerts(self, fake_store, capture_tg, recovery_day):
         out = {"sid-x": {"count": 0, "skipped_no_auth": False, "error": None}}
         for _ in range(zrt.ALERT_THRESHOLD):
             self._run(out)
@@ -239,7 +239,7 @@ class TestTrackAndAlert:
         assert "sid-x" in capture_tg[0]
         assert fake_store.saved["sources"]["sid-x"]["alerted"] is True
 
-    def test_alert_suppressed_on_repeat(self, fake_store, capture_tg):
+    def test_alert_suppressed_on_repeat(self, fake_store, capture_tg, recovery_day):
         out = {"sid-x": {"count": 0, "skipped_no_auth": False, "error": None}}
         for _ in range(zrt.ALERT_THRESHOLD + 3):
             self._run(out)
@@ -253,8 +253,8 @@ class TestTrackAndAlert:
         assert len(capture_tg) == 1
         # Recovery
         self._run(out_ok)
-        assert len(capture_tg) == 2
-        assert "снова" in capture_tg[1] or "recovery" in capture_tg[1].lower()
+        assert len(capture_tg) == 2, "разные прогоны — разные сводки"
+        assert "снова" in capture_tg[1].lower() or "recovery" in capture_tg[1].lower()
         st = fake_store.saved["sources"]["sid-x"]
         assert st["alerted"] is False
         assert st["consecutive_zeros"] == 0
@@ -267,7 +267,7 @@ class TestTrackAndAlert:
         # Cycles_observed stayed 0 since every cycle was skipped.
         assert fake_store.saved["sources"]["sid-x"]["cycles_observed"] == 0
 
-    def test_error_outcome_counts_as_zero(self, fake_store, capture_tg):
+    def test_error_outcome_counts_as_zero(self, fake_store, capture_tg, recovery_day):
         out = {"sid-y": {"count": 0, "skipped_no_auth": False, "error": "http 500"}}
         for _ in range(zrt.ALERT_THRESHOLD):
             self._run(out)
@@ -310,9 +310,13 @@ class TestTrackAndAlert:
             "sid-c": {"count": 0, "skipped_no_auth": True, "error": None},   # skip — ignored
         }
         self._run(out)
-        # Exactly 2 messages: 1 alert + 1 recovery. sid-c produced nothing.
-        assert len(capture_tg) == 2
-        texts = " | ".join(capture_tg)
+        # 22.08: доставка стала недельной и ОДНИМ сообщением. Раньше здесь было
+        # два отдельных — по сообщению на источник; ровно из-за этого канал
+        # получал по 1-5 «молчит» каждые два часа. Содержимое не потеряно:
+        # обе новости обязаны быть в одной сводке. sid-c пропущен (нет токена).
+        assert len(capture_tg) == 1, "недельная сводка — одно сообщение"
+        texts = capture_tg[0]
         assert "sid-a" in texts
         assert "sid-b" in texts
+        assert "sid-c" not in texts
         assert "sid-c" not in texts
