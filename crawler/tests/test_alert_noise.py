@@ -145,6 +145,30 @@ def test_digest_survives_one_sided_input():
     assert "Снова с данными (1)" in only_back and "Молчат" not in only_back
 
 
+def test_digest_has_no_markdown_because_sender_has_no_parse_mode():
+    """`_send_telegram` трекера шлёт без parse_mode — звёздочки и подчёркивания
+    ушли бы в чат буквально. Первая редакция была с разметкой; поймано
+    независимой проверкой до первого понедельника."""
+    from crawler.core.zero_result_tracker import _weekly_digest
+    out = _weekly_digest(["a молчит 3 циклов (x)"], ["b снова с данными (count=1)"])
+    assert "*" not in out and "_" not in out, out
+    src = _src("crawler/core/zero_result_tracker.py")
+    i = src.index("async def _send_telegram")
+    assert "parse_mode" not in src[i:i + 900], "если появился parse_mode — этот тест и сводку надо пересмотреть вместе"
+
+
+def test_weekly_digest_is_built_from_state_not_from_this_run():
+    """Пин на источник: сводка обязана собираться из pending-флагов всех
+    источников, иначе тревога, пересёкшая порог не в понедельник, теряется."""
+    src = _src("crawler/core/zero_result_tracker.py")
+    i = src.index("    sent = 0")
+    j = src.index("if alerts_to_send or recoveries_to_send:", i)
+    block = src[i:j]
+    assert "pending_alert" in block and "pending_recovery" in block
+    assert "_weekly_digest(pend_alerts, pend_recov)" in block
+    assert "_weekly_digest(alerts_to_send" not in block, "сводка снова строится из переходов этого прогона"
+
+
 def test_digest_points_at_the_daily_channel_for_real_breakage():
     """Иначе сводка читается как «сбор проверяется раз в неделю»."""
     from crawler.core.zero_result_tracker import _weekly_digest

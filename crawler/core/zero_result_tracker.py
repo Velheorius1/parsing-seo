@@ -169,18 +169,23 @@ def should_send_recovery(prior, new_state):
 
 def _weekly_digest(alerts, recoveries):
     # type: (List[str], List[str]) -> str
-    """Одно сообщение вместо пачки. Чистая функция — тестируется без сети."""
-    lines = ["\U0001f4e1 *Источники за неделю*", ""]
+    """Одно сообщение вместо пачки. Чистая функция — тестируется без сети.
+
+    БЕЗ Markdown: `_send_telegram` этого модуля шлёт без parse_mode, и звёздочки
+    ушли бы в чат буквально. Первая редакция (22.08 утром) была с разметкой —
+    поймано независимой проверкой до первого понедельника.
+    """
+    lines = ["\U0001f4e1 Источники за неделю", ""]
     if alerts:
-        lines.append("*Молчат (%d):*" % len(alerts))
-        lines.extend("· " + a.replace("\U0001f507 \u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a ", "") for a in alerts)
+        lines.append("Молчат (%d):" % len(alerts))
+        lines.extend("\u00b7 " + a for a in alerts)
     if recoveries:
         if alerts:
             lines.append("")
-        lines.append("*Снова с данными (%d):*" % len(recoveries))
-        lines.extend("· " + r.replace("\U0001f514 \u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a ", "") for r in recoveries)
+        lines.append("Снова с данными (%d):" % len(recoveries))
+        lines.extend("\u00b7 " + r for r in recoveries)
     lines.append("")
-    lines.append("_Поломка сбора приходит не отсюда, а из healthcheck (06:00)._")
+    lines.append("Поломка сбора приходит не отсюда, а из healthcheck (06:00).")
     return "\n".join(lines)
 
 
@@ -231,19 +236,33 @@ async def track_and_alert(outcomes, dry_run=False):
         prior = sources_state.get(sid)
         new_state = advance_source_state(prior, outcome)
 
+        # Переходы ПОМЕЧАЮТСЯ в состоянии, а не отправляются с места (22.08,
+        # вторая редакция). Первая редакция недельного гейта собирала сообщение
+        # на прогоне пересечения порога и отправляла только если «сегодня
+        # понедельник». Но should_alert срабатывает РОВНО ОДИН РАЗ и ставит
+        # alerted=True — на следующих прогонах он уже молчит. Источник, замолчавший
+        # во вторник, не попадал ни в один понедельник: тревога терялась
+        # навсегда. Тесты этого не видели, потому что фикстура делала каждый день
+        # понедельником. Найдено независимой проверкой, не тестами.
+        #
+        # То же самое с «снова с данными» было с 30.06 — недельный гейт для
+        # recovery стоял на той же ошибке.
         if should_alert(prior, new_state):
             reason = "ошибка: %s" % signals["error"][:100] if outcome == ERROR else "0 тендеров подряд"
-            alerts_to_send.append(
-                "🔇 Источник %s молчит %d циклов (%s)"
-                % (sid, new_state["consecutive_zeros"], reason)
-            )
+            msg = "%s молчит %d циклов (%s)" % (sid, new_state["consecutive_zeros"], reason)
+            alerts_to_send.append(msg)
             new_state["alerted"] = True
             new_state["alerted_at"] = _now_iso()
+            new_state["pending_alert"] = msg
         elif should_send_recovery(prior, new_state):
-            recoveries_to_send.append(
-                "🔔 Источник %s снова с данными (count=%d)"
-                % (sid, int(signals.get("count", 0)))
-            )
+            msg = "%s снова с данными (count=%d)" % (sid, int(signals.get("count", 0)))
+            if prior and prior.get("pending_alert"):
+                # тревога так и не была доставлена — скажем об этом, а не
+                # сделаем вид, что «снова» относится к чему-то известному
+                msg += " — молчал, тревога не успела уйти"
+            recoveries_to_send.append(msg)
+            new_state["pending_recovery"] = msg
+            new_state.pop("pending_alert", None)
             # new_state.alerted was already reset to False inside advance_source_state
 
         sources_state[sid] = new_state
@@ -261,9 +280,19 @@ async def track_and_alert(outcomes, dry_run=False):
         # а доставка — раз в неделю и ОДНИМ сообщением. Настоящая поломка сбора
         # ловится не отсюда, а healthcheck'ом (06:00, --alert-on-fail) и
         # freshness_watchdog (07:00) — они остались ежедневными.
-        if recovery_is_due() and (alerts_to_send or recoveries_to_send):
-            if await _send_telegram(_weekly_digest(alerts_to_send, recoveries_to_send)):
+        # Сводка строится из СОСТОЯНИЯ (всё недоставленное), а не из переходов
+        # этого прогона — см. комментарий в цикле выше. После успешной отправки
+        # флаги снимаются; при отказе Telegram остаются и уйдут следующим прогоном.
+        pend_alerts = [sources_state[k]["pending_alert"] for k in sorted(sources_state)
+                       if sources_state[k].get("pending_alert")]
+        pend_recov = [sources_state[k]["pending_recovery"] for k in sorted(sources_state)
+                      if sources_state[k].get("pending_recovery")]
+        if recovery_is_due() and (pend_alerts or pend_recov):
+            if await _send_telegram(_weekly_digest(pend_alerts, pend_recov)):
                 sent = 1
+                for st in sources_state.values():
+                    st.pop("pending_alert", None)
+                    st.pop("pending_recovery", None)
         _save_state(state)
     else:
         logger.info(

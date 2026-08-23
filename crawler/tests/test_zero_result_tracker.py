@@ -275,6 +275,66 @@ class TestTrackAndAlert:
         # Alert body mentions "ошибка"
         assert "http 500" in capture_tg[0] or "ошибк" in capture_tg[0].lower()
 
+    def test_alert_crossing_on_tuesday_is_delivered_on_monday(self, fake_store, capture_tg, monkeypatch):
+        """ГЛАВНЫЙ регрессионный тест недельной сводки (22.08, вторая редакция).
+
+        Первая редакция гейта отправляла сообщение, собранное на прогоне
+        пересечения порога, и только если «сегодня понедельник». Но should_alert
+        срабатывает ровно один раз и ставит alerted=True — в понедельник он уже
+        молчит. Источник, замолчавший во вторник, НЕ ПОПАДАЛ ни в одну сводку.
+        Старые тесты этого не видели: фикстура делала каждый день понедельником.
+        """
+        due = {"v": False}
+        monkeypatch.setattr(zrt, "recovery_is_due", lambda now=None: due["v"])
+        out = {"sid-t": {"count": 0, "skipped_no_auth": False, "error": None}}
+        for _ in range(zrt.ALERT_THRESHOLD):          # вторник: порог пройден
+            self._run(out)
+        assert capture_tg == [], "в будни ничего не шлём"
+        assert fake_store.saved["sources"]["sid-t"].get("pending_alert"), "тревога не запомнена"
+
+        due["v"] = True                                 # понедельник
+        self._run(out)
+        assert len(capture_tg) == 1, "в понедельник сводка обязана уйти"
+        assert "sid-t" in capture_tg[0]
+        assert not fake_store.saved["sources"]["sid-t"].get("pending_alert"), "флаг не снят"
+
+        self._run(out)                                  # второй прогон того же дня
+        assert len(capture_tg) == 1, "повтора в тот же день быть не должно"
+
+    def test_recovery_on_thursday_is_delivered_on_monday(self, fake_store, capture_tg, monkeypatch):
+        """Та же дыра у «снова с данными» — и она стояла с 30.06."""
+        due = {"v": False}
+        monkeypatch.setattr(zrt, "recovery_is_due", lambda now=None: due["v"])
+        zero = {"sid-r": {"count": 0, "skipped_no_auth": False, "error": None}}
+        ok = {"sid-r": {"count": 9, "skipped_no_auth": False, "error": None}}
+        for _ in range(zrt.ALERT_THRESHOLD):
+            self._run(zero)
+        self._run(ok)                                   # четверг: восстановился
+        assert capture_tg == []
+        st = fake_store.saved["sources"]["sid-r"]
+        assert st.get("pending_recovery") and not st.get("pending_alert")
+
+        due["v"] = True
+        self._run(ok)
+        assert len(capture_tg) == 1
+        assert "снова" in capture_tg[0].lower() and "sid-r" in capture_tg[0]
+        assert "не успела уйти" in capture_tg[0], "про недоставленную тревогу надо сказать прямо"
+
+    def test_failed_send_keeps_pending_for_next_run(self, fake_store, monkeypatch, recovery_day):
+        """Отказ Telegram не должен терять сводку: флаги остаются до удачи."""
+        calls = []
+
+        async def _fail(text):
+            calls.append(text)
+            return False
+
+        monkeypatch.setattr(zrt, "_send_telegram", _fail)
+        out = {"sid-f": {"count": 0, "skipped_no_auth": False, "error": None}}
+        for _ in range(zrt.ALERT_THRESHOLD):
+            self._run(out)
+        assert calls, "попытка отправки была"
+        assert fake_store.saved["sources"]["sid-f"].get("pending_alert"), "после отказа флаг обязан остаться"
+
     def test_dry_run_does_not_persist_or_send(self, fake_store, capture_tg):
         out = {"sid-x": {"count": 0, "skipped_no_auth": False, "error": None}}
         for _ in range(zrt.ALERT_THRESHOLD):

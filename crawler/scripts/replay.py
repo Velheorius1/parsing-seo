@@ -68,6 +68,23 @@ def row_to_raw_tender(row):
             continue
         extra[str(k)] = v if isinstance(v, str) else str(v)
     ext_id = str(row.get("external_id") or row.get("id") or "replay")
+
+    # Паритет с продом для предквалификаций (22.08). Прод дотягивает предмет
+    # лота в search_text ДО гейтов (core/prequal_detail), но upsert при каждом
+    # краyле перезаписывает search_text списочным значением (одна категория),
+    # а extra_info.lots при этом переживает — upsert не пишет пустой extra_info.
+    # Без этой склейки replay видел бы «Услуги издательские <заказчик>» там, где
+    # прод видел «… | Услуга публикации статьи», и бенчмарк мерил бы не тот
+    # конвейер. Берём lots из СЫРОГО extra_info: выше он str-коэрсится, и список
+    # превратился бы в строку.
+    search_text = row.get("search_text") or ""
+    raw_extra = row.get("extra_info") or {}
+    if row.get("source") == "UZEX Предквалификации" and isinstance(raw_extra.get("lots"), list):
+        from crawler.core.prequal_detail import merged_search_text, positions_from_detail
+        merged = merged_search_text(search_text, positions_from_detail({"details": raw_extra["lots"]}))
+        if merged:
+            search_text = merged
+
     return RawTender(
         id=ext_id,
         external_id=ext_id,
@@ -79,7 +96,7 @@ def row_to_raw_tender(row):
         source=row.get("source") or "",
         source_url=row.get("source_url") or "",
         status=row.get("status") or "active",
-        search_text=row.get("search_text") or "",
+        search_text=search_text,
         message_type=row.get("message_type") or "tender",
         bid_count=row.get("bid_count"),
         extra_info=extra,
