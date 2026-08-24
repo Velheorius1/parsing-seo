@@ -1,0 +1,228 @@
+{
+  "iso_week": "2026-W35",
+  "this_week": {
+    "date": "2026-08-24",
+    "alerts_sent_cum": 7745,
+    "alerts_week": 385,
+    "active_sources": 80,
+    "total_sources": 110,
+    "dead_sources": 30,
+    "tenders_7d": 101228,
+    "feedback_cum": 877,
+    "ai": {
+      "calls": 758,
+      "err_pct": 0.53,
+      "p95_ms": 13138,
+      "relevant": 207
+    }
+  },
+  "last_week": {
+    "date": "2026-08-17",
+    "alerts_sent_cum": 7360,
+    "alerts_week": 372,
+    "active_sources": 78,
+    "total_sources": 110,
+    "dead_sources": 32,
+    "tenders_7d": 95795,
+    "feedback_cum": 859,
+    "ai": {
+      "calls": 761,
+      "err_pct": 1.05,
+      "p95_ms": 11289,
+      "relevant": 189
+    }
+  },
+  "feedback": {
+    "last_7d": {
+      "total": 19,
+      "false_positives": 16,
+      "false_negatives": 0,
+      "accuracy": 15.8
+    },
+    "last_30d": {
+      "total": 52,
+      "false_positives": 28,
+      "false_negatives": 0,
+      "accuracy": 46.2
+    }
+  },
+  "subscores_deterministic": {
+    "precision": {
+      "score": 1.6,
+      "why": "feedback-based: 16 FP / 19 total"
+    },
+    "platform_health": {
+      "score": 7.3,
+      "why": "active 80 / 110 = 73%"
+    },
+    "recall": {
+      "score": 6.8,
+      "why": "alerts 385 vs 372 (anchor 6.8)"
+    },
+    "cost_reliability": {
+      "score": 7.4,
+      "why": "err 0.53% (8.9) + p95 13138ms (6.4)"
+    }
+  },
+  "weights": {
+    "link_integrity": 0.25,
+    "precision": 0.25,
+    "platform_health": 0.2,
+    "recall": 0.15,
+    "cost_reliability": 0.15
+  },
+  "link_integrity": {
+    "needs_browser_check": true,
+    "instructions": "Navigate 6-10 of the sample URLs; link-integrity = % that render a valid lot. Add as the 25%% sub-score, then composite = sum(weight*score).",
+    "sample_sources": [
+      "UZEX Предквалификации",
+      "UZEX Обратные аукционы",
+      "UZEX Э-магазин издательские услуги",
+      "XT-Xarid встречные аукционы",
+      "ETender UZEX",
+      "Cooperation.uz Лоты"
+    ]
+  },
+  "prune_candidates_report_only": [
+    {
+      "source": "Cooperation.uz Bosma (узб.)",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 993
+    },
+    {
+      "source": "Cooperation.uz Блокноты/Ежедневники",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 213
+    },
+    {
+      "source": "Cooperation.uz Брошюры/Буклеты",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 45
+    },
+    {
+      "source": "Cooperation.uz Календари",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 46
+    },
+    {
+      "source": "Cooperation.uz Конверты",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 328
+    },
+    {
+      "source": "Cooperation.uz Пакеты",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 276
+    },
+    {
+      "source": "Cooperation.uz Печать",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 22
+    },
+    {
+      "source": "Cooperation.uz Полиграфия",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 174
+    },
+    {
+      "source": "Cooperation.uz Стикеры/Наклейки",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 50
+    },
+    {
+      "source": "Cooperation.uz Этикетки",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 27
+    },
+    {
+      "source": "E-Birja завершённые сделки",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 4999
+    },
+    {
+      "source": "E-Birja товары на продажу",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 2337
+    },
+    {
+      "source": "InFinBank",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 2
+    },
+    {
+      "source": "OSCE Uzbekistan",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 7
+    },
+    {
+      "source": "Orient Finance Bank",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 7
+    },
+    {
+      "source": "Sanoat Qurilish Bank",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 5
+    },
+    {
+      "source": "TG: PR UZB (запросы клиентов)",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 1
+    },
+    {
+      "source": "TG: tenderweekcom",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 10
+    },
+    {
+      "source": "TG: Мин ЖКХ",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 3
+    },
+    {
+      "source": "Tashkent Steel (ТМЗ)",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 1
+    },
+    {
+      "source": "TenderWeek.com",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 476
+    },
+    {
+      "source": "Ипотека-банк",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 20
+    },
+    {
+      "source": "Минстрой (tender.mc.uz)",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 440
+    },
+    {
+      "source": "УЗСМ (Металлургия)",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 14
+    },
+    {
+      "source": "Узбекистон Темир Йуллари",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 6
+    },
+    {
+      "source": "Узтрансгаз",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 6
+    },
+    {
+      "source": "Хамкорбанк",
+      "reason": "no new data in dead_sources across last 3 weekly snapshots",
+      "total_rows": 31
+    }
+  ],
+  "notes": [
+    "Composite + improvement ideas finalized by the weekly Claude routine (it runs /deep-think and the browser link-check).",
+    "prune_candidates are REPORT-ONLY: nothing is auto-disabled.",
+    "alerts_week = delta of cumulative alerts_sent between weekly snapshots (today snapshot may be mid-day)."
+  ]
+}
