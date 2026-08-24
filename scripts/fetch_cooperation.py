@@ -852,38 +852,74 @@ _REJECT_TITLES = [
 _OFFER_CACHE = {}
 
 
+def _pick_offer(items, offer_number):
+    # type: (Optional[list], str) -> Optional[dict]
+    """Оферта с нужным номером из выдачи. Чистая функция — тестируется без сети."""
+    for o in items or []:
+        if isinstance(o, dict) and o.get('offerNumber') == offer_number:
+            return o
+    return None
+
+
+def _offer_payload(o):
+    # type: (dict) -> dict
+    """unitPrice + первое фото + референсный поставщик из сырой оферты.
+
+    photos — строка путей через '|', бывает с ведущим '|' (живой пример
+    O2419735: "|contractfiles/..."), поэтому strip перед split — иначе первое
+    «фото» оказывается пустой строкой и карточка остаётся без картинки."""
+    photo = (o.get('photos') or '').strip('|').split('|')[0]
+    result = {'unit_price': o.get('unitPrice'),
+              'photo': ('https://new.cooperation.uz/ocelot/' + photo) if photo else None}
+    # Reference supplier — the competitor whose catalog card the
+    # buyer anchored this lot to. Их цену и надо перебивать
+    # (Brayl-darslik case 2026-07-05: DIZAYN-PRINT MCHJ).
+    comp = o.get('company') or {}
+    cname = comp.get('name')
+    if isinstance(cname, dict):
+        cname = cname.get('ru') or cname.get('uz') or ''
+    if cname:
+        result['ref_supplier'] = str(cname)[:80]
+    if comp.get('tin'):
+        result['ref_supplier_tin'] = str(comp['tin'])
+    return result
+
+
 def _fetch_offer_detail(product_name, offer_number):
     # type: (str, str) -> Optional[dict]
-    """E-catalog offer lookup (GetAllOffer OfferType=1, productName search) -> unitPrice + photo.
-    Joins a lot to its supplier offer (the priced catalog listing the lot references)."""
+    """Оферта по номеру -> unitPrice + фото + референсный поставщик.
+
+    ТОЧНЫЙ ПОИСК (24.08): GetAllOffer(productName=<offerNumber>) возвращает
+    ровно эту оферту — поле поиска матчит и номер (проверено живым зондом:
+    total=1 для O1793672). Прежний способ искал по первым трём словам названия
+    среди 419 231 оферты и находил нужную в ~2% случаев — замер: цена была у
+    195 из 9824 строк «Лоты» за 30 дней. Данияр: «по ссылке ничего не видно»,
+    и без цены/фото наша карточка была пустой ровно поэтому.
+
+    Фолбэк на старый поиск по названию оставлен на случай, если поле перестанет
+    матчить номера."""
     if not offer_number:
         return None
     if offer_number in _OFFER_CACHE:
         return _OFFER_CACHE[offer_number]
     result = None
     try:
-        q = ' '.join((product_name or '').split()[:3])
         with httpx.Client(timeout=20) as client:
             r = client.get('https://new.cooperation.uz/ocelot/api-client/Client/GetAllOffer',
-                           params={'OfferType': 1, 'skip': 0, 'take': 50, 'productName': q}, headers=HEADERS)
+                           params={'OfferType': 1, 'skip': 0, 'take': 5, 'productName': offer_number},
+                           headers=HEADERS)
+            o = None
             if r.status_code == 200:
-                for o in (r.json().get('result') or {}).get('data') or []:
-                    if o.get('offerNumber') == offer_number:
-                        photo = (o.get('photos') or '').split('|')[0]
-                        result = {'unit_price': o.get('unitPrice'),
-                                  'photo': ('https://new.cooperation.uz/ocelot/' + photo) if photo else None}
-                        # Reference supplier — the competitor whose catalog card the
-                        # buyer anchored this lot to. Их цену и надо перебивать
-                        # (Brayl-darslik case 2026-07-05: DIZAYN-PRINT MCHJ).
-                        comp = o.get('company') or {}
-                        cname = comp.get('name')
-                        if isinstance(cname, dict):
-                            cname = cname.get('ru') or cname.get('uz') or ''
-                        if cname:
-                            result['ref_supplier'] = str(cname)[:80]
-                        if comp.get('tin'):
-                            result['ref_supplier_tin'] = str(comp['tin'])
-                        break
+                o = _pick_offer((r.json().get('result') or {}).get('data'), offer_number)
+            if o is None:
+                q = ' '.join((product_name or '').split()[:3])
+                r = client.get('https://new.cooperation.uz/ocelot/api-client/Client/GetAllOffer',
+                               params={'OfferType': 1, 'skip': 0, 'take': 50, 'productName': q},
+                               headers=HEADERS)
+                if r.status_code == 200:
+                    o = _pick_offer((r.json().get('result') or {}).get('data'), offer_number)
+            if o is not None:
+                result = _offer_payload(o)
     except Exception as exc:
         logger.warning('[OfferEnrich] %s: %s', offer_number, str(exc)[:80])
     _OFFER_CACHE[offer_number] = result

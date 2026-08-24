@@ -1356,6 +1356,15 @@ def _format_alert(
             parts.append("%s/%s" % (_DETAIL_PAGE_BASE, db_id))
         elif tender.source_url:
             parts.append(tender.source_url)
+    elif tender.source.startswith("Cooperation.uz") and db_id:
+        # «Рабочая» coop-ссылка (планы) работает ТОЛЬКО на десктопе: SPA
+        # редиректит мобильный и незнакомый UA на mobile.cooperation.uz —
+        # заглушку приложения. Проверено 24.08 чистым iPhone-UA через
+        # резидентный прокси на обоих типах ссылок. Данияр читает Telegram с
+        # телефона — значит архив первым, платформа пометкой.
+        parts.append("%s/%s" % (_DETAIL_PAGE_BASE, db_id))
+        if tender.source_url:
+            parts.append("Площадка (с десктопа): %s" % tender.source_url)
     else:
         # Working source: прямая ссылка первой, Vercel запасной.
         if tender.source_url:
@@ -1363,14 +1372,16 @@ def _format_alert(
         if db_id:
             parts.append("Архив: %s/%s" % (_DETAIL_PAGE_BASE, db_id))
 
-    # Cooperation.uz fallback: SPA detail page often shows "Sahifa topilmadi"
-    # in Telegram in-app browser (JavaScript not always executed). Add a
-    # search-by-title link on the supplier panel as a safety net.
+    # Cooperation.uz: страховочный поиск по первому слову названия. С августа
+    # `supplier/lots?lotId=` отдаёт 404 уже И НА ДЕСКТОПЕ (проверено кликом
+    # 24.08 — запись от 05.08 про «инертный параметр» устарела), а на телефоне
+    # любая coop-ссылка редиректится на заглушку мобильного приложения, поэтому
+    # поиск честно помечен.
     if tender.source.startswith("Cooperation.uz") and tender.title:
         try:
             from urllib.parse import quote
             q = quote(tender.title.split()[0])
-            parts.append("Поиск: https://new.cooperation.uz/supplier/all?productName=%s" % q)
+            parts.append("Поиск (с десктопа): https://new.cooperation.uz/supplier/all?productName=%s" % q)
         except Exception:
             pass
 
@@ -1510,7 +1521,7 @@ def _rank_digest(tenders: List[RawTender]) -> List[RawTender]:
     return sorted(tenders, key=lambda t: -_digest_score(t))
 
 
-def _build_digest_text(tenders: List[RawTender]) -> str:
+def _build_digest_text(tenders: List[RawTender], archive: Optional[dict] = None) -> str:
     from crawler.core.snap import is_broken_spa
     ranked = _rank_digest(tenders)
     n = len(tenders)
@@ -1526,8 +1537,19 @@ def _build_digest_text(tenders: List[RawTender]) -> str:
         # и есть тот случай, на который жаловался Данияр («там не тендер»).
         tag = "\U0001f4cb ПЛАН " if is_plan_source(t.source) else ""
         line = "*%d.* %s*%s* — %s" % (i, tag, _escape_md((t.title or "").strip()[:48]), price)
-        if t.source_url and not is_broken_spa(t.source):
-            line += "\n  %s" % t.source_url
+        # Ссылка строки (24.08): у битых SPA её раньше НЕ БЫЛО ВООБЩЕ — код
+        # убирал платформенную, а архивную взамен не ставил, и лот из дайджеста
+        # было негде посмотреть в принципе. Теперь архив (uuid добывает
+        # _send_digest), для coop он и первый: на телефоне платформа мертва.
+        link = None
+        if archive:
+            uid = archive.get(t.external_id)
+            if uid:
+                link = "%s/%s" % (_DETAIL_PAGE_BASE, uid)
+        if not link and t.source_url and not is_broken_spa(t.source):
+            link = t.source_url
+        if link:
+            line += "\n  %s" % link
         parts.append(line)
     if n > DIGEST_SHOWN:
         parts.append("\n…и ещё %d — все на https://parsing-seo.vercel.app/tenders"
@@ -1592,11 +1614,21 @@ async def _send_digest(tenders: List[RawTender], start_seq: int) -> bool:
     """
     if not tenders:
         return False
+    # uuid архивных карточек — только для показываемых строк (максимум 10
+    # lookup'ов) и только там, где платформенная ссылка мертва: битые SPA и
+    # весь Cooperation (на телефоне редирект на заглушку приложения, 24.08).
+    from crawler.core.snap import is_broken_spa as _spa
+    archive = {}
+    for _t in _rank_digest(tenders)[:DIGEST_SHOWN]:
+        if _spa(_t.source) or (_t.source or "").startswith("Cooperation.uz"):
+            _uid = _lookup_tender_uuid(_t.external_id, _t.source)
+            if _uid:
+                archive[_t.external_id] = _uid
     url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.post(url, json={
             "chat_id": settings.telegram_alert_chat_id,
-            "text": _build_digest_text(tenders),
+            "text": _build_digest_text(tenders, archive),
             "parse_mode": "Markdown",
             "disable_web_page_preview": True,
             "protect_content": True,

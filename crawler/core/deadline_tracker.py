@@ -119,6 +119,32 @@ def _parse_deadline(deadline_str: Optional[str]) -> Optional[datetime]:
     return None
 
 
+_DETAIL_PAGE_BASE = "https://parsing-seo.vercel.app/tenders"
+
+
+def _reminder_url(t):
+    # type: (dict) -> Optional[str]
+    """Ссылка в напоминании о дедлайне.
+
+    Напоминания были ЕДИНСТВЕННЫМ каналом, куда не дошла link-стратегия пушей:
+    слали голый source_url. Скриншот Данияра (21:09, `supplier/lots?lotId=…`) —
+    именно отсюда. Проверено кликами 24.08: у Cooperation этот маршрут отдаёт
+    404 даже на десктопе (площадка обновилась после записи от 05.08 про
+    «инертный параметр»), а на телефоне ЛЮБАЯ coop-ссылка редиректится на
+    заглушку мобильного приложения (mobile.cooperation.uz) — чистый iPhone-UA
+    через резидентный прокси, обе ссылки. Поэтому для битых SPA и всего
+    Cooperation — наш архив; _DEADLINE_SELECT уже несёт `id` (uuid карточки).
+    """
+    try:
+        from crawler.core.snap import is_broken_spa
+        dead = is_broken_spa(t.get("source") or "")
+    except Exception:
+        dead = False
+    if (dead or (t.get("source") or "").startswith("Cooperation.uz")) and t.get("id"):
+        return "%s/%s" % (_DETAIL_PAGE_BASE, t["id"])
+    return t.get("source_url")
+
+
 def _format_reminder(tender: dict, reminder_type: str) -> str:
     """Format a deadline reminder message."""
     emoji = "⏰" if reminder_type == "1_day" else "📅"
@@ -141,7 +167,7 @@ def _format_reminder(tender: dict, reminder_type: str) -> str:
         parts.append("Сумма: %s %s" % ("{:,.0f}".format(float(price)), currency))
     parts.append("Дедлайн: %s" % tender.get("deadline", "?"))
     parts.append("Источник: %s" % tender.get("source", "?"))
-    url = tender.get("source_url")
+    url = _reminder_url(tender)
     if url:
         parts.append(url)
     return "\n".join(parts)
@@ -159,7 +185,7 @@ def _format_digest(tenders: List[dict], reminder_type: str) -> str:
         title = (t.get("title") or "")[:80]
         for ch in ("*", "_", "`", "["):
             title = title.replace(ch, "")
-        url = t.get("source_url")
+        url = _reminder_url(t)
         parts.append("• %s%s" % (title, ("\n  " + url) if url else ""))
     if len(tenders) > len(shown):
         parts.append("…и ещё %d" % (len(tenders) - len(shown)))
