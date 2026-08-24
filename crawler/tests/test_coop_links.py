@@ -94,9 +94,17 @@ def test_digest_broken_spa_line_gets_an_archive_link():
     """Раньше у таких строк не было НИКАКОЙ ссылки — лот негде посмотреть."""
     t = _t("Cooperation.uz Лоты", "https://new.cooperation.uz/supplier/lots?lotId=SL9",
            title="Регистр папка")
-    txt = N._build_digest_text([t], archive={"x": "U-9"})
+    txt = N._build_digest_text([t], archive={("x", "Cooperation.uz Лоты"): "U-9"})
     assert "%s/U-9" % _VERCEL in txt
     assert "supplier/lots" not in txt
+
+
+def test_digest_archive_key_is_the_pair_not_bare_external_id():
+    """Числовые id разных площадок пересекаются: голый external_id подсунул бы
+    строке чужую карточку — молча."""
+    t = _t("Cooperation.uz Лоты", "https://x/lots?lotId=1", title="Папка")
+    txt = N._build_digest_text([t], archive={"x": "WRONG"})
+    assert "WRONG" not in txt, "карта с голым external_id не должна матчиться"
 
 
 def test_digest_without_archive_map_keeps_old_behaviour():
@@ -162,9 +170,6 @@ def test_offer_lookup_searches_by_number_not_by_title():
 
 
 def test_pick_offer_is_exact_and_safe():
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "coop_pure", os.path.join(_ROOT, "scripts/fetch_cooperation.py"))
     # модуль тянет прод-окружение при импорте — берём функции разбором AST
     import ast
     tree = ast.parse(_fetch_src())

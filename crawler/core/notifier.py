@@ -1543,7 +1543,10 @@ def _build_digest_text(tenders: List[RawTender], archive: Optional[dict] = None)
         # _send_digest), для coop он и первый: на телефоне платформа мертва.
         link = None
         if archive:
-            uid = archive.get(t.external_id)
+            # ключ — ПАРА (external_id, source): числовые id разных площадок
+            # пересекаются (у ETender и предквалификаций оба пространства
+            # числовые), и один external_id подсунул бы строке чужую карточку
+            uid = archive.get((t.external_id, t.source))
             if uid:
                 link = "%s/%s" % (_DETAIL_PAGE_BASE, uid)
         if not link and t.source_url and not is_broken_spa(t.source):
@@ -1623,7 +1626,7 @@ async def _send_digest(tenders: List[RawTender], start_seq: int) -> bool:
         if _spa(_t.source) or (_t.source or "").startswith("Cooperation.uz"):
             _uid = _lookup_tender_uuid(_t.external_id, _t.source)
             if _uid:
-                archive[_t.external_id] = _uid
+                archive[(_t.external_id, _t.source)] = _uid
     url = "https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.post(url, json={

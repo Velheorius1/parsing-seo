@@ -242,7 +242,7 @@ export default function TenderDetailPage() {
                   const value = key === 'certificate'
                     // false раньше тоже печатался как «требуется» — guard выше
                     // пропускает только undefined/null/'', а false доходит сюда
-                    ? (String(raw) === 'true' ? 'требуется' : 'не требуется')
+                    ? (String(raw).toLowerCase() === 'true' ? 'требуется' : 'не требуется')
                     : key === 'unit_price'
                       ? Number(raw).toLocaleString('ru-RU') + ' сум/' + (tender.extraInfo?.['measure'] || 'ед')
                       : String(raw);
