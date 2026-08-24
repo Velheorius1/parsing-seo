@@ -189,6 +189,21 @@ def _weekly_digest(alerts, recoveries):
     return "\n".join(lines)
 
 
+def _digest_sent_this_week(state, now=None):
+    # type: (Dict, Optional[datetime]) -> bool
+    """Уже ли уходила сводка на этой ISO-неделе. Сломанная метка = «не уходила»:
+    лучше редкий дубль, чем молча потерянная неделя."""
+    raw = state.get("last_weekly_digest_at")
+    if not raw:
+        return False
+    try:
+        last = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return False
+    now = now or datetime.now(timezone.utc)
+    return last.isocalendar()[:2] == now.isocalendar()[:2]
+
+
 def recovery_is_due(now=None):
     # type: (Optional[datetime]) -> bool
     """Шлём ли сегодня «снова с данными».
@@ -287,9 +302,18 @@ async def track_and_alert(outcomes, dry_run=False):
                        if sources_state[k].get("pending_alert")]
         pend_recov = [sources_state[k]["pending_recovery"] for k in sorted(sources_state)
                       if sources_state[k].get("pending_recovery")]
-        if recovery_is_due() and (pend_alerts or pend_recov):
+        # ОДНА сводка в неделю, а не одна на понедельничный краул. Первый живой
+        # понедельник (24.08) показал дыру второй редакции: флаги снимаются
+        # после отправки, но КАЖДЫЙ следующий краул этого же понедельника с
+        # новыми переходами слал свою мини-сводку — 3 сообщения за ночь
+        # (00:02, 00:30, 02:30). Маркер last_weekly_digest_at держит неделю:
+        # переход, случившийся в понедельник днём, ждёт СЛЕДУЮЩЕГО понедельника
+        # — ровно как переход вторника, это уже принятый компромисс.
+        if (recovery_is_due() and (pend_alerts or pend_recov)
+                and not _digest_sent_this_week(state)):
             if await _send_telegram(_weekly_digest(pend_alerts, pend_recov)):
                 sent = 1
+                state["last_weekly_digest_at"] = _now_iso()
                 for st in sources_state.values():
                     st.pop("pending_alert", None)
                     st.pop("pending_recovery", None)

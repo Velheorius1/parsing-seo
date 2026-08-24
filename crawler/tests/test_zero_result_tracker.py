@@ -251,13 +251,15 @@ class TestTrackAndAlert:
         for _ in range(zrt.ALERT_THRESHOLD):
             self._run(out_zero)
         assert len(capture_tg) == 1
-        # Recovery
+        # Recovery тем же днём: с недельным маркером (24.08, третья редакция)
+        # вторая сводка в ту же неделю НЕ уходит — восстановление ждёт в
+        # pending до следующего понедельника, как любой будничный переход.
         self._run(out_ok)
-        assert len(capture_tg) == 2, "разные прогоны — разные сводки"
-        assert "снова" in capture_tg[1].lower() or "recovery" in capture_tg[1].lower()
+        assert len(capture_tg) == 1, "одна неделя — одна сводка"
         st = fake_store.saved["sources"]["sid-x"]
         assert st["alerted"] is False
         assert st["consecutive_zeros"] == 0
+        assert "снова" in st.get("pending_recovery", "").lower(), "восстановление обязано ждать в pending"
 
     def test_skipped_no_auth_does_not_trip_alert(self, fake_store, capture_tg):
         out = {"sid-x": {"count": 0, "skipped_no_auth": True, "error": None}}
@@ -319,6 +321,52 @@ class TestTrackAndAlert:
         assert len(capture_tg) == 1
         assert "снова" in capture_tg[0].lower() and "sid-r" in capture_tg[0]
         assert "не успела уйти" in capture_tg[0], "про недоставленную тревогу надо сказать прямо"
+
+    def test_second_monday_crawl_does_not_send_a_second_digest(self, fake_store, capture_tg, recovery_day):
+        """Первый живой понедельник (24.08): три мини-сводки за ночь — каждый
+        краул с новыми переходами слал свою. Одна неделя = одна сводка;
+        переход понедельничного дня ждёт следующего понедельника, как и
+        вторничный."""
+        a = {"sid-a": {"count": 0, "skipped_no_auth": False, "error": None}}
+        b = {"sid-b": {"count": 0, "skipped_no_auth": False, "error": None}}
+        for _ in range(zrt.ALERT_THRESHOLD):
+            self._run(a)
+        assert len(capture_tg) == 1, "первая сводка недели уходит"
+        for _ in range(zrt.ALERT_THRESHOLD):
+            self._run(b)                      # новый источник пересёк порог тем же днём
+        assert len(capture_tg) == 1, "вторая сводка в ту же неделю — запрещена"
+        st = fake_store.saved["sources"]["sid-b"]
+        assert st.get("pending_alert"), "невысланное обязано остаться в pending"
+
+    def test_next_week_sends_the_leftover_pending(self, fake_store, capture_tg, recovery_day, monkeypatch):
+        a = {"sid-a": {"count": 0, "skipped_no_auth": False, "error": None}}
+        b = {"sid-b": {"count": 0, "skipped_no_auth": False, "error": None}}
+        for _ in range(zrt.ALERT_THRESHOLD):
+            self._run(a)
+        for _ in range(zrt.ALERT_THRESHOLD):
+            self._run(b)
+        assert len(capture_tg) == 1
+        # неделя прошла: метка «в прошлом» — сдвигаем сравнение недель
+        from datetime import datetime, timedelta, timezone
+        future = datetime.now(timezone.utc) + timedelta(days=7)
+
+        class _FD(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return future if tz else future.replace(tzinfo=None)
+
+        monkeypatch.setattr(zrt, "datetime", _FD)
+        self._run(b)
+        assert len(capture_tg) == 2, "следующий понедельник добирает остаток"
+        assert "sid-b" in capture_tg[1]
+
+    def test_broken_marker_means_not_sent(self):
+        """Сломанная метка = «не уходила»: редкий дубль лучше потерянной недели."""
+        assert zrt._digest_sent_this_week({"last_weekly_digest_at": "мусор"}) is False
+        assert zrt._digest_sent_this_week({}) is False
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
+        assert zrt._digest_sent_this_week({"last_weekly_digest_at": now_iso}) is True
 
     def test_failed_send_keeps_pending_for_next_run(self, fake_store, monkeypatch, recovery_day):
         """Отказ Telegram не должен терять сводку: флаги остаются до удачи."""
