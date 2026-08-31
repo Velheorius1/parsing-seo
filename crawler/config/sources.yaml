@@ -13,7 +13,9 @@ sources:
     method: POST
     headers:
       Content-Type: "application/json"
-    body: {"from": 0, "to": 500}
+    # 19.08.2026 API перешёл на 1-based нумерацию строк (rn с 1): from=0 отдаёт
+    # 400 «Sahifa chegaralari noto'g'ri». См. pagination.offset_start ниже.
+    body: {"from": 1, "to": 500}
     rate_limit: 2
     timeout: 15
     id_prefix: "etender"
@@ -34,6 +36,7 @@ sources:
       param: "from"
       size_param: "to"
       page_size: 500
+      offset_start: 1
       total_field: "0.total_count"
     # П7 (2026-06-11): list НЕ несёт позиций лота — предмет закупки только в
     # detail (budget_products = СТРОКА с вложенным JSON). Из-за этого 5669
@@ -144,7 +147,8 @@ sources:
     method: POST
     headers:
       Content-Type: "application/json"
-    body: {"from": 0, "to": 500}
+    # 1-based с 19.08.2026, как TradeList (пагинации нет — одна страница)
+    body: {"from": 1, "to": 500}
     rate_limit: 2
     timeout: 15
     id_prefix: "etender-disc"

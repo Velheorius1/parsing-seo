@@ -390,7 +390,7 @@ class ApiAdapter(BaseAdapter):
         """Offset-based pagination (from/to pattern like UZEX APIs)."""
         cfg = self.config
         all_items = []  # type: List[Dict[str, Any]]
-        offset = 0
+        offset = pag.offset_start
         page_size = pag.page_size
 
         for page_num in range(pag.max_pages):
@@ -400,16 +400,24 @@ class ApiAdapter(BaseAdapter):
             body = dict(cfg.body) if cfg.body else {}
             params = dict(cfg.params) if cfg.params else None
 
+            # 1-based API отдаёт ВКЛЮЧАЮЩИЙ диапазон строк (стр. 1 = 1..500,
+            # стр. 2 = 501..1000); 0-based сохраняет прежний половинный интервал,
+            # чтобы байты запроса остальных источников не поехали.
+            if pag.offset_start:
+                range_end = offset + page_size - 1
+            else:
+                range_end = offset + page_size
+
             if cfg.method.upper() == "POST":
                 body[pag.param] = offset
                 if pag.size_param:
-                    body[pag.size_param] = offset + page_size
+                    body[pag.size_param] = range_end
             else:
                 if params is None:
                     params = {}
                 params[pag.param] = offset
                 if pag.size_param:
-                    params[pag.size_param] = offset + page_size
+                    params[pag.size_param] = range_end
 
             raw = await self._make_request(
                 client, cfg.url, cfg.method, params, body if cfg.body else None

@@ -73,6 +73,11 @@ class PaginationConfig(BaseModel):
     max_pages: int = 10
     total_field: Optional[str] = None
     page_start: int = 0  # first page number (0 or 1)
+    # Первая строка для offset-пагинации. 0 — половинный интервал [from, from+size)
+    # (историческое поведение всех источников). 1 — ВКЛЮЧАЮЩИЙ 1-based диапазон
+    # [from, from+size-1]: etender TradeList/DiscussionTradeList с 19.08.2026
+    # отвечают 400 «Sahifa chegaralari noto'g'ri» на from=0 (нумерация rn с 1).
+    offset_start: int = 0
 
 
 class DetailFetchConfig(BaseModel):
