@@ -167,8 +167,47 @@ def should_send_recovery(prior, new_state):
     return new_state.get("last_outcome") == OK_WITH_DATA
 
 
-def _weekly_digest(alerts, recoveries):
-    # type: (List[str], List[str]) -> str
+_STANDING_LIMIT = 12  # строк «молчат давно» в сводке; хвост схлопывается в «и ещё N»
+
+
+def standing_silences(sources_state):
+    # type: (Dict[str, Dict]) -> List[str]
+    """Строки «молчат давно»: тревога уже уходила, а данных так и нет.
+
+    Из чего выросло (01.09). Сводка показывала только ПЕРЕХОДЫ (pending_*):
+    источник, замолчавший однажды, получает alerted=True и исчезает из всех
+    последующих сводок. Так etender с 1-based пагинацией молчал 12 дней
+    (19-31.08) и не всплыл ни 24.08, ни 31.08 — пересечение порога случилось
+    до появления pending-механики, нового перехода не было. Нашли руками.
+    Секция строится из СОСТОЯНИЯ: молчишь — виден каждый понедельник,
+    пока не оживёшь или источник не выключат.
+
+    Свежие пересечения этой недели (pending_alert) не дублируются — они уже
+    в секции «Молчат».
+    """
+    rows = []
+    for sid in sorted(sources_state):
+        st = sources_state[sid]
+        if not isinstance(st, dict) or not st.get("alerted") or st.get("pending_alert"):
+            continue
+        if st.get("last_outcome") not in (OK_EMPTY, ERROR):
+            continue
+        zeros = int(st.get("consecutive_zeros", 0))
+        since = ""
+        raw = st.get("alerted_at")
+        if raw:
+            try:
+                dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                since = ", с %s" % dt.strftime("%d.%m")
+            except (ValueError, TypeError):
+                since = ""
+        rows.append((zeros, "%s — %d циклов%s" % (sid, zeros, since)))
+    rows.sort(key=lambda r: -r[0])
+    return [r[1] for r in rows]
+
+
+def _weekly_digest(alerts, recoveries, standing=None):
+    # type: (List[str], List[str], Optional[List[str]]) -> str
     """Одно сообщение вместо пачки. Чистая функция — тестируется без сети.
 
     БЕЗ Markdown: `_send_telegram` этого модуля шлёт без parse_mode, и звёздочки
@@ -184,6 +223,13 @@ def _weekly_digest(alerts, recoveries):
             lines.append("")
         lines.append("Снова с данными (%d):" % len(recoveries))
         lines.extend("\u00b7 " + r for r in recoveries)
+    if standing:
+        if alerts or recoveries:
+            lines.append("")
+        lines.append("Молчат давно (%d):" % len(standing))
+        lines.extend("\u00b7 " + t for t in standing[:_STANDING_LIMIT])
+        if len(standing) > _STANDING_LIMIT:
+            lines.append("\u00b7 … и ещё %d" % (len(standing) - _STANDING_LIMIT))
     lines.append("")
     lines.append("Поломка сбора приходит не отсюда, а из healthcheck (06:00).")
     return "\n".join(lines)
@@ -309,9 +355,13 @@ async def track_and_alert(outcomes, dry_run=False):
         # (00:02, 00:30, 02:30). Маркер last_weekly_digest_at держит неделю:
         # переход, случившийся в понедельник днём, ждёт СЛЕДУЮЩЕГО понедельника
         # — ровно как переход вторника, это уже принятый компромисс.
-        if (recovery_is_due() and (pend_alerts or pend_recov)
+        # «Молчат давно» — из состояния, без флагов: секция сама возвращается
+        # каждый понедельник, пока источник молчит (урок etender 19-31.08).
+        # Из-за неё сводка уходит и в неделю БЕЗ новых переходов.
+        standing = standing_silences(sources_state)
+        if (recovery_is_due() and (pend_alerts or pend_recov or standing)
                 and not _digest_sent_this_week(state)):
-            if await _send_telegram(_weekly_digest(pend_alerts, pend_recov)):
+            if await _send_telegram(_weekly_digest(pend_alerts, pend_recov, standing)):
                 sent = 1
                 state["last_weekly_digest_at"] = _now_iso()
                 for st in sources_state.values():

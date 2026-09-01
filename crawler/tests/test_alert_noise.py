@@ -165,7 +165,7 @@ def test_weekly_digest_is_built_from_state_not_from_this_run():
     j = src.index("if alerts_to_send or recoveries_to_send:", i)
     block = src[i:j]
     assert "pending_alert" in block and "pending_recovery" in block
-    assert "_weekly_digest(pend_alerts, pend_recov)" in block
+    assert "_weekly_digest(pend_alerts, pend_recov, standing)" in block
     assert "_weekly_digest(alerts_to_send" not in block, "сводка снова строится из переходов этого прогона"
 
 
@@ -173,6 +173,66 @@ def test_digest_points_at_the_daily_channel_for_real_breakage():
     """Иначе сводка читается как «сбор проверяется раз в неделю»."""
     from crawler.core.zero_result_tracker import _weekly_digest
     assert "healthcheck" in _weekly_digest(["x"], [])
+
+
+# --- глушение хлопков Quality regression (01.09) -----------------------------
+# База перезаписывается каждым краулем, и одиночный спад — шум выборки:
+# 29 WARNING за неделю 25.08-01.09, ноль настоящих поломок (настоящие — etender
+# 400 и прокси 402 — ловили healthcheck и руки). WARNING оставлен только
+# устойчивому спаду: REGRESS_STREAK_WARN краулов подряд. Пустой краул вообще
+# не сравнивается и базу не перезаписывает.
+
+
+def test_regress_streak_counts_consecutive_and_resets():
+    import json, shutil, tempfile
+    from crawler.core import quality_tracker as qt
+    tmp = tempfile.mkdtemp()
+    saved = qt._LOG_DIR
+    qt._LOG_DIR = tmp
+    try:
+        assert qt.bump_regress_streak("abc", True) == 1
+        assert qt.bump_regress_streak("abc", True) == 2
+        assert qt.bump_regress_streak("abc", False) == 0, "нормальный крауль сбрасывает серию"
+        assert qt.bump_regress_streak("abc", True) == 1, "после сброса серия начинается заново"
+        # профили не делят счётчик
+        assert qt.bump_regress_streak("other", True) == 1
+        # битый файл = 0, не вечный WARNING
+        with open(qt._streak_path("abc"), "w") as f:
+            f.write("мусор")
+        assert qt.bump_regress_streak("abc", True) == 1
+    finally:
+        qt._LOG_DIR = saved
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_empty_crawl_does_not_become_baseline():
+    """Снапшот без тендеров — «нет данных», базой быть не может."""
+    import os, shutil, tempfile
+    from crawler.core import quality_tracker as qt
+    tmp = tempfile.mkdtemp()
+    saved_dir, saved_log, saved_base = qt._LOG_DIR, qt._QUALITY_LOG, qt._BASELINE_FILE
+    qt._LOG_DIR = tmp
+    qt._QUALITY_LOG = os.path.join(tmp, "history.jsonl")
+    qt._BASELINE_FILE = os.path.join(tmp, "base.json")
+    try:
+        snap = qt.QualitySnapshot.from_tenders([], source_stats={})
+        qt.save_snapshot(snap, "abc", update_baseline=False)
+        assert os.path.exists(qt._QUALITY_LOG), "история пишется всегда"
+        assert not os.path.exists(qt._baseline_path("abc")), "база не тронута"
+        qt.save_snapshot(snap, "abc")
+        assert os.path.exists(qt._baseline_path("abc")), "по умолчанию база пишется"
+    finally:
+        qt._LOG_DIR, qt._QUALITY_LOG, qt._BASELINE_FILE = saved_dir, saved_log, saved_base
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_runner_warns_only_on_sustained_regression():
+    """Пины на runner: streak-гейт стоит, пустой краул не сравнивается."""
+    body = _src("crawler/core/runner.py")
+    assert "bump_regress_streak(profile, True)" in body
+    assert "streak >= REGRESS_STREAK_WARN" in body, "WARNING без серии вернулся"
+    assert "bump_regress_streak(profile, False)" in body, "сброс серии потерян"
+    assert "update_baseline=False" in body, "пустой краул снова перетирает базу"
 
 
 if __name__ == "__main__":

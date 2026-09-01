@@ -319,6 +319,7 @@ async def run(
     from crawler.core.quality_tracker import (
         QualitySnapshot, compare_snapshots, load_baseline, save_snapshot,
         flush_snapshot_to_supabase, profile_signature,
+        bump_regress_streak, REGRESS_STREAK_WARN,
     )
 
     dedup_info = {
@@ -337,21 +338,37 @@ async def run(
     # каждый прогон видел «чужую» базу и рапортовал катастрофу. 12 ложных
     # тревог в сутки, все в telegram-прогон.
     profile = profile_signature(stats.keys() if stats else [])
-    baseline = load_baseline(profile)
-    if baseline:
-        report = compare_snapshots(baseline, snapshot)
-        if report.has_regression:
-            # ТОЛЬКО В ЛОГ. Поштучная отправка убрана 22.08 по решению Данияра:
-            # сигнал уезжает в недельную сводку `source_scorecard` (Пн 06:15),
-            # где он сравнивается по-честному и не тонет в собственном шуме.
-            # Настоящая поломка ловится healthcheck'ом (06:00, alert-on-fail) и
-            # freshness_watchdog (07:00) — они и остались ежедневными.
-            logger.warning("Quality regression detected (profile=%s):\n%s",
-                           profile, report.summary())
+    if snapshot.overall.total == 0:
+        # Пустой краул — «нет данных», а не «качество упало до нуля»: не
+        # сравниваем и базу не трогаем (см. док-стринг save_snapshot).
+        logger.info("Quality: пустой краул (profile=%s) — сравнение и база пропущены", profile)
+        save_snapshot(snapshot, profile, update_baseline=False)
     else:
-        logger.info("First quality snapshot for profile=%s (baseline)", profile)
+        baseline = load_baseline(profile)
+        if baseline:
+            report = compare_snapshots(baseline, snapshot)
+            if report.has_regression:
+                # ТОЛЬКО В ЛОГ. Поштучная отправка убрана 22.08 по решению
+                # Данияра; настоящая поломка ловится healthcheck'ом (06:00,
+                # alert-on-fail) и freshness_watchdog (07:00). С 01.09 глушим
+                # и хлопки в логе: база — предыдущий крауль, одиночный спад —
+                # шум выборки (29 WARNING за неделю, ноль настоящих поломок).
+                # WARNING заслуживает только спад, держащийся подряд.
+                streak = bump_regress_streak(profile, True)
+                if streak >= REGRESS_STREAK_WARN:
+                    logger.warning("Quality regression detected (profile=%s): %d краулов подряд\n%s",
+                                   profile, streak, report.summary())
+                else:
+                    logger.info("Quality dip %d/%d (profile=%s): %s",
+                                streak, REGRESS_STREAK_WARN, profile,
+                                "; ".join("%s %+.1f" % (r.metric, r.delta)
+                                          for r in report.regressions))
+            else:
+                bump_regress_streak(profile, False)
+        else:
+            logger.info("First quality snapshot for profile=%s (baseline)", profile)
 
-    save_snapshot(snapshot, profile)
+        save_snapshot(snapshot, profile)
     if not dry_run:
         flush_snapshot_to_supabase(snapshot)
     logger.info("Quality score: %.1f (org=%.1f%% price=%.1f%% deadline=%.1f%%)",

@@ -428,3 +428,75 @@ class TestTrackAndAlert:
         assert "sid-b" in texts
         assert "sid-c" not in texts
         assert "sid-c" not in texts
+
+
+class TestStandingSilences:
+    """«Молчат давно» — источник виден каждый понедельник, пока молчит.
+
+    Урок etender (19-31.08): сводка из одних переходов теряет источник после
+    первой тревоги — alerted=True, нового перехода нет, и 12 дней тишины не
+    всплыли ни в одной сводке. Секция строится из состояния, а не из переходов.
+    """
+
+    def _silent(self, zeros=10, outcome=None, pending=None, alerted_at="2026-08-19T06:00:00+00:00"):
+        st = {
+            "cycles_observed": zeros + 5,
+            "consecutive_zeros": zeros,
+            "last_outcome": outcome or zrt.OK_EMPTY,
+            "last_observed_at": "2026-09-01T00:00:00+00:00",
+            "alerted": True,
+            "alerted_at": alerted_at,
+        }
+        if pending:
+            st["pending_alert"] = pending
+        return st
+
+    def test_lists_long_silent_and_skips_fresh_and_recovered(self):
+        state = {
+            "old-silent": self._silent(zeros=74),
+            "erroring": self._silent(zeros=20, outcome=zrt.ERROR),
+            # свежее пересечение этой недели — уже в секции «Молчат», не дублировать
+            "fresh": self._silent(zeros=3, pending="fresh молчит 3 циклов"),
+            # ожил — не молчит
+            "revived": {"alerted": False, "last_outcome": zrt.OK_WITH_DATA,
+                        "consecutive_zeros": 0, "cycles_observed": 50},
+        }
+        lines = zrt.standing_silences(state)
+        assert len(lines) == 2
+        # сортировка по глубине молчания, дата из alerted_at
+        assert lines[0].startswith("old-silent — 74 циклов")
+        assert "с 19.08" in lines[0]
+        assert lines[1].startswith("erroring — 20 циклов")
+        assert not any("fresh" in l or "revived" in l for l in lines)
+
+    def test_broken_alerted_at_degrades_to_cycles_only(self):
+        state = {"x": self._silent(zeros=7, alerted_at="мусор")}
+        lines = zrt.standing_silences(state)
+        assert lines == ["x — 7 циклов"]
+
+    def test_digest_has_standing_section_and_cap(self):
+        standing = ["s%02d — %d циклов" % (i, 100 - i) for i in range(15)]
+        out = zrt._weekly_digest([], [], standing)
+        assert "Молчат давно (15):" in out
+        assert "s11" in out and "s12" not in out, "кап 12 строк"
+        assert "и ещё 3" in out
+        # секций переходов нет — и заголовков их нет
+        assert "Молчат (" not in out.replace("Молчат давно (", "")
+        assert "Снова с данными" not in out
+
+    def test_monday_digest_fires_on_standing_alone(self, fake_store, capture_tg, recovery_day):
+        # неделя без новых переходов, но с давно молчащим источником
+        fake_store.saved = {"version": zrt.STATE_VERSION, "sources": {
+            "etender": self._silent(zeros=74),
+        }}
+        asyncio.run(
+            zrt.track_and_alert({"alive": {"count": 5, "skipped_no_auth": False, "error": None}})
+        )
+        assert len(capture_tg) == 1
+        assert "Молчат давно (1):" in capture_tg[0]
+        assert "etender — 74 циклов, с 19.08" in capture_tg[0]
+        # маркер недели встал — второй краул того же понедельника молчит
+        asyncio.run(
+            zrt.track_and_alert({"alive": {"count": 5, "skipped_no_auth": False, "error": None}})
+        )
+        assert len(capture_tg) == 1, "standing не должен пробивать недельный маркер"

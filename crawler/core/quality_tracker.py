@@ -64,6 +64,45 @@ def _baseline_path(profile=None):
     return os.path.join(_LOG_DIR, "quality_baseline_%s.json" % profile)
 
 
+REGRESS_STREAK_WARN = 3  # WARNING только когда спад держится столько краулов подряд
+
+
+def _streak_path(profile):
+    # type: (Optional[str]) -> str
+    return os.path.join(_LOG_DIR, "quality_regress_streak_%s.json" % (profile or "default"))
+
+
+def bump_regress_streak(profile, has_regression):
+    # type: (Optional[str], bool) -> int
+    """Счётчик ПОДРЯД идущих краулов с регрессией — глушение хлопков.
+
+    База перезаписывается каждым прогоном, так что «регрессия» здесь значит
+    «хуже предыдущего крауля того же набора». Одиночный спад — шум выборки
+    (region_pct гуляет ±17, tg-каналы мигают), а не деградация: замер
+    25.08-01.09 дал 29 WARNING за неделю и ноль настоящих поломок — настоящие
+    (etender 400, прокси 402) ловили healthcheck и руки, не этот сторож.
+    Тревога осмысленна, только когда спад ДЕРЖИТСЯ несколько краулов подряд.
+
+    Сбой чтения счётчика = 0: лучше пропущенный хлопок, чем вечный WARNING.
+    """
+    os.makedirs(_LOG_DIR, exist_ok=True)
+    path = _streak_path(profile)
+    streak = 0
+    if has_regression:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                streak = int(json.load(f).get("streak", 0))
+        except Exception:
+            streak = 0
+        streak += 1
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"streak": streak}, f)
+    except Exception as exc:
+        logger.warning("Failed to write regress streak: %s", str(exc)[:100])
+    return streak
+
+
 class FieldCompleteness:
     """Percentage of tenders with each field filled."""
 
@@ -416,9 +455,15 @@ def compare_snapshots(baseline, current):
 # ── Persistence ──────────────────────────────────────────────────
 
 
-def save_snapshot(snapshot, profile=None):
-    # type: (QualitySnapshot, Optional[str]) -> None
-    """Append snapshot to JSONL history and update baseline OF ITS OWN PROFILE."""
+def save_snapshot(snapshot, profile=None, update_baseline=True):
+    # type: (QualitySnapshot, Optional[str], bool) -> None
+    """Append snapshot to JSONL history and update baseline OF ITS OWN PROFILE.
+
+    update_baseline=False — для пустых краулов: снапшот без тендеров говорит
+    «данных нет», а не «качество 0», и базой быть не может — иначе следующий
+    нормальный прогон выглядит фейерверком улучшений, а сравнение с пустотой
+    даёт org_pct 60 -> 0 [critical] (ночные прогоны 4 tg-каналов, 26.08-01.09).
+    """
     os.makedirs(_LOG_DIR, exist_ok=True)
 
     data = snapshot.to_dict()
@@ -431,6 +476,8 @@ def save_snapshot(snapshot, profile=None):
         logger.warning("Failed to write quality log: %s", str(exc)[:100])
 
     # Update baseline (latest snapshot is the new baseline) — ДЛЯ СВОЕГО НАБОРА
+    if not update_baseline:
+        return
     try:
         with open(_baseline_path(profile), "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
