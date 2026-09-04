@@ -167,6 +167,7 @@ def should_send_recovery(prior, new_state):
     return new_state.get("last_outcome") == OK_WITH_DATA
 
 
+TG_TEXT_LIMIT = 4096  # жёсткий предел Telegram на текст сообщения
 _STANDING_LIMIT = 12  # строк «молчат давно» в сводке; хвост схлопывается в «и ещё N»
 
 
@@ -206,33 +207,76 @@ def standing_silences(sources_state):
     return [r[1] for r in rows]
 
 
-def _weekly_digest(alerts, recoveries, standing=None):
-    # type: (List[str], List[str], Optional[List[str]]) -> str
+def _render_digest(alerts, recoveries, standing, caps):
+    # type: (List[str], List[str], List[str], List[int]) -> str
+    """Сборка текста при заданных капах на секцию. Счётчик в заголовке — ПОЛНЫЙ,
+    показанных строк может быть меньше: «Молчат давно (21):» + 12 строк + хвост."""
+    lines = ["\U0001f4e1 Источники за неделю", ""]
+    sections = (("Молчат", alerts, caps[0]),
+                ("Снова с данными", recoveries, caps[1]),
+                ("Молчат давно", standing, caps[2]))
+    for title, items, cap in sections:
+        if not items:
+            continue
+        if len(lines) > 2:
+            lines.append("")
+        lines.append("%s (%d):" % (title, len(items)))
+        lines.extend("\u00b7 " + x for x in items[:cap])
+        hidden = len(items) - cap
+        if hidden > 0:
+            lines.append("\u00b7 … и ещё %d" % hidden)
+    lines.append("")
+    lines.append("Поломка сбора приходит не отсюда, а из healthcheck (06:00).")
+    return "\n".join(lines)
+
+
+def _weekly_digest(alerts, recoveries, standing=None, limit=TG_TEXT_LIMIT):
+    # type: (List[str], List[str], Optional[List[str]], int) -> str
     """Одно сообщение вместо пачки. Чистая функция — тестируется без сети.
 
     БЕЗ Markdown: `_send_telegram` этого модуля шлёт без parse_mode, и звёздочки
     ушли бы в чат буквально. Первая редакция (22.08 утром) была с разметкой —
     поймано независимой проверкой до первого понедельника.
+
+    Кап 4096 (05.09). Telegram отдаёт 400 на длинный текст, а неудачная отправка
+    ОСТАВЛЯЕТ pending-флаги — сводка, однажды переросшая лимит, не ушла бы уже
+    никогда. В состоянии 101 источник; неделя массового восстановления (прокси
+    ожил + tg-каналы проснулись) давала ~7,5k символов. Режем по секциям, от
+    наименее срочной: «молчат давно» → «снова с данными» → «молчат»; счётчики в
+    заголовках остаются полными, чтобы усечение было видно, а не выглядело
+    «источников стало меньше».
     """
-    lines = ["\U0001f4e1 Источники за неделю", ""]
-    if alerts:
-        lines.append("Молчат (%d):" % len(alerts))
-        lines.extend("\u00b7 " + a for a in alerts)
-    if recoveries:
-        if alerts:
-            lines.append("")
-        lines.append("Снова с данными (%d):" % len(recoveries))
-        lines.extend("\u00b7 " + r for r in recoveries)
-    if standing:
-        if alerts or recoveries:
-            lines.append("")
-        lines.append("Молчат давно (%d):" % len(standing))
-        lines.extend("\u00b7 " + t for t in standing[:_STANDING_LIMIT])
-        if len(standing) > _STANDING_LIMIT:
-            lines.append("\u00b7 … и ещё %d" % (len(standing) - _STANDING_LIMIT))
-    lines.append("")
-    lines.append("Поломка сбора приходит не отсюда, а из healthcheck (06:00).")
-    return "\n".join(lines)
+    alerts = list(alerts or [])
+    recoveries = list(recoveries or [])
+    standing = list(standing or [])
+    targets = [len(alerts), len(recoveries), min(len(standing), _STANDING_LIMIT)]
+    caps = [0, 0, 0]
+    # Растим секции ПО КРУГУ, а не режем сверху. Первая редакция (05.09) резала
+    # от наименее срочной секции вниз — и на живом состоянии прода схлопывала
+    # «снова с данными» и «молчат давно» в ноль, показывая 77 тревог и оставляя
+    # 892 символа бюджета неиспользованными. Круговой рост делит место честно:
+    # каждая секция получает по строке за круг, пока следующая строка влезает.
+    # Порядок в круге — по срочности: тревоги, восстановления, давние молчуны.
+    while True:
+        grew = False
+        for idx in (0, 1, 2):
+            if caps[idx] >= targets[idx]:
+                continue
+            trial = list(caps)
+            trial[idx] += 1
+            if len(_render_digest(alerts, recoveries, standing, trial)) <= limit:
+                caps = trial
+                grew = True
+        if not grew:
+            break
+    text = _render_digest(alerts, recoveries, standing, caps)
+    if len(text) > limit:
+        # Пояс: при нынешних заголовке и футере недостижим — секции опускаются
+        # до нуля раньше, и даже строка в 9000 символов схлопывается в «и ещё 1»
+        # (пин test_pathological_single_line_degrades_to_a_counter). Оставлен на
+        # случай, если шапка когда-нибудь распухнет: лучше обрез, чем 400 от TG.
+        text = text[:limit - 1] + "…"
+    return text
 
 
 def _digest_sent_this_week(state, now=None):

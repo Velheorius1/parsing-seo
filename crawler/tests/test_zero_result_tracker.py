@@ -500,3 +500,79 @@ class TestStandingSilences:
             zrt.track_and_alert({"alive": {"count": 5, "skipped_no_auth": False, "error": None}})
         )
         assert len(capture_tg) == 1, "standing не должен пробивать недельный маркер"
+
+
+class TestDigestLimit:
+    """Кап 4096 (05.09). Telegram отдаёт 400 на длинный текст, а неудачная
+    отправка ОСТАВЛЯЕТ pending-флаги: сводка, однажды переросшая лимит, не ушла
+    бы уже никогда. В состоянии 101 источник — сценарий достижим.
+    """
+
+    def _mass(self, n):
+        return ["tg-uzbekneftegaz-%03d снова с данными (count=1) — молчал, тревога не успела уйти" % i
+                for i in range(n)]
+
+    def test_mass_recovery_week_fits_in_one_message(self):
+        # 101 источник × ~75 символов = ~7,5k без капа
+        out = zrt._weekly_digest(self._mass(20), self._mass(101), self._mass(40))
+        assert len(out) <= zrt.TG_TEXT_LIMIT, "сводка не влезает — TG вернёт 400"
+
+    def test_counts_stay_full_when_truncated(self):
+        """Усечение должно быть видно, а не выглядеть «источников стало меньше»."""
+        out = zrt._weekly_digest(self._mass(20), self._mass(101), self._mass(40))
+        assert "Снова с данными (101):" in out, "счётчик обрезан вместе со строками"
+        assert "и ещё" in out
+
+    def _section_rows(self, out, title):
+        """Сколько ЖИВЫХ строк (не счётчик «и ещё») показано в секции."""
+        head = out.index("%s (" % title)
+        rest = out[out.index("\n", head) + 1:]
+        rows = 0
+        for line in rest.split("\n"):
+            if not line.startswith("\u00b7 "):
+                break
+            if "и ещё" not in line:
+                rows += 1
+        return rows
+
+    def test_every_section_keeps_live_rows_when_overflowing(self):
+        """Место делится, а не отдаётся первой секции целиком.
+
+        Первая редакция капа резала от наименее срочной секции вниз: на живом
+        состоянии прода (101 источник) она показывала 77 тревог и НОЛЬ
+        восстановлений с давними молчунами, недобрав 892 символа бюджета.
+        """
+        out = zrt._weekly_digest(self._mass(101), self._mass(101), self._mass(40))
+        assert len(out) <= zrt.TG_TEXT_LIMIT
+        for title in ("Молчат", "Снова с данными", "Молчат давно"):
+            assert self._section_rows(out, title) >= 1, "секция %s схлопнута в ноль" % title
+
+    def test_budget_is_actually_used(self):
+        """Недобор бюджета = молча потерянная информация."""
+        out = zrt._weekly_digest(self._mass(101), self._mass(101), self._mass(40))
+        longest = max(len(x) for x in self._mass(101)) + 4
+        assert zrt.TG_TEXT_LIMIT - len(out) < longest, "влезла бы ещё строка, а её выкинули"
+
+    def test_pathological_single_line_degrades_to_a_counter(self):
+        """Строка длиннее лимита не рвёт сообщение: секция схлопывается в счётчик.
+
+        Пин фактического поведения, а не задуманного: первая редакция теста
+        ждала жёсткого обреза с многоточием, но кап секции опускается до нуля
+        раньше, и текст остаётся целым. Обрез по символам в `_weekly_digest`
+        при нынешних заголовке и футере недостижим — оставлен поясом.
+        """
+        out = zrt._weekly_digest(["ы" * 9000], [], [])
+        assert len(out) <= zrt.TG_TEXT_LIMIT
+        assert "Молчат (1):" in out and "и ещё 1" in out
+        assert "ыыыы" not in out
+        assert out.rstrip().endswith("healthcheck (06:00).")
+
+    def test_normal_digest_unchanged_by_the_cap(self):
+        """Обычная неделя рендерится как раньше — кап не должен ничего трогать."""
+        out = zrt._weekly_digest(["a молчит 3 циклов"], ["b снова с данными"], ["c — 700 циклов"])
+        assert "Молчат (1):" in out and "\u00b7 a молчит 3 циклов" in out
+        assert "Снова с данными (1):" in out and "\u00b7 b снова с данными" in out
+        assert "Молчат давно (1):" in out and "\u00b7 c — 700 циклов" in out
+        assert "и ещё" not in out
+        assert out.startswith("\U0001f4e1 Источники за неделю")
+        assert out.rstrip().endswith("healthcheck (06:00).")
