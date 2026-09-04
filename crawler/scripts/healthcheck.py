@@ -77,7 +77,7 @@ ALERT_DEDUP_SECONDS = 4 * 3600  # same FAIL signature within 4h → skip send
 # Supabase FAIL collapses the alert body; these components are treated as
 # UNKNOWN (not FAIL) in the rendered body so the alert signature stays stable.
 SUPABASE_DEPENDENT_COMPONENTS = (
-    "freshness", "sources", "sources.low", "telegram",
+    "freshness", "sources", "sources.low", "sources.heavy", "telegram",
     "token.", "geo.", "geo_sources", "eimzo_auth",
 )
 
@@ -499,6 +499,72 @@ class HealthCheck:
                               "%s data >12h stale — check crawler" % name)
         except Exception as exc:
             self._add("geo_sources", WARN, "Could not check: %s" % str(exc)[:60])
+
+    # ── Check 11b: тяжёлые источники ──
+
+    def check_heavy_sources(self):
+        # type: () -> None
+        """FAIL, если молчит источник, на котором держится заметная доля алертов.
+
+        Дыра, которую это закрывает (инцидент 29.08-04.09). Прокси упёрся в 402,
+        вместе с ним встали Cooperation.uz Лоты и UZEX Предквалификации — №2 и №3
+        по алертам, 43% недельного потока. Сигналы шли: «IPRoyal 402» каждые 12
+        часов, «token.cooperation EXPIRED» каждые пять — около 25 сообщений за
+        3,5 дня, и ни одно не сказало, ЧТО за этим стоит. Сторожа знали про хосты
+        и токены, но не про вес источника.
+
+        Здесь тревога называет источник, часы молчания и долю потока — то есть
+        цену простоя, а не имя подсистемы. Порог 24 часа: `run_proxy_fetch`
+        ходит трижды в сутки, штатный разрыв ровно 12 часов, поломка начинается
+        с двух пропущенных прогонов подряд.
+        """
+        try:
+            from crawler.core.source_health import (
+                HEAVY_STALE_HOURS, source_weights,
+            )
+
+            rep = source_weights()
+            self.source_weights = rep["weights"]
+            if not rep["heavy"]:
+                self._add("sources.heavy", OK, "нет источников с долей алертов >=5%")
+                return
+
+            client = self._get_client()
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=HEAVY_STALE_HOURS)
+            stale = []
+            for src in rep["heavy"]:
+                res = client.table("tenders").select("collected_at").eq(
+                    "source", src).order("collected_at", desc=True).limit(1).execute()
+                last_raw = res.data[0]["collected_at"] if res.data else None
+                if not last_raw:
+                    stale.append((src, None, rep["weights"][src]["pct"]))
+                    continue
+                try:
+                    last = datetime.fromisoformat(last_raw.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    continue
+                if last < cutoff:
+                    hours = int((datetime.now(timezone.utc) - last).total_seconds() // 3600)
+                    stale.append((src, hours, rep["weights"][src]["pct"]))
+
+            if not stale:
+                self._add("sources.heavy", OK,
+                          "%d тяжёлых источников свежие (<%dч)"
+                          % (len(rep["heavy"]), HEAVY_STALE_HOURS))
+                return
+
+            share = sum(x[2] for x in stale)
+            parts = ["%s молчит %s (%s%% алертов)"
+                     % (src, ("%dч" % h) if h is not None else "всегда", pct)
+                     for src, h, pct in stale]
+            self._add("sources.heavy", FAIL,
+                      "%s — суммарно %.0f%% потока алертов за 30 дней"
+                      % ("; ".join(parts), share),
+                      details={"stale": [{"source": s_, "hours": h_, "pct": p_}
+                                         for s_, h_, p_ in stale],
+                               "alerts_30d": rep["total"]})
+        except Exception as exc:
+            self._add("sources.heavy", WARN, "Не удалось посчитать: %s" % str(exc)[:80])
 
     # ── Check 12: Docker ──
 
@@ -1145,6 +1211,7 @@ def main():
     hc.check_disk()
     hc.check_zombie_processes()
     hc.check_geo_sources()
+    hc.check_heavy_sources()
     hc.check_docker()
     hc.check_tokens()
     hc.check_eimzo_auth()

@@ -123,3 +123,74 @@ def excused_source_ids(config_path):
         return set()
     return {s.get("id") for s in (raw.get("sources") or [])
             if s.get("id") and s.get("name") in DEAD_SOURCES_WHITELIST}
+
+
+# ── Вес источника и порог протухания ────────────────────────────────────────
+#
+# Дыра, которую это закрывает (аудит 01.09, инцидент 29.08-04.09). Резидентный
+# прокси упёрся в 402, и вместе с ним встали Cooperation.uz Лоты и UZEX
+# Предквалификации — источники №2 и №3 по алертам, 43% недельного потока.
+# Сигналы шли: proxy_health_check писал «IPRoyal 402» каждые 12 часов,
+# healthcheck — «token.cooperation EXPIRED» каждые пять. Около 25 сообщений за
+# 3,5 дня, и ни одно не сказало «стоят два источника, это 43% потока».
+# Сторожа знали про хосты и токены, но не про вес того, что за ними.
+#
+# 12 часов для geo-проверки — не порог: `run_proxy_fetch` ходит в 03:30, 09:30
+# и 15:30, штатный разрыв между прогонами ровно 12 часов. Тревога начинается
+# там, где пропущено два прогона подряд.
+
+HEAVY_SHARE_PCT = 5.0     # источник считается тяжёлым от этой доли алертов
+HEAVY_STALE_HOURS = 24    # два пропущенных прогона подряд — это уже поломка
+
+
+def source_weights(days=30, min_share=HEAVY_SHARE_PCT):
+    # type: (int, float) -> dict
+    """Вес источников по доле алертов за `days` дней.
+
+    Отдаёт {"weights": {source: {"alerts": n, "pct": x}}, "total": N,
+    "heavy": [source, ...]}. Считает по алертам, а не по собранным строкам:
+    сторожу важно, сколько мы ПОТЕРЯЕМ, а не сколько строк перестало капать.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from crawler.core.db import iter_rows
+
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    counts = {}
+    total = 0
+    for page in iter_rows("tenders", "source,alert_seq,created_at",
+                          filters=[("gte", ("created_at", since)),
+                                   ("gte", ("alert_seq", 1))],
+                          order_col="created_at", label="source_weights"):
+        for row in page:
+            src = row.get("source")
+            if not src:
+                continue
+            counts[src] = counts.get(src, 0) + 1
+            total += 1
+    weights = {}
+    for src, n in counts.items():
+        weights[src] = {"alerts": n, "pct": round(n * 100.0 / total, 1) if total else 0.0}
+    heavy = sorted([s for s, w in weights.items() if w["pct"] >= min_share],
+                   key=lambda s: -weights[s]["pct"])
+    return {"weights": weights, "total": total, "heavy": heavy}
+
+
+def impact_line(weights, source_names):
+    # type: (dict, list) -> str
+    """Человеческая приписка к тревоге: что именно стоит и сколько это потока.
+
+    Без неё алерт «token.cooperation EXPIRED» читается как строчка про токен,
+    хотя за ним 43% алертов.
+    """
+    parts = []
+    share = 0.0
+    for name in source_names:
+        w = (weights or {}).get(name)
+        if not w:
+            continue
+        parts.append("%s (%s%%)" % (name, w["pct"]))
+        share += w["pct"]
+    if not parts:
+        return ""
+    return "за этим стоят: %s — %.0f%% алертов за 30 дней" % (", ".join(parts), share)
