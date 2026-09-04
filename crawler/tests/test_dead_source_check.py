@@ -148,10 +148,22 @@ def _body_of(fn):
 # --- белый список с причинами (11.08) ---------------------------------------
 
 def _whitelist_block():
-    s = open(_SRC, encoding="utf-8").read()
+    """Список переехал в crawler/core/source_health.py (05.09): его читает и
+    healthcheck, и zero-result трекер — одна копия на всех сторожей."""
+    import os
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "core", "source_health.py")
+    s = open(path, encoding="utf-8").read()
     i = s.index("DEAD_SOURCES_WHITELIST = {")
-    j = s.index("\n        }", i)
+    j = s.index("\n}", i)
     return s[i:j]
+
+
+def test_healthcheck_reads_the_shared_registry():
+    """Пин на переезд: локальная копия списка в healthcheck не должна вернуться."""
+    body = open(_SRC, encoding="utf-8").read()
+    assert "from crawler.core.source_health import DEAD_SOURCES_WHITELIST" in body
+    assert "DEAD_SOURCES_WHITELIST = {" not in body, "список снова размножился"
 
 
 def test_whitelist_is_a_mapping_with_reasons_not_a_bare_set():

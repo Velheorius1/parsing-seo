@@ -304,9 +304,12 @@ async def run(
             raise RuntimeError("skip-in-lite")
         from crawler.core.zero_result_tracker import track_and_alert
 
+        from crawler.core.source_health import excused_source_ids
+
         await track_and_alert(outcomes, dry_run=dry_run,
                               active_ids=active_source_ids,
-                              known_ids=known_source_ids)
+                              known_ids=known_source_ids,
+                              excused_ids=excused_source_ids(config_path))
     except Exception as exc:
         # Never let the tracker crash the run — it's an observability signal.
         logger.warning("[ZeroResult] tracker error: %s", str(exc)[:120])

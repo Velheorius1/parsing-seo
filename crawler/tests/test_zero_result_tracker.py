@@ -461,7 +461,7 @@ class TestStandingSilences:
             "revived": {"alerted": False, "last_outcome": zrt.OK_WITH_DATA,
                         "consecutive_zeros": 0, "cycles_observed": 50},
         }
-        lines = zrt.standing_silences(state)
+        lines = zrt.standing_report(state)["rows"]
         assert len(lines) == 2
         # сортировка по глубине молчания, дата из alerted_at
         assert lines[0].startswith("old-silent — 74 циклов")
@@ -471,7 +471,7 @@ class TestStandingSilences:
 
     def test_broken_alerted_at_degrades_to_cycles_only(self):
         state = {"x": self._silent(zeros=7, alerted_at="мусор")}
-        lines = zrt.standing_silences(state)
+        lines = zrt.standing_report(state)["rows"]
         assert lines == ["x — 7 циклов"]
 
     def test_digest_has_standing_section_and_cap(self):
@@ -626,10 +626,10 @@ class TestReconcileState:
 
     def test_standing_skips_disabled_sources(self):
         state = {"live": self._silent(zeros=700), "off": self._silent(zeros=900)}
-        rows = zrt.standing_silences(state, active_ids={"live"})
+        rows = zrt.standing_report(state, active_ids={"live"})["rows"]
         assert len(rows) == 1 and rows[0].startswith("live —")
         # без active_ids поведение прежнее — обратная совместимость
-        assert len(zrt.standing_silences(state)) == 2
+        assert len(zrt.standing_report(state)["rows"]) == 2
 
     def test_digest_ignores_disabled_pending(self, fake_store, capture_tg, recovery_day):
         fake_store.saved = {"version": zrt.STATE_VERSION, "sources": {
@@ -642,3 +642,52 @@ class TestReconcileState:
         assert len(capture_tg) == 1
         assert "off" not in capture_tg[0], "выключенный источник попал в сводку"
         assert "live" in capture_tg[0]
+
+
+class TestExcusedSilence:
+    """Общий реестр объяснённого молчания (05.09).
+
+    Первая живая сводка потребовала действия по семи источникам, решение по
+    которым принято месяцы назад: healthcheck уже писал «7 молчат с
+    объяснением», а трекер про этот список не знал.
+    """
+
+    def _silent(self, zeros):
+        return {"cycles_observed": zeros + 5, "consecutive_zeros": zeros,
+                "last_outcome": zrt.OK_EMPTY, "alerted": True,
+                "alerted_at": "2026-04-21T00:00:00+00:00"}
+
+    def test_excused_become_a_counter_not_rows(self):
+        state = {"real": self._silent(100), "ungm": self._silent(1300),
+                 "tenderweek": self._silent(780)}
+        rep = zrt.standing_report(state, excused_ids={"ungm", "tenderweek"})
+        assert rep["rows"] == ["real — 100 циклов, с 21.04"], rep
+        assert rep["excused"] == 2
+        # служебная строка вне счётчика заголовка: «Молчат давно (1)», не (2)
+        out = zrt._weekly_digest([], [], rep["rows"], rep["excused"])
+        assert "Молчат давно (1):" in out
+        assert "+ 2 молчат по известной причине (реестр healthcheck)" in out
+
+    def test_counter_alone_does_not_justify_a_digest(self):
+        """Сводка ради «6 молчат по известной причине» — шум."""
+        state = {"ungm": self._silent(1300), "tenderweek": self._silent(780)}
+        rep = zrt.standing_report(state, excused_ids={"ungm", "tenderweek"})
+        assert rep["rows"] == [] and rep["excused"] == 2
+        # довесок не рисуется без настоящих молчунов
+        assert "по известной причине" not in zrt._weekly_digest([], [], rep["rows"], rep["excused"])
+
+    def test_registry_maps_names_to_ids_on_the_real_config(self):
+        """Whitelist ведётся по именам, трекер работает по id — перевод обязан
+        совпадать с живым конфигом, иначе реестр молча не действует."""
+        import os
+        from crawler.core.source_health import excused_source_ids, DEAD_SOURCES_WHITELIST
+        cfg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(zrt.__file__))),
+                           "config", "sources.yaml")
+        ids = excused_source_ids(cfg)
+        assert len(ids) >= 15, "перевод имён в id перестал находить источники"
+        assert {"ungm", "hamkorbank", "ipoteka-bank"} <= ids
+        assert len(DEAD_SOURCES_WHITELIST) >= 30
+
+    def test_broken_config_path_is_not_fatal(self):
+        from crawler.core.source_health import excused_source_ids
+        assert excused_source_ids("/nope/does-not-exist.yaml") == set()

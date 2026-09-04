@@ -15,7 +15,7 @@ Key design choices (see `.claude/teams/feature-eimzo-reliability/DECISIONS.md`):
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import httpx
 
@@ -208,8 +208,8 @@ def reconcile_state(sources_state, active_ids=None, known_ids=None):
     return report
 
 
-def standing_silences(sources_state, active_ids=None):
-    # type: (Dict[str, Dict], Optional[Set[str]]) -> List[str]
+def standing_report(sources_state, active_ids=None, excused_ids=None):
+    # type: (Dict[str, Dict], Optional[Set[str]], Optional[Set[str]]) -> Dict[str, Any]
     """Строки «молчат давно»: тревога уже уходила, а данных так и нет.
 
     Из чего выросло (01.09). Сводка показывала только ПЕРЕХОДЫ (pending_*):
@@ -222,8 +222,19 @@ def standing_silences(sources_state, active_ids=None):
 
     Свежие пересечения этой недели (pending_alert) не дублируются — они уже
     в секции «Молчат».
+
+    Источники из общего реестра объяснённого молчания
+    (`source_health.DEAD_SOURCES_WHITELIST`) не занимают строк: решение по ним
+    принято, действия не требуется. Возвращаются числом — не нудим, но и не
+    прячем.
+
+    Отдаёт {"rows": [...], "excused": N}, а не список со служебной строкой
+    внутри: строка «+7 молчат по известной причине» попадала в счётчик
+    заголовка («Молчат давно (2)» при одном настоящем молчуне) и конкурировала
+    за бюджет сообщения с данными.
     """
     rows = []
+    excused = 0
     for sid in sorted(sources_state):
         st = sources_state[sid]
         if active_ids is not None and sid not in active_ids:
@@ -232,6 +243,9 @@ def standing_silences(sources_state, active_ids=None):
         if not isinstance(st, dict) or not st.get("alerted") or st.get("pending_alert"):
             continue
         if st.get("last_outcome") not in (OK_EMPTY, ERROR):
+            continue
+        if excused_ids and sid in excused_ids:
+            excused += 1
             continue
         zeros = int(st.get("consecutive_zeros", 0))
         since = ""
@@ -244,11 +258,11 @@ def standing_silences(sources_state, active_ids=None):
                 since = ""
         rows.append((zeros, "%s — %d циклов%s" % (sid, zeros, since)))
     rows.sort(key=lambda r: -r[0])
-    return [r[1] for r in rows]
+    return {"rows": [r[1] for r in rows], "excused": excused}
 
 
-def _render_digest(alerts, recoveries, standing, caps):
-    # type: (List[str], List[str], List[str], List[int]) -> str
+def _render_digest(alerts, recoveries, standing, caps, excused=0):
+    # type: (List[str], List[str], List[str], List[int], int) -> str
     """Сборка текста при заданных капах на секцию. Счётчик в заголовке — ПОЛНЫЙ,
     показанных строк может быть меньше: «Молчат давно (21):» + 12 строк + хвост."""
     lines = ["\U0001f4e1 Источники за неделю", ""]
@@ -265,13 +279,17 @@ def _render_digest(alerts, recoveries, standing, caps):
         hidden = len(items) - cap
         if hidden > 0:
             lines.append("\u00b7 … и ещё %d" % hidden)
+        if title == "Молчат давно" and excused:
+            # вне счётчика заголовка и вне капа: это контекст, а не молчун
+            lines.append("\u00b7 + %d молчат по известной причине (реестр healthcheck)"
+                         % excused)
     lines.append("")
     lines.append("Поломка сбора приходит не отсюда, а из healthcheck (06:00).")
     return "\n".join(lines)
 
 
-def _weekly_digest(alerts, recoveries, standing=None, limit=TG_TEXT_LIMIT):
-    # type: (List[str], List[str], Optional[List[str]], int) -> str
+def _weekly_digest(alerts, recoveries, standing=None, excused=0, limit=TG_TEXT_LIMIT):
+    # type: (List[str], List[str], Optional[List[str]], int, int) -> str
     """Одно сообщение вместо пачки. Чистая функция — тестируется без сети.
 
     БЕЗ Markdown: `_send_telegram` этого модуля шлёт без parse_mode, и звёздочки
@@ -304,12 +322,12 @@ def _weekly_digest(alerts, recoveries, standing=None, limit=TG_TEXT_LIMIT):
                 continue
             trial = list(caps)
             trial[idx] += 1
-            if len(_render_digest(alerts, recoveries, standing, trial)) <= limit:
+            if len(_render_digest(alerts, recoveries, standing, trial, excused)) <= limit:
                 caps = trial
                 grew = True
         if not grew:
             break
-    text = _render_digest(alerts, recoveries, standing, caps)
+    text = _render_digest(alerts, recoveries, standing, caps, excused)
     if len(text) > limit:
         # Пояс: при нынешних заголовке и футере недостижим — секции опускаются
         # до нуля раньше, и даже строка в 9000 символов схлопывается в «и ещё 1»
@@ -352,8 +370,9 @@ def recovery_is_due(now=None):
     return now.weekday() == 0
 
 
-async def track_and_alert(outcomes, dry_run=False, active_ids=None, known_ids=None):
-    # type: (Dict[str, Dict], bool, Optional[Set[str]], Optional[Set[str]]) -> int
+async def track_and_alert(outcomes, dry_run=False, active_ids=None, known_ids=None,
+                          excused_ids=None):
+    # type: (Dict[str, Dict], bool, Optional[Set[str]], Optional[Set[str]], Optional[Set[str]]) -> int
     """Update persisted state and send alerts/recoveries.
 
     Args:
@@ -366,6 +385,8 @@ async def track_and_alert(outcomes, dry_run=False, active_ids=None, known_ids=No
             в сводку не идёт.
         known_ids: все id из sources.yaml, включая выключенные. По ним чистятся
             зомби-записи; без них состояние не трогается.
+        excused_ids: источники из общего реестра объяснённого молчания — идут
+            в сводку числом, а не строками.
 
     Returns: number of TG messages successfully sent (alerts + recoveries).
     """
@@ -461,10 +482,12 @@ async def track_and_alert(outcomes, dry_run=False, active_ids=None, known_ids=No
         # «Молчат давно» — из состояния, без флагов: секция сама возвращается
         # каждый понедельник, пока источник молчит (урок etender 19-31.08).
         # Из-за неё сводка уходит и в неделю БЕЗ новых переходов.
-        standing = standing_silences(sources_state, active_ids)
+        rep = standing_report(sources_state, active_ids, excused_ids)
+        standing = rep["rows"]
         if (recovery_is_due() and (pend_alerts or pend_recov or standing)
                 and not _digest_sent_this_week(state)):
-            if await _send_telegram(_weekly_digest(pend_alerts, pend_recov, standing)):
+            if await _send_telegram(_weekly_digest(pend_alerts, pend_recov, standing,
+                                                   rep["excused"])):
                 sent = 1
                 state["last_weekly_digest_at"] = _now_iso()
                 for st in sources_state.values():

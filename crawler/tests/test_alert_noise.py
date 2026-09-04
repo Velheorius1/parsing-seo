@@ -165,7 +165,10 @@ def test_weekly_digest_is_built_from_state_not_from_this_run():
     j = src.index("if alerts_to_send or recoveries_to_send:", i)
     block = src[i:j]
     assert "pending_alert" in block and "pending_recovery" in block
-    assert "_weekly_digest(pend_alerts, pend_recov, standing)" in block
+    # Пин по ВХОДУ вызова, а не по полной сигнатуре: редакция с точным
+    # «_weekly_digest(pend_alerts, pend_recov, standing)» ломалась на каждом
+    # добавлении аргумента (05.09 — на excused), хотя свойство не менялось.
+    assert "_weekly_digest(pend_alerts, pend_recov" in block
     assert "_weekly_digest(alerts_to_send" not in block, "сводка снова строится из переходов этого прогона"
 
 
