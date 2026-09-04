@@ -30,6 +30,29 @@ GRACE_CYCLES = 3        # new sources exempt for first N cycles
 ALERT_THRESHOLD = 3     # consecutive zeros before we alert
 STATE_VERSION = 1
 
+# ── Порог тишины по РИТМУ источника (05.09) ─────────────────────────────────
+#
+# «3 цикла подряд» — это около шести часов. Для площадки с ежечасными лотами
+# порог осмысленный, для telegram-канала, который пишет 0-1 раз в НЕДЕЛЮ, —
+# гарантированная ложная тревога по расписанию. Замер сводки за неделю
+# 25.08-01.09: 7 строк «молчат» и 17 «снова с данными», 24 из 25 — tg-каналы,
+# которые ничего не ломали.
+#
+# Порог теперь считается из наблюдённого ритма самого источника: трекер копит
+# промежутки между появлениями данных и требует молчания в GAP_FACTOR раз
+# дольше типичного. Пока промежутков мало (<MIN_GAPS), работает прежнее
+# правило по циклам — новый источник не должен молчать бесконечно.
+#
+# Потолок обязателен: без него канал с редким ритмом ушёл бы в тишину на
+# месяцы. Выше потолка тревогу всё равно поднимет freshness_watchdog (7 дней)
+# — этот сторож для редких источников намеренно менее чувствителен, чем он.
+GAP_FACTOR = 2.5        # во столько раз дольше типичного промежутка
+MIN_GAPS = 2            # меньше замеров — ритм неизвестен
+CYCLE_HOURS = 2.0       # краулы идут `0 */2` и `30 */2` — цикл ровно два часа
+MAX_GAPS_KEPT = 5       # длиннее история не нужна, а состояние жиреет
+MIN_SILENCE_HOURS = 6.0     # не чувствительнее прежнего правила
+MAX_SILENCE_HOURS = 336.0   # 14 дней — дальше это работа freshness-сторожа
+
 # ── Outcome classification (string keys to stay JSON-serializable) ──────────
 OK_WITH_DATA = "ok_with_data"
 OK_EMPTY = "ok_empty"
@@ -129,6 +152,21 @@ def advance_source_state(prior, outcome):
     st["cycles_observed"] = int(st.get("cycles_observed", 0)) + 1
 
     if outcome == OK_WITH_DATA:
+        # Ритм источника: копим промежутки между появлениями данных, чтобы
+        # порог тишины считался по нему, а не по общему «3 цикла».
+        prev_data = st.get("last_data_at")
+        gap = _hours_since(prev_data) if prev_data else None
+        if gap is None and int(st.get("consecutive_zeros", 0) or 0) > 0:
+            # Первое наблюдение ритма берём из молчания, которое только что
+            # закончилось: поле last_data_at появилось 05.09, и без этой оценки
+            # недельный tg-канал показал бы свой ритм только через две недели —
+            # ровно в те сводки, ради очистки которых порог и вводился.
+            gap = int(st["consecutive_zeros"]) * CYCLE_HOURS
+        if gap is not None and gap > 0:
+            gaps = list(st.get("data_gaps") or [])[-(MAX_GAPS_KEPT - 1):]
+            gaps.append(round(gap, 2))
+            st["data_gaps"] = gaps
+        st["last_data_at"] = st["last_observed_at"]
         st["consecutive_zeros"] = 0
         # Recovery is the CALLER's decision based on prior["alerted"].
         # We just clear the flag here so the next zero streak starts fresh.
@@ -141,6 +179,46 @@ def advance_source_state(prior, outcome):
     return st
 
 
+def _typical_gap_text(state):
+    # type: (Dict) -> str
+    """«раз в 6ч» / «раз в 7д» — чтобы тревога читалась без знания устройства."""
+    gaps = [g for g in (state.get("data_gaps") or [])
+            if isinstance(g, (int, float)) and g > 0]
+    if len(gaps) < MIN_GAPS:
+        return "неизвестно"
+    typical = sorted(gaps)[len(gaps) // 2]
+    if typical >= 48:
+        return "%dд" % int(round(typical / 24.0))
+    return "%dч" % int(round(typical))
+
+
+def _hours_since(iso_str, now=None):
+    # type: (Optional[str], Optional[datetime]) -> Optional[float]
+    """Часы с момента `iso_str`. Битая метка = None, а не ноль и не исключение."""
+    if not iso_str:
+        return None
+    try:
+        then = datetime.fromisoformat(str(iso_str).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    now = now or datetime.now(timezone.utc)
+    return (now - then).total_seconds() / 3600.0
+
+
+def silence_threshold_hours(state):
+    # type: (Dict) -> Optional[float]
+    """Сколько часов тишины считать поломкой ДЛЯ ЭТОГО источника.
+
+    None — ритм ещё неизвестен, действует прежнее правило по циклам.
+    """
+    gaps = [g for g in (state.get("data_gaps") or [])
+            if isinstance(g, (int, float)) and g > 0]
+    if len(gaps) < MIN_GAPS:
+        return None
+    typical = sorted(gaps)[len(gaps) // 2]
+    return max(MIN_SILENCE_HOURS, min(MAX_SILENCE_HOURS, GAP_FACTOR * typical))
+
+
 def should_alert(prior, new_state):
     # type: (Dict, Dict) -> bool
     """Decide whether to emit a fresh alert for this source.
@@ -148,15 +226,25 @@ def should_alert(prior, new_state):
     Rules:
     - Never alert during grace (cycles_observed < GRACE_CYCLES).
     - Alert exactly once per zero streak (prior.alerted == False).
-    - Require ALERT_THRESHOLD consecutive zeros.
+    - Знаем ритм источника — требуем тишины дольше типичного промежутка
+      (`silence_threshold_hours`); не знаем — прежние ALERT_THRESHOLD циклов.
     """
     if new_state.get("cycles_observed", 0) < GRACE_CYCLES:
         return False
     if prior and prior.get("alerted"):
         return False
-    if new_state.get("consecutive_zeros", 0) < ALERT_THRESHOLD:
+    if new_state.get("last_outcome") not in (OK_EMPTY, ERROR):
         return False
-    return new_state.get("last_outcome") in (OK_EMPTY, ERROR)
+
+    threshold = silence_threshold_hours(new_state)
+    if threshold is None:
+        return new_state.get("consecutive_zeros", 0) >= ALERT_THRESHOLD
+
+    silent_for = _hours_since(new_state.get("last_data_at"))
+    if silent_for is None:
+        # данных не было ни разу — ритма нет, судим по циклам
+        return new_state.get("consecutive_zeros", 0) >= ALERT_THRESHOLD
+    return silent_for >= threshold
 
 
 def should_send_recovery(prior, new_state):
@@ -421,7 +509,12 @@ async def track_and_alert(outcomes, dry_run=False, active_ids=None, known_ids=No
         # recovery стоял на той же ошибке.
         if should_alert(prior, new_state):
             reason = "ошибка: %s" % signals["error"][:100] if outcome == ERROR else "0 тендеров подряд"
-            msg = "%s молчит %d циклов (%s)" % (sid, new_state["consecutive_zeros"], reason)
+            silent_for = _hours_since(new_state.get("last_data_at"))
+            if silent_for is not None:
+                msg = "%s молчит %dч, обычно раз в %s (%s)" % (
+                    sid, int(silent_for), _typical_gap_text(new_state), reason)
+            else:
+                msg = "%s молчит %d циклов (%s)" % (sid, new_state["consecutive_zeros"], reason)
             alerts_to_send.append(msg)
             new_state["alerted"] = True
             new_state["alerted_at"] = _now_iso()

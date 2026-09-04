@@ -502,6 +502,88 @@ class TestStandingSilences:
         assert len(capture_tg) == 1, "standing не должен пробивать недельный маркер"
 
 
+class TestCadenceThreshold:
+    """Порог тишины по ритму источника (05.09).
+
+    «3 цикла подряд» — около шести часов: для площадки с ежечасными лотами
+    порог осмысленный, для telegram-канала с недельным ритмом — ложная тревога
+    по расписанию. Замер сводки за неделю 25.08-01.09: 24 строки из 25 были
+    про tg-каналы, которые ничего не ломали.
+    """
+
+    def _ago(self, hours):
+        from datetime import datetime, timedelta, timezone
+        return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+
+    def _state(self, gaps, silent_hours, zeros=99):
+        return {"cycles_observed": 500, "consecutive_zeros": zeros,
+                "last_outcome": zrt.OK_EMPTY, "alerted": False,
+                "data_gaps": gaps, "last_data_at": self._ago(silent_hours)}
+
+    def test_threshold_needs_enough_history(self):
+        assert zrt.silence_threshold_hours({"data_gaps": [2]}) is None
+        assert zrt.silence_threshold_hours({}) is None
+
+    def test_rhythm_is_bootstrapped_from_the_silence_that_just_ended(self):
+        """Поле ритма появилось 05.09: без оценки из прошлого молчания недельный
+        канал показал бы свой ритм только через две недели — ровно в те сводки,
+        ради очистки которых порог и вводился."""
+        prior = {"cycles_observed": 200, "consecutive_zeros": 84,
+                 "last_outcome": zrt.OK_EMPTY, "alerted": True, "data_gaps": []}
+        st = zrt.advance_source_state(prior, zrt.OK_WITH_DATA)
+        assert st["data_gaps"] == [84 * zrt.CYCLE_HOURS], st["data_gaps"]
+        assert st["last_data_at"], "момент появления данных не записан"
+
+    def test_threshold_is_a_multiple_of_the_typical_gap(self):
+        assert zrt.silence_threshold_hours({"data_gaps": [4, 4, 4]}) == 10.0
+
+    def test_threshold_has_a_floor_and_a_ceiling(self):
+        # частый источник не становится чувствительнее прежнего правила
+        assert zrt.silence_threshold_hours({"data_gaps": [0.5, 0.5, 0.5]}) == zrt.MIN_SILENCE_HOURS
+        # редкий не уходит в тишину на месяцы — дальше работает freshness-сторож
+        assert zrt.silence_threshold_hours({"data_gaps": [1000, 1000, 1000]}) == zrt.MAX_SILENCE_HOURS
+
+    def test_broken_gap_values_are_ignored(self):
+        assert zrt.silence_threshold_hours({"data_gaps": ["x", None, -5, 4, 4, 4]}) == 10.0
+
+    def test_weekly_channel_is_not_alerted_after_six_hours(self):
+        weekly = self._state(gaps=[168, 170, 166], silent_hours=8)
+        assert zrt.should_alert(None, weekly) is False, "tg-канал снова шумит по расписанию"
+
+    def test_weekly_channel_is_alerted_when_it_really_stops(self):
+        weekly = self._state(gaps=[168, 170, 166], silent_hours=430)
+        assert zrt.should_alert(None, weekly) is True, "настоящую поломку пропустили"
+
+    def test_hourly_source_still_alerts_fast(self):
+        hourly = self._state(gaps=[2, 2, 2], silent_hours=7)
+        assert zrt.should_alert(None, hourly) is True
+
+    def test_source_that_never_had_data_falls_back_to_cycles(self):
+        st = {"cycles_observed": 10, "consecutive_zeros": 3, "last_outcome": zrt.OK_EMPTY,
+              "alerted": False, "data_gaps": [5, 5, 5], "last_data_at": None}
+        assert zrt.should_alert(None, st) is True
+
+    def test_gaps_are_recorded_and_capped(self):
+        st = None
+        for _ in range(zrt.MAX_GAPS_KEPT + 3):
+            st = zrt.advance_source_state(st, zrt.OK_WITH_DATA)
+            st["last_data_at"] = self._ago(3)   # следующий замер даст промежуток ~3ч
+        assert len(st["data_gaps"]) == zrt.MAX_GAPS_KEPT, st["data_gaps"]
+        assert all(2.5 < g < 3.5 for g in st["data_gaps"]), st["data_gaps"]
+
+    def test_alert_text_speaks_hours_and_rhythm(self, fake_store, capture_tg, recovery_day):
+        fake_store.saved = {"version": zrt.STATE_VERSION, "sources": {
+            "tg-weekly": {"cycles_observed": 500, "consecutive_zeros": 200,
+                          "last_outcome": zrt.OK_EMPTY, "alerted": False,
+                          "data_gaps": [168, 170, 166], "last_data_at": self._ago(500)},
+        }}
+        asyncio.run(zrt.track_and_alert(
+            {"tg-weekly": {"count": 0, "skipped_no_auth": False, "error": None}}))
+        assert len(capture_tg) == 1
+        assert "молчит 500ч" in capture_tg[0], capture_tg[0]
+        assert "обычно раз в 7д" in capture_tg[0], capture_tg[0]
+
+
 class TestDigestLimit:
     """Кап 4096 (05.09). Telegram отдаёт 400 на длинный текст, а неудачная
     отправка ОСТАВЛЯЕТ pending-флаги: сводка, однажды переросшая лимит, не ушла
