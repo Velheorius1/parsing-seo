@@ -32,6 +32,17 @@ def _load():
                                                 telegram_alert_chat_id="",
                                                 openrouter_api_key="test-key"))
     import crawler.scripts.source_scout as S
+
+    # Настройки ставим НА МОДУЛЬ, а не надеемся на общий стаб: `install_stub`
+    # идемпотентен по замыслу («первый пришёл, того и заглушка»), и в общем
+    # прогоне scout получал `openrouter_api_key=""` от файла, отработавшего
+    # раньше по алфавиту. `discover` на пустом ключе возвращает {"error": "no
+    # key"} — четыре теста падали с KeyError: 'kept' и полгода считались
+    # «предсуществующими падениями сьюта» (разбор 05.09). Подмена атрибута
+    # модуля-под-тестом ни на кого не влияет, в отличие от правки синглтона.
+    S.settings = types.SimpleNamespace(telegram_bot_token="",
+                                       telegram_alert_chat_id="",
+                                       openrouter_api_key="test-key")
     return S
 
 
