@@ -38,6 +38,18 @@ def load_sources(config_path: str) -> List[SourceConfig]:
     return enabled
 
 
+def load_all_source_ids(config_path: str) -> set:
+    """ВСЕ id из sources.yaml, включая `enabled: false`.
+
+    `load_sources` отдаёт только включённые, а zero-result-трекеру нужно
+    отличать «выключен руками» от «нет в конфиге вообще»: первых он молча
+    пропускает, вторых — выкидывает из состояния как зомби.
+    """
+    with open(config_path, "r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+    return {s.get("id") for s in (raw.get("sources") or []) if s.get("id")}
+
+
 def _create_adapter(source: SourceConfig) -> BaseAdapter:
     """Create adapter instance for a source config."""
     cls = _adapter_registry.get(source.adapter)
@@ -79,6 +91,15 @@ async def run(
     crawl_log = CrawlRunLogger(dry_run=dry_run, source_filter=source_ids)
 
     sources = load_sources(config_path)
+    # Полный набор включённых — ДО фильтра прогона: краулы ходят разными
+    # подмножествами (`0 */2` api, `30 */2` telegram), и набор прогона спрятал
+    # бы telegram-молчунов от api-прогона в сводке источников.
+    active_source_ids = {s.id for s in sources}
+    try:
+        known_source_ids = load_all_source_ids(config_path)
+    except Exception as exc:
+        logger.warning("load_all_source_ids failed: %s", str(exc)[:120])
+        known_source_ids = set()
     if source_ids:
         sources = [s for s in sources if s.id in source_ids]
         logger.info("Filtered to %d sources: %s", len(sources), source_ids)
@@ -283,7 +304,9 @@ async def run(
             raise RuntimeError("skip-in-lite")
         from crawler.core.zero_result_tracker import track_and_alert
 
-        await track_and_alert(outcomes, dry_run=dry_run)
+        await track_and_alert(outcomes, dry_run=dry_run,
+                              active_ids=active_source_ids,
+                              known_ids=known_source_ids)
     except Exception as exc:
         # Never let the tracker crash the run — it's an observability signal.
         logger.warning("[ZeroResult] tracker error: %s", str(exc)[:120])

@@ -576,3 +576,69 @@ class TestDigestLimit:
         assert "и ещё" not in out
         assert out.startswith("\U0001f4e1 Источники за неделю")
         assert out.rstrip().endswith("healthcheck (06:00).")
+
+
+class TestReconcileState:
+    """Сверка состояния с конфигом (05.09).
+
+    Состояние не чистилось никогда: на 101 запись приходилось 10 зомби
+    (`cooperation-*` эпохи, когда лоты ходили через runner, последнее
+    наблюдение 27.04) и 12 выключенных руками. Секция «молчат давно»
+    показывала 6 таких из 21 строки.
+    """
+
+    def _known(self, extra=()):
+        # конфиг заведомо длиннее MIN_KNOWN_IDS, иначе сработает защита
+        ids = {"src-%03d" % i for i in range(60)}
+        ids.update(extra)
+        return ids
+
+    def _silent(self, zeros=10, pending=None):
+        st = {"cycles_observed": zeros + 5, "consecutive_zeros": zeros,
+              "last_outcome": zrt.OK_EMPTY, "alerted": True,
+              "alerted_at": "2026-04-27T22:03:00+00:00"}
+        if pending:
+            st["pending_alert"] = pending
+        return st
+
+    def test_zombie_is_dropped_disabled_is_kept(self):
+        state = {"live": self._silent(), "disabled": self._silent(), "zombie": self._silent()}
+        known = self._known({"live", "disabled"})
+        rep = zrt.reconcile_state(state, active_ids={"live"}, known_ids=known)
+        assert rep["pruned"] == ["zombie"]
+        assert "zombie" not in state
+        assert "disabled" in state, "выключенный источник вернут — историю не теряем"
+
+    def test_stale_flags_are_cleared_from_disabled(self):
+        state = {"disabled": self._silent(pending="disabled молчит 3 циклов")}
+        rep = zrt.reconcile_state(state, active_ids=set(), known_ids=self._known({"disabled"}))
+        assert rep["disabled_cleared"] == ["disabled"]
+        assert "pending_alert" not in state["disabled"], "тревога апреля всплыла бы через полгода"
+
+    def test_short_known_ids_touches_nothing(self):
+        """Сбой чтения yaml не должен сносить состояние."""
+        state = {"a": self._silent(), "b": self._silent(pending="x")}
+        before = {k: dict(v) for k, v in state.items()}
+        for broken in (None, set(), {"a"}):
+            rep = zrt.reconcile_state(state, active_ids={"a"}, known_ids=broken)
+            assert rep == {"pruned": [], "disabled_cleared": []}
+        assert state == before, "состояние тронуто при подозрительном конфиге"
+
+    def test_standing_skips_disabled_sources(self):
+        state = {"live": self._silent(zeros=700), "off": self._silent(zeros=900)}
+        rows = zrt.standing_silences(state, active_ids={"live"})
+        assert len(rows) == 1 and rows[0].startswith("live —")
+        # без active_ids поведение прежнее — обратная совместимость
+        assert len(zrt.standing_silences(state)) == 2
+
+    def test_digest_ignores_disabled_pending(self, fake_store, capture_tg, recovery_day):
+        fake_store.saved = {"version": zrt.STATE_VERSION, "sources": {
+            "off": self._silent(pending="off молчит 3 циклов"),
+            "live": self._silent(zeros=700),
+        }}
+        asyncio.run(zrt.track_and_alert(
+            {"live": {"count": 0, "skipped_no_auth": False, "error": None}},
+            active_ids={"live"}, known_ids=self._known({"live", "off"})))
+        assert len(capture_tg) == 1
+        assert "off" not in capture_tg[0], "выключенный источник попал в сводку"
+        assert "live" in capture_tg[0]

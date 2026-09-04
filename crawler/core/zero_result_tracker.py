@@ -15,7 +15,7 @@ Key design choices (see `.claude/teams/feature-eimzo-reliability/DECISIONS.md`):
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import httpx
 
@@ -171,8 +171,45 @@ TG_TEXT_LIMIT = 4096  # жёсткий предел Telegram на текст с�
 _STANDING_LIMIT = 12  # строк «молчат давно» в сводке; хвост схлопывается в «и ещё N»
 
 
-def standing_silences(sources_state):
-    # type: (Dict[str, Dict]) -> List[str]
+MIN_KNOWN_IDS = 50  # меньше — считаем чтение конфига сбойным и state не трогаем
+
+
+def reconcile_state(sources_state, active_ids=None, known_ids=None):
+    # type: (Dict[str, Dict], Optional[Set[str]], Optional[Set[str]]) -> Dict[str, List[str]]
+    """Сверить состояние с конфигом: убрать зомби, снять флаги с выключенных.
+
+    Из чего выросло (05.09). Состояние не чистилось никогда: на 101 запись
+    приходилось 10 источников, которых в sources.yaml нет вообще (`cooperation-*`
+    той эпохи, когда лоты ходили через runner, последнее наблюдение 27.04), и 12
+    сознательно выключенных (`tender-mc`, `tenderweek`, `hayotbirja-shop`…).
+    Секция «молчат давно» показывала 6 таких из 21 строки — сводка нудила про
+    то, что выключено руками.
+
+    Зомби (нет в конфиге) удаляются. Выключенные (`enabled: false`) остаются в
+    состоянии — их выключили временно и вернут, — но pending-флаги с них
+    снимаются, иначе тревога апреля всплывёт в сводке через полгода.
+
+    Защита от катастрофы: пустой или подозрительно короткий `known_ids` (сбой
+    чтения yaml) НЕ чистит ничего. Молча снести состояние хуже, чем нудить.
+    """
+    report = {"pruned": [], "disabled_cleared": []}  # type: Dict[str, List[str]]
+    if not known_ids or len(known_ids) < MIN_KNOWN_IDS:
+        return report
+
+    for sid in sorted(list(sources_state)):
+        if sid not in known_ids:
+            sources_state.pop(sid, None)
+            report["pruned"].append(sid)
+            continue
+        if active_ids is not None and sid not in active_ids:
+            st = sources_state.get(sid) or {}
+            if st.pop("pending_alert", None) or st.pop("pending_recovery", None):
+                report["disabled_cleared"].append(sid)
+    return report
+
+
+def standing_silences(sources_state, active_ids=None):
+    # type: (Dict[str, Dict], Optional[Set[str]]) -> List[str]
     """Строки «молчат давно»: тревога уже уходила, а данных так и нет.
 
     Из чего выросло (01.09). Сводка показывала только ПЕРЕХОДЫ (pending_*):
@@ -189,6 +226,9 @@ def standing_silences(sources_state):
     rows = []
     for sid in sorted(sources_state):
         st = sources_state[sid]
+        if active_ids is not None and sid not in active_ids:
+            # выключен в sources.yaml — молчит по решению, а не по поломке
+            continue
         if not isinstance(st, dict) or not st.get("alerted") or st.get("pending_alert"):
             continue
         if st.get("last_outcome") not in (OK_EMPTY, ERROR):
@@ -312,14 +352,20 @@ def recovery_is_due(now=None):
     return now.weekday() == 0
 
 
-async def track_and_alert(outcomes, dry_run=False):
-    # type: (Dict[str, Dict], bool) -> int
+async def track_and_alert(outcomes, dry_run=False, active_ids=None, known_ids=None):
+    # type: (Dict[str, Dict], bool, Optional[Set[str]], Optional[Set[str]]) -> int
     """Update persisted state and send alerts/recoveries.
 
     Args:
         outcomes: per-source signals from runner, e.g.
             {"ebirja-rs": {"count": 0, "skipped_no_auth": False, "error": None}}
         dry_run: if True, state is NOT persisted and no TG messages are sent.
+        active_ids: ВСЕ включённые источники конфига (не только этого прогона —
+            краулы ходят разными подмножествами, и набор прогона спрятал бы
+            telegram-молчунов от api-прогона). Молчание выключенного источника
+            в сводку не идёт.
+        known_ids: все id из sources.yaml, включая выключенные. По ним чистятся
+            зомби-записи; без них состояние не трогается.
 
     Returns: number of TG messages successfully sent (alerts + recoveries).
     """
@@ -372,6 +418,16 @@ async def track_and_alert(outcomes, dry_run=False):
 
         sources_state[sid] = new_state
 
+    # Сверка с конфигом до сборки сводки: зомби-записи выкидываем, с выключенных
+    # источников снимаем протухшие флаги (см. reconcile_state).
+    recon = reconcile_state(sources_state, active_ids, known_ids)
+    if recon["pruned"]:
+        logger.info("[ZeroResult] выкинуто из состояния (нет в конфиге): %s",
+                    ", ".join(recon["pruned"]))
+    if recon["disabled_cleared"]:
+        logger.info("[ZeroResult] сняты флаги с выключенных: %s",
+                    ", ".join(recon["disabled_cleared"]))
+
     sent = 0
     if not dry_run:
         # 22.08 — решение Данияра «убрать миллиард алертов, оставить недельную
@@ -388,10 +444,13 @@ async def track_and_alert(outcomes, dry_run=False):
         # Сводка строится из СОСТОЯНИЯ (всё недоставленное), а не из переходов
         # этого прогона — см. комментарий в цикле выше. После успешной отправки
         # флаги снимаются; при отказе Telegram остаются и уйдут следующим прогоном.
+        def _live(sid):
+            return active_ids is None or sid in active_ids
+
         pend_alerts = [sources_state[k]["pending_alert"] for k in sorted(sources_state)
-                       if sources_state[k].get("pending_alert")]
+                       if sources_state[k].get("pending_alert") and _live(k)]
         pend_recov = [sources_state[k]["pending_recovery"] for k in sorted(sources_state)
-                      if sources_state[k].get("pending_recovery")]
+                      if sources_state[k].get("pending_recovery") and _live(k)]
         # ОДНА сводка в неделю, а не одна на понедельничный краул. Первый живой
         # понедельник (24.08) показал дыру второй редакции: флаги снимаются
         # после отправки, но КАЖДЫЙ следующий краул этого же понедельника с
@@ -402,7 +461,7 @@ async def track_and_alert(outcomes, dry_run=False):
         # «Молчат давно» — из состояния, без флагов: секция сама возвращается
         # каждый понедельник, пока источник молчит (урок etender 19-31.08).
         # Из-за неё сводка уходит и в неделю БЕЗ новых переходов.
-        standing = standing_silences(sources_state)
+        standing = standing_silences(sources_state, active_ids)
         if (recovery_is_due() and (pend_alerts or pend_recov or standing)
                 and not _digest_sent_this_week(state)):
             if await _send_telegram(_weekly_digest(pend_alerts, pend_recov, standing)):
