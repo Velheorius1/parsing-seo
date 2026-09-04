@@ -117,6 +117,24 @@ def test_rows_without_source_are_ignored():
     assert rep["total"] == 1 and rep["weights"]["A"]["pct"] == 100.0
 
 
+def test_muted_sources_are_out_of_weights_and_denominator():
+    """Замер на живой базе 05.09: в «тяжёлые» попали два е-магазина UZEX (8.3%
+    и 6.5%), пуши которых выключены решением 22.08 — 30-дневное окно ещё
+    захватывает доотключённую историю. Их остановка подняла бы ложный FAIL."""
+    orig = SH._sources_we_never_push
+    SH._sources_we_never_push = lambda: {"UZEX Э-магазин бумага и изделия"}
+    try:
+        with _with_rows([{"source": "UZEX Э-магазин бумага и изделия"}] * 60
+                        + [{"source": "Живой"}] * 40):
+            rep = SH.source_weights()
+    finally:
+        SH._sources_we_never_push = orig
+    assert rep["total"] == 40, "заглушённые попали в знаменатель"
+    assert "UZEX Э-магазин бумага и изделия" not in rep["weights"]
+    assert rep["weights"]["Живой"]["pct"] == 100.0
+    assert rep["heavy"] == ["Живой"]
+
+
 # ── healthcheck: FAIL с ценой простоя ───────────────────────────────────────
 
 class _Res(object):

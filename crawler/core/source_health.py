@@ -143,6 +143,27 @@ HEAVY_SHARE_PCT = 5.0     # источник считается тяжёлым �
 HEAVY_STALE_HOURS = 24    # два пропущенных прогона подряд — это уже поломка
 
 
+def _sources_we_never_push():
+    # type: () -> set
+    """Источники, чьи алерты выключены решением, а не поломкой.
+
+    Замер на живой базе 05.09 показал, почему это обязательно: за 30 дней в
+    «тяжёлые» попали «UZEX Э-магазин бумага и изделия» (8.3%) и «UZEX Э-магазин
+    печатные услуги» (6.5%) — их пуши отключены 22.08 («не нужны алерты из
+    е-магазина UZEX вообще»), а окно в 30 дней ещё захватывает доотключённую
+    историю. Без этого фильтра остановка сознательно заглушенного источника
+    подняла бы FAIL «встал источник, 8% потока» — ложная тревога ровно того
+    сорта, ради борьбы с которым проверка и делалась.
+    """
+    try:
+        from crawler.core.notifier import _NO_PUSH_SOURCES
+
+        return set(_NO_PUSH_SOURCES)
+    except Exception as exc:  # notifier тянет прод-зависимости — не падаем
+        logger.warning("_sources_we_never_push: %s", str(exc)[:120])
+        return set()
+
+
 def source_weights(days=30, min_share=HEAVY_SHARE_PCT):
     # type: (int, float) -> dict
     """Вес источников по доле алертов за `days` дней.
@@ -150,12 +171,16 @@ def source_weights(days=30, min_share=HEAVY_SHARE_PCT):
     Отдаёт {"weights": {source: {"alerts": n, "pct": x}}, "total": N,
     "heavy": [source, ...]}. Считает по алертам, а не по собранным строкам:
     сторожу важно, сколько мы ПОТЕРЯЕМ, а не сколько строк перестало капать.
+
+    Источники, чьи пуши выключены решением, не считаются вовсе — ни в долях,
+    ни в знаменателе (см. `_sources_we_never_push`).
     """
     from datetime import datetime, timedelta, timezone
 
     from crawler.core.db import iter_rows
 
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    muted = _sources_we_never_push()
     counts = {}
     total = 0
     for page in iter_rows("tenders", "source,alert_seq,created_at",
@@ -164,7 +189,7 @@ def source_weights(days=30, min_share=HEAVY_SHARE_PCT):
                           order_col="created_at", label="source_weights"):
         for row in page:
             src = row.get("source")
-            if not src:
+            if not src or src in muted:
                 continue
             counts[src] = counts.get(src, 0) + 1
             total += 1
