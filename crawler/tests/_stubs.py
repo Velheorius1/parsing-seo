@@ -62,3 +62,50 @@ def _bind_to_parent(name, mod):
         except Exception:
             return  # родителя нет вовсе — привязывать некуда, это не наша беда
     setattr(parent, child, mod)
+
+
+# Полный набор полей `settings`, которые читает прод-код. Собран grep'ом по
+# crawler/core и crawler/scripts (05.09).
+#
+# ЗАЧЕМ ОН ЗДЕСЬ. `install_stub` идемпотентен — заглушку ставит тот файл, что
+# отработал раньше по алфавиту. Пока у каждого была своя, набор полей зависел
+# от порядка: новый test_alert_escalation встал перед test_notifier_relevance
+# с пятью полями вместо девяти и уронил десять чужих тестов на
+# `AttributeError: no attribute 'ai_score_threshold'`. Дефект не в жертве и не
+# в новичке, а в том, что заглушка настроек у каждого своя.
+_SETTINGS_DEFAULTS = {
+    "ai_eval_enabled": False,
+    "ai_evaluator_model": "stub-model",
+    "ai_relevance_model": "stub-model",
+    "ai_relevance_model_fast": "stub-model-fast",
+    "ai_score_threshold": 70,
+    "alert_keywords": "",
+    "batch_size": 50,
+    "openrouter_api_key": "",
+    "residential_proxy_url": "",
+    "supabase_service_role_key": "",
+    "supabase_url": "",
+    "telegram_alert_chat_id": "",
+    "telegram_bot_token": "",
+    "tnved_scope": "",
+}
+
+
+def install_settings_stub(**overrides):
+    # type: (object) -> types.ModuleType
+    """Заглушка `crawler.config.settings` с ПОЛНЫМ набором полей.
+
+    Если модуль уже подменён кем-то другим, недостающие поля дописываются в
+    существующую заглушку: чужие ожидания не ломаются, а свои выполняются.
+    Настоящий `settings` (не заглушку) не трогаем.
+    """
+    attrs = dict(_SETTINGS_DEFAULTS)
+    attrs.update(overrides)
+    mod = install_stub("crawler.config.settings",
+                       settings=types.SimpleNamespace(**attrs))
+    existing = getattr(mod, "settings", None)
+    if existing is not None and getattr(mod, "__file__", None) is None:
+        for key, value in attrs.items():
+            if not hasattr(existing, key):
+                setattr(existing, key, value)
+    return mod

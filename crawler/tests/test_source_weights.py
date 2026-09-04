@@ -18,12 +18,9 @@ import contextlib
 import sys
 import types
 
-from crawler.tests._stubs import install_stub
+from crawler.tests._stubs import install_settings_stub, install_stub
 
-install_stub("crawler.config.settings",
-             settings=types.SimpleNamespace(telegram_bot_token="", telegram_alert_chat_id="",
-                                            openrouter_api_key="", supabase_url="",
-                                            supabase_service_role_key=""))
+install_settings_stub()
 
 from crawler.core import source_health as SH  # noqa: E402
 

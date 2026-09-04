@@ -74,6 +74,16 @@ UNKNOWN = "unknown"  # cascade-suppressed dependent checks (see _format_alert_bo
 # .conventions/gold-standards/crawler-settings-key.py).
 from crawler.auth.constants import ALERT_STATE_KEY  # noqa: E402
 ALERT_DEDUP_SECONDS = 4 * 3600  # same FAIL signature within 4h → skip send
+# Повтор одной и той же тревоги растягивается: 4ч → 8ч → 16ч → сутки.
+#
+# Из чего выросло (инцидент 29.08-04.09). Прокси упёрся в 402, healthcheck
+# ровно каждые четыре часа слал ОДИН И ТОТ ЖЕ текст «token.cooperation
+# EXPIRED». Около 21 одинакового сообщения за 3,5 дня: чем дольше держалась
+# поломка, тем меньше на неё смотрели. Повтор без новой информации — это не
+# настойчивость, а шум, который учит игнорировать канал.
+#
+# Теперь интервал растёт, а текст несёт возраст поломки: «держится 3 дня».
+ALERT_MAX_BACKOFF_SECONDS = 24 * 3600
 # Supabase FAIL collapses the alert body; these components are treated as
 # UNKNOWN (not FAIL) in the rendered body so the alert signature stays stable.
 SUPABASE_DEPENDENT_COMPONENTS = (
@@ -1113,14 +1123,20 @@ class HealthCheck:
         # Guard against clock skew (NTP correction, VM restore, DST anomaly):
         # if prior_at is in the future, delta is negative — reset state rather
         # than silence legitimate FAILs until the clock catches up.
+        repeats = int(prior.get("repeats") or 0) if signature == prior_sig else 0
+        first_at_str = prior.get("first_at") if signature == prior_sig else None
+        # repeats — сколько тревог этой сигнатуры уже ушло, поэтому показатель
+        # степени на единицу меньше: первое окно ровно прежние 4 часа.
+        window = min(ALERT_DEDUP_SECONDS * (2 ** max(0, repeats - 1)),
+                     ALERT_MAX_BACKOFF_SECONDS)
         if signature == prior_sig and prior_at_str:
             try:
                 prior_at = datetime.fromisoformat(prior_at_str.replace("Z", "+00:00"))
                 delta = (now - prior_at).total_seconds()
-                if 0 <= delta < ALERT_DEDUP_SECONDS:
+                if 0 <= delta < window:
                     logger.info(
-                        "Suppressed duplicate alert (sig=%s, last sent %.1fh ago)",
-                        signature, delta / 3600,
+                        "Suppressed duplicate alert (sig=%s, last sent %.1fh ago, окно %.0fч)",
+                        signature, delta / 3600, window / 3600,
                     )
                     return "suppressed"
                 if delta < 0:
@@ -1134,13 +1150,39 @@ class HealthCheck:
 
         # Case 3: send alert, update state.
         body = self._format_alert_body(fails, suppress_cascade=True)
+        age = self._alert_age_line(first_at_str, now)
+        if age:
+            body = "%s\n\n%s" % (body, age)
         self._send_alert_body(body)
         session_store.set_setting(ALERT_STATE_KEY, {
             "signature": signature,
             "alerted_at": now.isoformat(),
+            "first_at": first_at_str or now.isoformat(),
+            "repeats": repeats + 1,
         })
-        logger.info("Sent alert (sig=%s)", signature)
+        logger.info("Sent alert (sig=%s, повтор #%d)", signature, repeats + 1)
         return "sent"
+
+    @staticmethod
+    def _alert_age_line(first_at_str, now):
+        # type: (Optional[str], datetime) -> str
+        """Возраст неустранённой поломки. Пустая строка для первой тревоги.
+
+        Без возраста повторное сообщение неотличимо от первого, и «висит третьи
+        сутки» читается как «сломалось только что».
+        """
+        if not first_at_str:
+            return ""
+        try:
+            first_at = datetime.fromisoformat(str(first_at_str).replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            return ""
+        hours = (now - first_at).total_seconds() / 3600.0
+        if hours < 1:
+            return ""
+        if hours < 48:
+            return "⏳ держится %d ч подряд" % int(hours)
+        return "⏳ держится %d дн подряд" % int(hours // 24)
 
     def _send_alert_body(self, body):
         # type: (str) -> None
