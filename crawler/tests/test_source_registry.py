@@ -26,7 +26,7 @@ from crawler.core import source_health as SH  # noqa: E402
 
 def _rec(**kw):
     base = {"id": "x", "name": "Источник", "enabled": True, "external": False,
-            "excused": False,
+            "excused": False, "excuse": None,
             "muted_push": False, "alerts": 0, "share_pct": 0.0, "rows": 100,
             "last_collected": "2026-09-05T00:00:00", "silent_hours": 1.0,
             "zeros": 0, "alerted": False, "rhythm_hours": None,
@@ -53,6 +53,40 @@ def test_human_decision_beats_the_measurement():
     for flags in ({"enabled": False}, {"excused": True}, {"muted_push": True}):
         rec = _rec(silent_hours=500.0, share_pct=30.0, **flags)
         assert SH._verdict(rec) == SH.VERDICT_SILENT_EXPECTED, flags
+
+
+def test_any_excuse_category_counts_as_a_decision():
+    """Списков объяснённого молчания шесть, и смыслы у них разные: retired это
+    «источника больше нет», mirror — «жив, но вклад учтён под другим именем».
+    Вердикт обязан уважать любую категорию, а не один whitelist."""
+    for cat in (SH.EXCUSE_RETIRED, SH.EXCUSE_MIRROR, SH.EXCUSE_EMPTY_OK,
+                SH.EXCUSE_ALERTS_OFF, SH.EXCUSE_TIGHTENED, SH.EXCUSE_WHITELIST):
+        rec = _rec(silent_hours=900.0, share_pct=30.0,
+                   excuse={"category": cat, "reason": "x"})
+        assert SH._verdict(rec) == SH.VERDICT_SILENT_EXPECTED, cat
+
+
+def test_excuse_lookup_prefers_the_strongest_reason():
+    """«Источника нет» перебивает «вклад учтён под другим именем»."""
+    assert SH.silence_excuse("Cooperation.uz Пакеты")["category"] == SH.EXCUSE_RETIRED
+    assert SH.silence_excuse("Hayot Birja")["category"] == SH.EXCUSE_MIRROR
+    assert SH.silence_excuse("TG: Фонд предпринимательства")["category"] == SH.EXCUSE_EMPTY_OK
+    assert SH.silence_excuse("TG: Мин сельхоз")["category"] == SH.EXCUSE_ALERTS_OFF
+    assert SH.silence_excuse("UN Global Marketplace")["category"] == SH.EXCUSE_WHITELIST
+    assert SH.silence_excuse("Живой источник") is None
+
+
+def test_watchdogs_read_the_shared_lists():
+    """Пин на переезд: свои копии списков в сторожах не должны вернуться."""
+    import io, os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(SH.__file__)))
+    fresh = io.open(os.path.join(root, "scripts", "freshness_watchdog.py"), encoding="utf-8").read()
+    funnel = io.open(os.path.join(root, "scripts", "funnel_watchdog.py"), encoding="utf-8").read()
+    assert "from crawler.core.source_health import" in fresh
+    assert "KNOWN_RETIRED = frozenset({" not in fresh, "список снова размножился"
+    assert "DEDUP_MIRRORS = frozenset({" not in fresh
+    assert "from crawler.core.source_health import" in funnel
+    assert "KNOWN_SILENT = {" not in funnel
 
 
 def test_source_without_rows_is_never_not_broken():
