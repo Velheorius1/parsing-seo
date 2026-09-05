@@ -292,3 +292,35 @@ if __name__ == "__main__":
             fails += 1
     print("\n%d/%d passed" % (len(tests) - fails, len(tests)))
     sys.exit(1 if fails else 0)
+
+
+# --- метрика объёма: вся доставка, а не только пуши (05.09) -------------------
+
+def test_count_alerted_counts_rows_in_the_window():
+    """`crawl_runs.alerts_sent` считает только пуши основного прохода: дайджест
+    и досылка recheck в него не попадают. Замер за неделю дал 90 против 357 по
+    alert_seq — сторож мерил четверть собственной доставки."""
+    rows = [{"collected_at": "2026-08-01T10:00:00", "alert_seq": 1},
+            {"collected_at": "2026-08-05T10:00:00", "alert_seq": 2},
+            {"collected_at": "2026-08-09T10:00:00", "alert_seq": 3}]
+    assert W.count_alerted(rows, "2026-08-01", "2026-08-08") == 2
+    assert W.count_alerted(rows, "2026-08-08", "2026-08-20") == 1
+    assert W.count_alerted([], "2026-08-01", "2026-08-20") == 0
+
+
+def test_count_alerted_survives_broken_timestamps():
+    rows = [{"collected_at": None}, {"alert_seq": 5}, {"collected_at": "мусор"}]
+    assert W.count_alerted(rows, "2026-08-01", "2026-08-20") == 0
+
+
+def test_weekly_buckets_prefer_delivery_over_pushes():
+    """Корзины тренда считают ту же доставку, иначе тренд и объём мерили бы
+    разные вещи и расходились."""
+    end = W.datetime(2026, 8, 15, tzinfo=W.timezone.utc)
+    runs = [{"started_at": "2026-08-10T00:00:00+00:00", "alerts_sent": 5}]
+    alerted = [{"collected_at": "2026-08-10T00:00:00+00:00", "alert_seq": i}
+               for i in range(20)]
+    with_delivery = W.weekly_buckets(runs, end, 2, alerted)
+    without = W.weekly_buckets(runs, end, 2)
+    assert sum(b["alerts"] for b in with_delivery) == 20
+    assert sum(b["alerts"] for b in without) == 5, "старое поведение без выборки"

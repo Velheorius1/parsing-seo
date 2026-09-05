@@ -138,6 +138,20 @@ def _fetch_runs(base_start, end):
     return [r for r in rows if not r.get("dry_run")]
 
 
+def count_alerted(alerted, lo, hi):
+    # type: (List[Dict], str, str) -> int
+    """Сколько строк реально ДОСТАВЛЕНО за окно, по alert_seq.
+
+    Почему не `crawl_runs.alerts_sent` (правка 05.09). Это поле считает только
+    пуши основного прохода: дайджест и досылка `recheck` в него не попадают.
+    Замер за одну неделю: 90 против 357 по alert_seq — сторож объёма мерил
+    четверть собственной доставки и называл это «алертов/день». Порог падения
+    на такой базе означает не то, что написано.
+    """
+    return sum(1 for r in alerted
+               if lo <= str(r.get("collected_at") or "") < hi)
+
+
 def _fetch_alerted(base_start, end):
     # type: (str, str) -> List[Dict]
     """Отправленные строки за окно. Окнами по суткам: сортированный OFFSET на
@@ -193,7 +207,7 @@ def _delta(drop):
     return " (+%.1f%% роста)" % abs(drop)
 
 
-def weekly_buckets(runs, end, weeks):
+def weekly_buckets(runs, end, weeks, alerted=None):
     # type: (List[Dict], datetime, int) -> List[Dict]
     """Алертов в день по недельным корзинам, от старой к свежей.
 
@@ -204,7 +218,8 @@ def weekly_buckets(runs, end, weeks):
     for k in range(weeks, 0, -1):
         hi = (end - timedelta(days=7 * (k - 1))).isoformat()
         lo = (end - timedelta(days=7 * k)).isoformat()
-        alerts = _sum_window(runs, lo, hi, "alerts_sent")
+        alerts = (count_alerted(alerted, lo, hi) if alerted is not None
+                  else _sum_window(runs, lo, hi, "alerts_sent"))
         days = len(set(str(r.get("started_at"))[:10] for r in runs
                        if lo <= str(r.get("started_at") or "") < hi))
         out.append({"from": lo[:10], "to": hi[:10], "alerts": alerts,
@@ -268,14 +283,23 @@ def analyze(as_of):
     # Таблица маленькая, лишние три недели ничего не стоят.
     trend_start = (as_of - timedelta(days=DAYS_TREND)).isoformat()
     runs = _fetch_runs(min(trend_start, base_start), end)
-    alerted = _fetch_alerted(base_start, end)
+    # Тянем доставку за ВЕСЬ период тренда, а не только за окна сравнения:
+    # недельные корзины смотрят на 56 дней назад, и при узкой выборке старые
+    # корзины оказались бы пустыми — сторож увидел бы «сползание» на ровном
+    # месте (поймано при переводе метрики на alert_seq, 05.09).
+    alerted = _fetch_alerted(min(trend_start, base_start), end)
 
     days_with_runs = len(set(str(r.get("started_at"))[:10] for r in runs
                             if str(r.get("started_at") or "") < recent_start))
 
-    # A. Объём — по crawl_runs (это факт отправки, а не прокси).
-    a_base = _sum_window(runs, base_start, recent_start, "alerts_sent")
-    a_recent = _sum_window(runs, recent_start, end, "alerts_sent")
+    # A. Объём — по alert_seq: это ВСЯ доставка, включая дайджест и досылку
+    # recheck. Поле crawl_runs.alerts_sent считает только пуши основного
+    # прохода и занижало метрику вчетверо (90 против 357 за неделю). Старое
+    # число оставляем справочно — по нему видно долю пушей в доставке.
+    a_base = count_alerted(alerted, base_start, recent_start)
+    a_recent = count_alerted(alerted, recent_start, end)
+    pushes_base = _sum_window(runs, base_start, recent_start, "alerts_sent")
+    pushes_recent = _sum_window(runs, recent_start, end, "alerts_sent")
     per_base = a_base / float(DAYS_BASE)
     per_recent = a_recent / float(DAYS_RECENT)
     vol_drop = _pct_drop(per_base, per_recent)
@@ -290,12 +314,15 @@ def analyze(as_of):
     # то есть алертов больше, чем вызовов.
     stages = []         # type: List[Dict]
     for name, num, den, alarm in (
-            ("алертов / новых", "alerts_sent", "total_new", True),
+            ("алертов / новых", "_alerted", "total_new", True),
             ("новых / собрано", "total_new", "total_fetched", False),
             ("AI / новых", "ai_calls_count", "total_new", False)):
-        nb = _sum_window(runs, base_start, recent_start, num)
+        if num == "_alerted":
+            nb, nr = a_base, a_recent
+        else:
+            nb = _sum_window(runs, base_start, recent_start, num)
+            nr = _sum_window(runs, recent_start, end, num)
         db_ = _sum_window(runs, base_start, recent_start, den)
-        nr = _sum_window(runs, recent_start, end, num)
         dr = _sum_window(runs, recent_start, end, den)
         rb = (nb / float(db_)) if db_ else None
         rr = (nr / float(dr)) if dr else None
@@ -318,12 +345,13 @@ def analyze(as_of):
     silent = silent_sources(src_base, src_recent)
 
     # D. Сползание — независимая от базы проверка формы кривой.
-    buckets = weekly_buckets(runs, as_of, DAYS_TREND // 7)
+    buckets = weekly_buckets(runs, as_of, DAYS_TREND // 7, alerted)
 
     return {
         "as_of": end, "base_start": base_start, "recent_start": recent_start,
         "days_with_runs_in_base": days_with_runs,
         "alerts_base": a_base, "alerts_recent": a_recent,
+        "pushes_base": pushes_base, "pushes_recent": pushes_recent,
         "per_day_base": round(per_base, 1), "per_day_recent": round(per_recent, 1),
         "volume_drop_pct": vol_drop,
         "stages": stages, "silent_sources": silent,
@@ -400,9 +428,15 @@ def render(rep, alarms, notes):
     L.append("окна: база %s…%s, свежее %s…%s"
              % (rep["base_start"][:10], rep["recent_start"][:10],
                 rep["recent_start"][:10], rep["as_of"][:10]))
-    L.append("алертов/день: *%.1f* → *%.1f*%s"
+    L.append("доставлено/день: *%.1f* → *%.1f*%s"
              % (rep["per_day_base"], rep["per_day_recent"],
                 _delta(rep["volume_drop_pct"])))
+    # Пуши показываем отдельно: до 05.09 сторож считал ИМИ всю доставку и
+    # занижал её вчетверо (90 против 357 за неделю), потому что дайджест и
+    # досылка recheck в crawl_runs.alerts_sent не попадают.
+    if rep.get("alerts_recent"):
+        L.append("из них пушей: %d из %d за свежее окно"
+                 % (rep.get("pushes_recent") or 0, rep["alerts_recent"]))
     wk = [b for b in rep.get("weekly", []) if b["days"] > 0]
     if wk:
         L.append("по неделям: %s"
