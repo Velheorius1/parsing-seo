@@ -241,6 +241,13 @@ VERDICT_SILENT_EXPECTED = "silent_expected"  # молчит, и это реше�
 VERDICT_HEAVY_STALE = "heavy_stale"        # тяжёлый и протух — это поломка
 VERDICT_NEVER = "never"                    # ни одной строки за всю историю
 
+# Источники, которые собираются НЕ через runner (`fetch_cooperation.py` под
+# резидентным прокси, разовые скрипты) в sources.yaml не значатся. Реестр,
+# построенный только по конфигу, терял Cooperation.uz Лоты — источник №2 по
+# алертам, 26% потока (замер 05.09, поймано первым же прогоном на живых данных).
+# Берём такие из базы, если они живы: свежее этого окна или дают алерты.
+EXTERNAL_FRESH_DAYS = 30
+
 
 def _freshness_rows():
     # type: () -> list
@@ -316,6 +323,7 @@ def build_registry(config_path, days=30, now=None):
             "id": sid,
             "name": name,
             "enabled": bool(cfg.get("enabled", True)),
+            "external": False,
             "excused": name in excused_names,
             "muted_push": name in muted,
             "alerts": (weights.get(name) or {}).get("alerts", 0),
@@ -336,6 +344,42 @@ def build_registry(config_path, days=30, now=None):
             if ordered:
                 rec["rhythm_hours"] = ordered[len(ordered) // 2]
             rec["threshold_hours"] = silence_threshold_hours(st)
+        rec["verdict"] = _verdict(rec)
+        out.append(rec)
+
+    # Источники вне конфига: собираются отдельными скриптами, но это такие же
+    # источники, и молчание Cooperation.uz Лоты стоит 26% потока.
+    known_names = {r["name"] for r in out}
+    for name, row in sorted(fresh.items()):
+        if name in known_names or not name:
+            continue
+        silent_h = None
+        last_raw = row.get("last_collected")
+        if last_raw:
+            try:
+                last_dt = datetime.fromisoformat(str(last_raw).replace("Z", "+00:00"))
+                silent_h = (now - last_dt).total_seconds() / 3600.0
+            except (ValueError, TypeError):
+                silent_h = None
+        alive = (name in weights) or (silent_h is not None
+                                      and silent_h <= EXTERNAL_FRESH_DAYS * 24)
+        if not alive:
+            continue
+        rec = {
+            "id": "external:%s" % name,
+            "name": name,
+            "enabled": True,
+            "external": True,
+            "excused": name in excused_names,
+            "muted_push": name in muted,
+            "alerts": (weights.get(name) or {}).get("alerts", 0),
+            "share_pct": (weights.get(name) or {}).get("pct", 0.0),
+            "rows": int(row.get("cnt") or 0),
+            "last_collected": str(last_raw)[:19] if last_raw else None,
+            "silent_hours": None if silent_h is None else round(silent_h, 1),
+            "zeros": 0, "alerted": False,
+            "rhythm_hours": None, "threshold_hours": None,
+        }
         rec["verdict"] = _verdict(rec)
         out.append(rec)
 

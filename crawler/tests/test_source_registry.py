@@ -25,7 +25,8 @@ from crawler.core import source_health as SH  # noqa: E402
 
 
 def _rec(**kw):
-    base = {"id": "x", "name": "Источник", "enabled": True, "excused": False,
+    base = {"id": "x", "name": "Источник", "enabled": True, "external": False,
+            "excused": False,
             "muted_push": False, "alerts": 0, "share_pct": 0.0, "rows": 100,
             "last_collected": "2026-09-05T00:00:00", "silent_hours": 1.0,
             "zeros": 0, "alerted": False, "rhythm_hours": None,
@@ -111,6 +112,29 @@ def test_registry_joins_config_weight_freshness_and_tracker(tmp_path):
         "порог частого источника должен упереться в пол, а не считаться от нуля"
     assert by_id["b"]["verdict"] == SH.VERDICT_SILENT_EXPECTED, "выключенный не «сломан»"
     assert reg["alerts_total"] == 10
+
+
+def test_sources_collected_outside_the_config_are_included(tmp_path):
+    """Cooperation.uz Лоты собирается отдельным скриптом под прокси и в
+    sources.yaml не значится. Реестр по одному конфигу терял источник №2 по
+    алертам — 26% потока (поймано первым прогоном на живых данных 05.09)."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    reg = _build(
+        str(tmp_path),
+        "sources:\n  - id: a\n    name: Альфа\n",
+        [{"source": "Альфа", "cnt": 10, "last_collected": now.isoformat()},
+         {"source": "Cooperation.uz Лоты", "cnt": 900,
+          "last_collected": (now - timedelta(hours=100)).isoformat()},
+         {"source": "Древний источник", "cnt": 5,
+          "last_collected": (now - timedelta(days=400)).isoformat()}],
+        {"Cooperation.uz Лоты": {"alerts": 265, "pct": 26.1}}, {})
+    by_name = {r["name"]: r for r in reg["sources"]}
+    assert "Cooperation.uz Лоты" in by_name, "внешний источник снова потерян"
+    coop = by_name["Cooperation.uz Лоты"]
+    assert coop["external"] is True and coop["share_pct"] == 26.1
+    assert coop["verdict"] == SH.VERDICT_HEAVY_STALE, "тяжёлый внешний молчун не помечен"
+    assert "Древний источник" not in by_name, "мусор из старых эпох попал в реестр"
 
 
 def test_registry_is_sorted_by_weight(tmp_path):
