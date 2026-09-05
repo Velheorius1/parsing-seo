@@ -99,6 +99,35 @@ STATUS_ICONS = {
 # in favor of VPS /opt/eimzo/auth.py cron. See check_eimzo_auth().
 
 
+def blocking_dirty(porcelain):
+    # type: (str) -> list
+    """Dirty tracked files that can freeze `git pull --ff-only`.
+
+    Untracked entries ("??") never block a fast-forward, so they are dropped.
+    Everything else counts — logs/ included. A fast-forward that does not touch
+    the dirty path does succeed, which is why logs/ used to be exempted here;
+    but the first commit that touches that path aborts the pull and freezes
+    prod on old code, and the exemption hid exactly that. logs/metrics.jsonl
+    sat tracked from 2026-04-28 to 2026-09-05 while the crons appended to it,
+    invisible to this check. A tracked file the crons write to IS the bug.
+    """
+    out = []
+    for line in (porcelain or "").splitlines():
+        if not line.strip() or line.lstrip().startswith("??"):
+            continue
+        # porcelain v1 is "XY<space>path". A caller that .strip()ed the output
+        # eats the leading space of the first line, so tolerate "M path" too —
+        # that is how the FAIL message used to name "ogs/metrics.jsonl".
+        if line.startswith(" ") or (len(line) > 2 and line[2] == " "):
+            path = line[3:]
+        else:
+            path = line[2:].lstrip()
+        path = path.strip()
+        if path:
+            out.append(path)
+    return out
+
+
 class HealthCheck:
     """Run all health checks and collect results."""
 
@@ -327,18 +356,18 @@ class HealthCheck:
             subprocess.run(["git", "fetch", "-q", "origin"], cwd=repo,
                            capture_output=True, timeout=45)
             behind = _git("rev-list", "--count", "HEAD..origin/main")
-            dirty = [l for l in _git("status", "--porcelain").splitlines()
-                     if l and not l.startswith("??")]
-            # logs/ is written by the crons themselves — tracked churn there is
-            # expected and does not block a fast-forward of other paths.
-            blocking = [l for l in dirty if "logs/" not in l]
+            # NB: not through _git() — it .strip()s, which eats the leading
+            # space of the first porcelain line and shifts the path parse.
+            blocking = blocking_dirty(subprocess.run(
+                ["git", "status", "--porcelain"], cwd=repo,
+                capture_output=True, text=True, timeout=25).stdout)
             head = _git("rev-parse", "--short", "HEAD")
 
             if blocking:
                 self._add("deploy_fresh", FAIL,
                           "рабочее дерево грязное (%s) — auto-deploy встал, прод на %s, "
                           "позади origin на %s коммит(ов). Вернуть: git checkout -- <файл>"
-                          % (", ".join(x[3:] for x in blocking[:3]), head, behind or "?"))
+                          % (", ".join(blocking[:3]), head, behind or "?"))
             elif behind and behind != "0":
                 self._add("deploy_fresh", FAIL,
                           "прод на %s, позади origin/main на %s коммит(ов) — "
