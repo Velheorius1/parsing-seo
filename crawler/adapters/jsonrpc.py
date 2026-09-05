@@ -274,6 +274,14 @@ class JsonRpcAdapter(BaseAdapter):
         elif status_raw in ("close", "closed", "cancel", "cancelled", "not_realized"):
             status = "closed"
         else:
+            # Неизвестный статус раньше молча становился активным. Считать его
+            # активным по-прежнему безопаснее (лучше лишний алерт, чем
+            # пропущенный), но теперь это видно в логе: площадка меняет словарь
+            # статусов без предупреждения, и «not_realized» когда-то тоже был
+            # новым (05.09).
+            if status_raw:
+                logger.info("[%s] неизвестный статус площадки «%s» — считаем активным",
+                            cfg.name, status_raw)
             status = "active"
 
         # Determine message_type / tender_type
@@ -305,6 +313,23 @@ class JsonRpcAdapter(BaseAdapter):
                 extra["До закрытия"] = "⏳ ~%d ч" % (_rt // 3600)
             else:
                 extra["До закрытия"] = "~%d дн" % (_rt // 86400)
+
+        # Исход процедуры, насколько его отдаёт публичный API (05.09). Разведка
+        # xt-xarid показала: победителя площадка не отдаёт, но `status` и
+        # `last_price` доступны — этого хватает на «состоялась / не состоялась»
+        # и на факт торга. Раньше сырой статус схлопывался в active/closed и
+        # терялся, поэтому исход по ~698 алертам этой площадки был недоступен
+        # даже частично. Пишем в extra_info: сшивка станет возможной задним
+        # числом, когда данных накопится.
+        if status_raw:
+            extra["Статус площадки"] = status_raw
+        _sp = item.get("start_price")
+        _lp = item.get("last_price")
+        try:
+            if _sp is not None and _lp is not None and float(_lp) != float(_sp):
+                extra["Цена после торга"] = str(_lp)
+        except (TypeError, ValueError):
+            pass
 
         return RawTender(
             extra_info=extra,
