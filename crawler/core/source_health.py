@@ -219,3 +219,146 @@ def impact_line(weights, source_names):
     if not parts:
         return ""
     return "за этим стоят: %s — %.0f%% алертов за 30 дней" % (", ".join(parts), share)
+
+
+# ── Единый реестр здоровья источника ────────────────────────────────────────
+#
+# ЗАЧЕМ (аудит 01.09, реализация 05.09). Про здоровье источника знали пять
+# сторожей, и каждый по-своему: zero-result-трекер считал циклы молчания,
+# freshness_watchdog — дни с последней строки, healthcheck — свежесть geo и
+# «мёртвые за 7 дней», funnel_watchdog — падение объёма, proxy_health_check —
+# доступность прокси. Списков исключений было три: `enabled` в sources.yaml,
+# DEAD_SOURCES_WHITELIST и KNOWN_RETIRED. Простой прокси 29.08-04.09 показал
+# цену: сигналы шли из четырёх мест, и ни один не сказал «встали два источника,
+# это 43% потока» — сложить картину было негде.
+#
+# Реестр складывает её в одном месте: конфиг + вес + свежесть + состояние
+# трекера + вердикт. Сторожа читают отсюда, человек смотрит одной командой.
+
+VERDICT_OK = "ok"
+VERDICT_SILENT = "silent"                  # молчит, объяснений нет
+VERDICT_SILENT_EXPECTED = "silent_expected"  # молчит, и это решение
+VERDICT_HEAVY_STALE = "heavy_stale"        # тяжёлый и протух — это поломка
+VERDICT_NEVER = "never"                    # ни одной строки за всю историю
+
+
+def _freshness_rows():
+    # type: () -> list
+    """`source_freshness` — по строке на источник: source, cnt, last_collected."""
+    from crawler.core.db import _get_client
+
+    try:
+        return (_get_client().rpc("source_freshness").execute().data) or []
+    except Exception as exc:
+        logger.warning("source_freshness rpc: %s", str(exc)[:120])
+        return []
+
+
+def _config_rows(config_path):
+    # type: (str) -> list
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    except Exception as exc:
+        logger.warning("build_registry: конфиг не прочитан: %s", str(exc)[:120])
+        return []
+    return [s for s in (raw.get("sources") or []) if s.get("id")]
+
+
+def build_registry(config_path, days=30, now=None):
+    # type: (str, int, Optional[object]) -> dict
+    """Полная картина по каждому источнику конфига.
+
+    Отдаёт {"sources": [...], "alerts_total": N, "generated_at": iso}. Каждая
+    запись несёт id, имя, флаги решений (выключен / молчание объяснено / пуши
+    заглушены), вес в потоке алертов, свежесть данных и состояние трекера.
+
+    Ходит в сеть трижды (веса, свежесть, состояние трекера) и НИЧЕГО не пишет:
+    это витрина, а не сторож. Решения принимают вызывающие.
+    """
+    from datetime import datetime, timezone
+
+    now = now or datetime.now(timezone.utc)
+    weights_rep = source_weights(days=days)
+    weights = weights_rep["weights"]
+    fresh = {}
+    for row in _freshness_rows():
+        name = row.get("source") or ""
+        if name:
+            fresh[name] = row
+    muted = _sources_we_never_push()
+    excused_names = set(DEAD_SOURCES_WHITELIST)
+
+    try:
+        from crawler.auth.constants import ZERO_RESULT_STATE_KEY
+        from crawler.auth.session_store import session_store
+
+        tracker = (session_store.get_setting(ZERO_RESULT_STATE_KEY) or {}).get("sources") or {}
+    except Exception as exc:
+        logger.warning("build_registry: состояние трекера недоступно: %s", str(exc)[:120])
+        tracker = {}
+
+    out = []
+    for cfg in _config_rows(config_path):
+        sid = cfg["id"]
+        name = cfg.get("name") or sid
+        row = fresh.get(name) or {}
+        last_raw = row.get("last_collected")
+        silent_h = None
+        if last_raw:
+            try:
+                last_dt = datetime.fromisoformat(str(last_raw).replace("Z", "+00:00"))
+                silent_h = (now - last_dt).total_seconds() / 3600.0
+            except (ValueError, TypeError):
+                silent_h = None
+        st = tracker.get(sid) or {}
+        rec = {
+            "id": sid,
+            "name": name,
+            "enabled": bool(cfg.get("enabled", True)),
+            "excused": name in excused_names,
+            "muted_push": name in muted,
+            "alerts": (weights.get(name) or {}).get("alerts", 0),
+            "share_pct": (weights.get(name) or {}).get("pct", 0.0),
+            "rows": int(row.get("cnt") or 0),
+            "last_collected": str(last_raw)[:19] if last_raw else None,
+            "silent_hours": None if silent_h is None else round(silent_h, 1),
+            "zeros": int(st.get("consecutive_zeros") or 0),
+            "alerted": bool(st.get("alerted")),
+            "rhythm_hours": None,
+            "threshold_hours": None,
+        }
+        gaps = st.get("data_gaps") or []
+        if gaps:
+            from crawler.core.zero_result_tracker import silence_threshold_hours
+
+            ordered = sorted(g for g in gaps if isinstance(g, (int, float)) and g > 0)
+            if ordered:
+                rec["rhythm_hours"] = ordered[len(ordered) // 2]
+            rec["threshold_hours"] = silence_threshold_hours(st)
+        rec["verdict"] = _verdict(rec)
+        out.append(rec)
+
+    out.sort(key=lambda r: (-r["share_pct"], r["name"]))
+    return {"sources": out, "alerts_total": weights_rep["total"],
+            "generated_at": now.isoformat()}
+
+
+def _verdict(rec):
+    # type: (dict) -> str
+    """Один вердикт вместо пяти мнений. Решение человека всегда сильнее замера:
+    выключенный или объяснённый источник не «сломан», он молчит по договорённости.
+    """
+    if not rec["enabled"] or rec["excused"] or rec["muted_push"]:
+        return VERDICT_SILENT_EXPECTED if rec["silent_hours"] is None \
+            or rec["silent_hours"] > HEAVY_STALE_HOURS else VERDICT_OK
+    if rec["rows"] == 0:
+        return VERDICT_NEVER
+    if rec["silent_hours"] is None:
+        return VERDICT_NEVER
+    limit = rec["threshold_hours"] or HEAVY_STALE_HOURS
+    if rec["silent_hours"] < limit:
+        return VERDICT_OK
+    if rec["share_pct"] >= HEAVY_SHARE_PCT:
+        return VERDICT_HEAVY_STALE
+    return VERDICT_SILENT
