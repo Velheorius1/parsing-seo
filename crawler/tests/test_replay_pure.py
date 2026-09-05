@@ -131,6 +131,33 @@ def test_row_to_raw_tender_coerces_jsonb_types():
     assert t.organization == ""
 
 
+def test_jsonb_list_does_not_explode_the_mapper():
+    """Ночной аудит полноты падал на этом с 24.08 (замечено 05.09).
+
+    `extra_info.lots` — список (обогащение предквалификаций), а RawTender ждёт
+    Dict[str, str]. У recall_audit была своя копия маппинга без приведения
+    типов, и `--execute` валился целиком: сторож полноты молча не работал две
+    недели. Копия убрана, маппинг один на всех — в core/tender_rows.py.
+    """
+    t = row_to_raw_tender({
+        "external_id": "77", "title": "Услуги издательские",
+        "source": "UZEX Предквалификации",
+        "extra_info": {"lots": [{"id": 338097, "productName": "Публикация статьи"}]},
+    })
+    assert isinstance(t.extra_info["lots"], str), "список снова уходит в pydantic как есть"
+    assert "Публикация статьи" in t.search_text, "предмет лота потерян"
+
+
+def test_recall_audit_uses_the_shared_mapper():
+    """Пин на источник: своя копия маппинга не должна вернуться."""
+    import io, os
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "scripts", "recall_audit.py")
+    body = io.open(path, encoding="utf-8").read()
+    assert "from crawler.core.tender_rows import row_to_raw_tender" in body
+    assert "return RawTender(" not in body, "recall_audit снова собирает RawTender сам"
+
+
 def test_row_to_raw_tender_survives_minimal_row():
     t = row_to_raw_tender({"title": "Только заголовок"})
     assert t.external_id and t.source == "" and t.message_type == "tender"

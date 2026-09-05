@@ -30,7 +30,8 @@ import sys
 from datetime import datetime, timezone
 
 from crawler.config.settings import settings
-from crawler.core.models import RawTender
+from crawler.core.models import RawTender  # noqa: F401
+from crawler.core.tender_rows import row_to_raw_tender
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("recall_audit")
@@ -69,16 +70,10 @@ def _client():
 
 
 def _to_tender(r):
-    return RawTender(
-        id=r.get("id") or r.get("external_id"), external_id=r.get("external_id") or "",
-        title=r.get("title") or "", organization=r.get("organization") or "",
-        price=r.get("price"), currency=r.get("currency") or "UZS",
-        deadline=r.get("deadline"), date_start=r.get("date_start"), date_end=r.get("date_end"),
-        source=r.get("source") or "", source_url=r.get("source_url") or "",
-        status=r.get("status") or "active", search_text=r.get("search_text") or "",
-        message_type=r.get("message_type") or "tender",
-        extra_info=r.get("extra_info") if isinstance(r.get("extra_info"), dict) else {},
-    )
+    """Общий маппинг из core (05.09). Своя копия не приводила типы jsonb и
+    роняла ночной аудит на `extra_info.lots`: список там, где pydantic ждёт
+    строку. Падало с 24.08 — с появления обогащения предквалификаций."""
+    return row_to_raw_tender({**r, "id": r.get("id") or r.get("external_id")})
 
 
 _LEGACY_URL_FIXES = [

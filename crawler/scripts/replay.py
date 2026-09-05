@@ -55,52 +55,10 @@ class ReplayVerdict:
     route: Optional[str] = None          # "push" | "digest" | None
 
 
-def row_to_raw_tender(row):
-    # type: (dict) -> RawTender
-    """DB/platform row -> RawTender, tolerant of the shapes we actually store.
-
-    extra_info arrives as jsonb with int/bool values — RawTender wants
-    Dict[str, str] (same trap investigator hit, af1c155): str-coerce.
-    """
-    extra = {}
-    for k, v in (row.get("extra_info") or {}).items():
-        if v is None:
-            continue
-        extra[str(k)] = v if isinstance(v, str) else str(v)
-    ext_id = str(row.get("external_id") or row.get("id") or "replay")
-
-    # Паритет с продом для предквалификаций (22.08). Прод дотягивает предмет
-    # лота в search_text ДО гейтов (core/prequal_detail), но upsert при каждом
-    # краyле перезаписывает search_text списочным значением (одна категория),
-    # а extra_info.lots при этом переживает — upsert не пишет пустой extra_info.
-    # Без этой склейки replay видел бы «Услуги издательские <заказчик>» там, где
-    # прод видел «… | Услуга публикации статьи», и бенчмарк мерил бы не тот
-    # конвейер. Берём lots из СЫРОГО extra_info: выше он str-коэрсится, и список
-    # превратился бы в строку.
-    search_text = row.get("search_text") or ""
-    raw_extra = row.get("extra_info") or {}
-    if row.get("source") == "UZEX Предквалификации" and isinstance(raw_extra.get("lots"), list):
-        from crawler.core.prequal_detail import merged_search_text, positions_from_detail
-        merged = merged_search_text(search_text, positions_from_detail({"details": raw_extra["lots"]}))
-        if merged:
-            search_text = merged
-
-    return RawTender(
-        id=ext_id,
-        external_id=ext_id,
-        title=row.get("title") or "",
-        organization=row.get("organization") or "",
-        price=row.get("price"),
-        currency=row.get("currency") or "UZS",
-        deadline=row.get("deadline"),
-        source=row.get("source") or "",
-        source_url=row.get("source_url") or "",
-        status=row.get("status") or "active",
-        search_text=search_text,
-        message_type=row.get("message_type") or "tender",
-        bid_count=row.get("bid_count"),
-        extra_info=extra,
-    )
+# Маппинг переехал в core/tender_rows.py (05.09): его тянут recheck,
+# customer_audit и recall_audit, а импорт replay ради него утаскивал заодно
+# и выставление PARSING_AI_LOG. Имя оставлено здесь — на него ссылаются тесты.
+from crawler.core.tender_rows import row_to_raw_tender  # noqa: E402,F401
 
 
 def _as_of_value(spec, row_ts):
