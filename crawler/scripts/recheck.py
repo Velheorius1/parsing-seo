@@ -173,7 +173,11 @@ def survivors(rows, keywords=None, tnved_scope=None):
     шанс прошлым днём значит досылать закрытые лоты.
     """
     from crawler.core.notifier import prefilter, _get_keywords, _load_tnved_scope
-    from crawler.scripts.replay import row_to_raw_tender
+    # Маппинг берём из core, а не из replay: импорт replay выставляет
+    # PARSING_AI_LOG (ему это нужно для сравнительных прогонов), и боевой
+    # режим начинал зависеть от того, что notifier импортирован строкой выше
+    # и путь лога уже зафиксирован. Работало, но держалось на порядке строк.
+    from crawler.core.tender_rows import row_to_raw_tender
 
     tenders = [row_to_raw_tender(r) for r in rows]
     if keywords is None:

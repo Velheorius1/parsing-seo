@@ -148,6 +148,17 @@ def test_jsonb_list_does_not_explode_the_mapper():
     assert "Публикация статьи" in t.search_text, "предмет лота потерян"
 
 
+def test_hot_paths_do_not_import_replay_for_the_mapper():
+    """Импорт replay выставляет PARSING_AI_LOG. Боевой путь recheck брал оттуда
+    только маппинг и зависел от того, что notifier импортирован строкой выше и
+    путь лога уже зафиксирован. Работало, но держалось на порядке строк."""
+    import io, os
+    root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    for name in ("recheck.py", "customer_audit.py", "recall_audit.py"):
+        body = io.open(os.path.join(root, name), encoding="utf-8").read()
+        assert "from crawler.scripts.replay import row_to_raw_tender" not in body, name
+
+
 def test_recall_audit_uses_the_shared_mapper():
     """Пин на источник: своя копия маппинга не должна вернуться."""
     import io, os

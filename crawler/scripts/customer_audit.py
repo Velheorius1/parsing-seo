@@ -218,7 +218,7 @@ def prescreen(rows):
     tenders our keyword list cannot see."""
     from crawler.core.notifier import _get_keywords, _find_matching_keyword
     from crawler.scripts.recall_audit import STRONG
-    from crawler.scripts.replay import row_to_raw_tender
+    from crawler.core.tender_rows import row_to_raw_tender
 
     # STRONG is an alternation SOURCE string in recall_audit, not a compiled
     # pattern — imported (not copied) so the two stay in sync by construction.
