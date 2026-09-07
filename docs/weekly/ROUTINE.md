@@ -24,7 +24,12 @@
   ssh root@46.62.155.190 "cd /opt/parsing-seo && .venv/bin/python3 -c \"from crawler.core.db import _get_client; c=_get_client();
     [print(r['source'],r['source_url']) for s in ['UZEX Предквалификации','UZEX Э-магазин издательские услуги','XT-Xarid встречные аукционы','ETender UZEX']
      for r in (c.table('tenders').select('source,source_url').eq('source',s).order('collected_at',desc=True).limit(2).execute().data or [])]\"")
-  Открой каждую в Playwright, screenshot, классифицируй valid_lot / wrong_card / no_data / homepage.
+  Открой каждую в браузере, screenshot, классифицируй valid_lot / wrong_card / no_data / homepage.
+  ОБЯЗАТЕЛЬНО: xt-xarid.uz и new-xarid.uzex.uz — SPA, HTML приходит пустым, контент дорисовывает JS.
+  После navigate ЖДИ 5-6 секунд, и только потом читай страницу. Если страница выглядит пустой
+  (заголовок "...", пустой body, номер лота отсутствует, цена 0) — ПЕРЕОТКРОЙ и подожди ещё раз,
+  прежде чем засчитать no_data. Проверка без ожидания считает живые лоты битыми и занижает
+  25%-й sub-score (инцидент W37: 2 из 11 ссылок выглядели мёртвыми, обе оказались валидными).
   link_integrity = % valid_lot, переведи в 0-10 (=10*доля). Это 25%-й sub-score.
 
 ШАГ 2.5 — Precision (AI-judge, behavior-independent):
