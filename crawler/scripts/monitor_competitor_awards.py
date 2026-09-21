@@ -7,6 +7,7 @@ candidate details are complete.  A scheduler may call it later only after a
 separate production-review decision.
 """
 import argparse
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,6 +78,10 @@ def _qualified_source_awards(source_id: str, source_run: Dict[str, Any]) -> List
         event = dict(row)
         event["key"] = "%s:%s:%s" % (source_id, winner_inn, contract)
         event["winner_inn"] = winner_inn
+        fingerprint = {key: event.get(key) for key in ("winner_inn", "contract_number", "award_id", "procedure_id",
+                                                        "amount", "currency", "title", "status")}
+        event["content_hash"] = hashlib.sha256(json.dumps(fingerprint, ensure_ascii=False, sort_keys=True,
+                                                            default=str).encode("utf-8")).hexdigest()
         awards.append(event)
     return awards
 
@@ -91,7 +96,7 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
     """
     old = prior_state.get("sources") or {}
     bootstrap = not bool(old)
-    statuses, new_awards, candidate_state = [], [], {}
+    statuses, new_awards, changed_awards, candidate_state = [], [], [], {}
     for source_id, label in SOURCE_PASSPORT:
         run = source_runs.get(source_id) or {"status": "not_collected"}
         status = str(run.get("status") or "not_collected")
@@ -100,11 +105,17 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
         if status == "complete":
             current = _qualified_source_awards(source_id, run)
             previous = set((old.get(source_id) or {}).get("award_keys") or [])
+            old_hashes = (old.get(source_id) or {}).get("content_hashes") or {}
             entry["qualified_awards"] = len(current)
             entry["new_awards"] = len([row for row in current if row["key"] not in previous])
+            entry["changed_awards"] = len([row for row in current if row["key"] in previous and
+                                            old_hashes.get(row["key"]) != row["content_hash"]])
             if not bootstrap:
                 new_awards.extend(row for row in current if row["key"] not in previous)
+                changed_awards.extend(row for row in current if row["key"] in previous and
+                                      old_hashes.get(row["key"]) != row["content_hash"])
             candidate_state[source_id] = {"award_keys": sorted(row["key"] for row in current),
+                                          "content_hashes": {row["key"]: row["content_hash"] for row in current},
                                           "captured_at": run.get("captured_at")}
         else:
             entry["qualified_awards"] = None
@@ -114,7 +125,7 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
             if source_id in old:
                 candidate_state[source_id] = old[source_id]
         statuses.append(entry)
-    return {"sources": statuses, "new_awards": new_awards, "bootstrap": bootstrap,
+    return {"sources": statuses, "new_awards": new_awards, "changed_awards": changed_awards, "bootstrap": bootstrap,
             "state_candidate": {"sources": candidate_state},
             "all_sources_reported": len(statuses) == len(SOURCE_PASSPORT)}
 

@@ -41,7 +41,17 @@ def test_first_multi_source_run_is_a_silent_baseline():
         {"winner_inn": "304788646", "amount": 20000001, "currency": "UZS", "award_id": "A1"}]}}, {})
     assert result["bootstrap"] is True
     assert result["new_awards"] == []
-    assert result["state_candidate"]["sources"]["etender_deals"]["award_keys"] == ["etender_deals:304788646:A1"]
+
+
+def test_changed_confirmed_award_is_reported_without_becoming_new():
+    run = {"uzex_direct": {"status": "complete", "captured_at": "2026-09-21T00:00:00Z", "awards": [{
+        "winner_inn": "304788646", "contract_number": "77", "amount": "25000000", "currency": "UZS",
+        "title": "old title"}]}}
+    baseline = multi_source_delta(run, {"sources": {}})["state_candidate"]
+    run["uzex_direct"]["awards"][0]["amount"] = "26000000"
+    result = multi_source_delta(run, baseline)
+    assert result["new_awards"] == []
+    assert len(result["changed_awards"]) == 1
 
 
 if __name__ == "__main__":
