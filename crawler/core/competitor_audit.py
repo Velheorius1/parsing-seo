@@ -348,14 +348,54 @@ def historical_coverage(award: Dict[str, Any], crawler_rows: List[Dict[str, Any]
     suffix = "/lot/%s" % procedure_id
     matched = [row for row in crawler_rows if str(row.get("source_url") or "").endswith(suffix)]
     if not matched:
-        return {"outcome": "unknown", "timely": None, "reason": "no_snapshot_match", "rows": []}
+        return {
+            "outcome": "unknown",
+            "timely": None,
+            "delivery": "unknown",
+            "reason": "no_snapshot_match",
+            "rows": [],
+        }
     active = [row for row in matched if row.get("deadline")]
     if not active:
-        return {"outcome": "late_result_only", "timely": False,
-                "reason": "only_result_rows", "rows": matched}
+        return {
+            "outcome": "late_result_only",
+            "timely": False,
+            "delivery": "unknown",
+            "reason": "only_result_rows",
+            "rows": matched,
+        }
     if any(row.get("telegram_sent_at") for row in active):
-        return {"outcome": "timely_push", "timely": True,
-                "reason": "active_row_with_sent_timestamp", "rows": active}
-    if any(row.get("alert_seq") is not None or row.get("telegram_message_id") is not None for row in active):
-        return {"outcome": "unknown", "timely": None, "reason": "message_time_missing", "rows": active}
-    return {"outcome": "unknown", "timely": None, "reason": "active_row_without_alert_evidence", "rows": active}
+        return {
+            "outcome": "timely_push",
+            "timely": True,
+            "delivery": "confirmed",
+            "reason": "active_row_with_sent_timestamp",
+            "rows": active,
+        }
+    # notifier.save_alert_seq writes telegram_message_id only after Telegram's
+    # sendMessage/sendPhoto endpoint returns HTTP 200.  This establishes delivery
+    # acceptance, but its timestamp is not persisted, so it must not be promoted
+    # to a claim that the alert was timely.
+    if any(row.get("telegram_message_id") is not None for row in active):
+        return {
+            "outcome": "unknown",
+            "timely": None,
+            "delivery": "confirmed",
+            "reason": "message_time_missing",
+            "rows": active,
+        }
+    if any(row.get("alert_seq") is not None for row in active):
+        return {
+            "outcome": "unknown",
+            "timely": None,
+            "delivery": "unknown",
+            "reason": "message_time_missing",
+            "rows": active,
+        }
+    return {
+        "outcome": "unknown",
+        "timely": None,
+        "delivery": "unknown",
+        "reason": "active_row_without_alert_evidence",
+        "rows": active,
+    }

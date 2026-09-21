@@ -20,12 +20,23 @@ def test_active_row_with_message_but_no_sent_time_is_unknown_timing():
     }])
     assert coverage["outcome"] == "unknown"
     assert coverage["reason"] == "message_time_missing"
+    assert coverage["delivery"] == "confirmed"
 
 
 def test_no_snapshot_row_is_unknown_not_confirmed_miss():
     coverage = historical_coverage({"procedure_id": "999999"}, [])
     assert coverage["outcome"] == "unknown"
     assert coverage["reason"] == "no_snapshot_match"
+    assert coverage["delivery"] == "unknown"
+
+
+def test_alert_sequence_without_message_id_is_not_delivery_confirmation():
+    coverage = historical_coverage({"procedure_id": "498105"}, [{
+        "source_url": "https://etender.uzex.uz/lot/498105", "source": "ETender UZEX",
+        "alert_seq": 4357, "telegram_message_id": None, "deadline": "2026-07-10T11:01:50",
+    }])
+    assert coverage["outcome"] == "unknown"
+    assert coverage["delivery"] == "unknown"
 
 
 if __name__ == "__main__":

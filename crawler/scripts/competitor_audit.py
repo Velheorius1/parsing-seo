@@ -8,11 +8,14 @@ Usage examples:
   python3 -m crawler.scripts.competitor_audit join --manifest docs/audits/run/deals-manifest.json
   python3 -m crawler.scripts.competitor_audit report --awards docs/audits/run/awards.jsonl
 
-The tool never sends Telegram messages, reads .env, or writes production data.
+The tool never sends Telegram messages or writes production data.  Its replay
+subcommand consumes the already captured, non-secret filter snapshot rather
+than querying live settings or the database.
 Network collection is deliberately not implicit: use a separately reviewed public
 adapter when a cache is absent. This keeps a report run reproducible and cheap.
 """
 import argparse
+import asyncio
 import gzip
 import hashlib
 import json
@@ -191,10 +194,134 @@ def command_coverage(args: argparse.Namespace) -> int:
     _write_json(target, {"scope": "snapshot-only; no Telegram sent_at reconstruction",
                          "rows": matrix})
     summary = {}
+    delivery = {}
     for row in matrix:
         outcome = row["historical_coverage"]["outcome"]
         summary[outcome] = summary.get(outcome, 0) + 1
-    print(json.dumps({"matrix": str(target), "rows": len(matrix), "outcomes": summary}, ensure_ascii=False))
+        delivery_value = row["historical_coverage"]["delivery"]
+        delivery[delivery_value] = delivery.get(delivery_value, 0) + 1
+    print(json.dumps({
+        "matrix": str(target),
+        "rows": len(matrix),
+        "outcomes": summary,
+        "delivery": delivery,
+    }, ensure_ascii=False))
+    return 0
+
+
+def _snapshot_keywords(snapshot: Dict[str, Any]) -> List[str]:
+    raw = str(snapshot.get("alert_keywords") or "")
+    return [value.strip().lower() for value in raw.split(",") if value.strip()]
+
+
+def _snapshot_tnved_scope(snapshot: Dict[str, Any]) -> List[str]:
+    for item in snapshot.get("settings") or []:
+        if item.get("key") != "tnved_scope":
+            continue
+        return [value.strip() for value in str(item.get("value") or "").split(",")
+                if value.strip()]
+    return []
+
+
+def _earliest_active_row(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """One procedure can appear in discussion, active and result feeds.
+
+    For a counterfactual detection test its earliest active representation is
+    the only defensible choice: later mirrors are not additional tenders, and
+    a result feed has no deadline at all.
+    """
+    active = [row for row in rows if row.get("deadline")]
+    if not active:
+        raise ValueError("Expected at least one active row")
+    return min(active, key=lambda row: (
+        str(row.get("created_at") or row.get("collected_at") or "9999"),
+        str(row.get("external_id") or ""),
+    ))
+
+
+def command_replay(args: argparse.Namespace) -> int:
+    """Run an explicitly captured crawler configuration against matching rows.
+
+    This is a *prefilter* counterfactual.  It deliberately does not make an AI
+    API request, so a survivor means only "would reach the AI gate", not "would
+    certainly become a Telegram push".
+    """
+    from crawler.core.tender_rows import row_to_raw_tender
+    from crawler.scripts.replay import replay_tenders
+
+    snapshot = json.loads(Path(args.snapshot).read_text(encoding="utf-8"))
+    rows = snapshot.get("rows") or []
+    awards = []
+    with Path(args.awards).open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                awards.append(json.loads(line))
+
+    by_procedure = {}
+    for row in rows:
+        source_url = str(row.get("source_url") or "")
+        if "/lot/" not in source_url:
+            continue
+        procedure_id = source_url.rsplit("/lot/", 1)[1].split("?", 1)[0].rstrip("/")
+        if procedure_id:
+            by_procedure.setdefault(procedure_id, []).append(row)
+
+    linked = []
+    for award in awards:
+        if award.get("above_threshold") is not True:
+            continue
+        candidates = by_procedure.get(str(award.get("procedure_id") or ""), [])
+        if any(row.get("deadline") for row in candidates):
+            linked.append((award, _earliest_active_row(candidates)))
+
+    tender_rows = [row for _, row in linked]
+    tenders = [row_to_raw_tender(row) for row in tender_rows]
+    collected_at = dict((t.external_id, row.get("collected_at"))
+                        for t, row in zip(tenders, tender_rows))
+    verdicts = asyncio.run(replay_tenders(
+        tenders,
+        use_ai=False,
+        as_of="collected_at",
+        keywords=_snapshot_keywords(snapshot),
+        tnved_scope=_snapshot_tnved_scope(snapshot),
+        collected_at=collected_at,
+    ))
+    result_rows = []
+    for (award, row), verdict in zip(linked, verdicts):
+        result_rows.append({
+            "award": award,
+            "crawler_row": {
+                "external_id": row.get("external_id"),
+                "source": row.get("source"),
+                "source_url": row.get("source_url"),
+                "collected_at": row.get("collected_at"),
+                "deadline": row.get("deadline"),
+            },
+            "replay": {
+                "passed_prefilter": verdict.passed_prefilter,
+                "dropped_at_stage": verdict.dropped_at_stage,
+                "matched_kw": verdict.matched_kw,
+                "ai_gate": "not_run",
+                "final_delivery": "unknown",
+            },
+        })
+    target = Path(args.output)
+    _write_json(target, {
+        "scope": "offline prefilter replay; captured keyword and TN VED snapshot; AI not run",
+        "snapshot_captured_at": snapshot.get("captured_at"),
+        "awards_above_threshold": sum(1 for award in awards if award.get("above_threshold") is True),
+        "active_snapshot_matches": len(result_rows),
+        "rows": result_rows,
+    })
+    passed = sum(1 for item in result_rows if item["replay"]["passed_prefilter"])
+    print(json.dumps({
+        "replay": str(target),
+        "awards_above_threshold": sum(1 for award in awards if award.get("above_threshold") is True),
+        "active_snapshot_matches": len(result_rows),
+        "prefilter_passed": passed,
+        "prefilter_dropped": len(result_rows) - passed,
+        "ai_gate": "not_run",
+    }, ensure_ascii=False))
     return 0
 
 
@@ -221,6 +348,11 @@ def main() -> int:
     coverage.add_argument("--snapshot", required=True)
     coverage.add_argument("--output", required=True)
     coverage.set_defaults(func=command_coverage)
+    replay = subparsers.add_parser("replay", help="Офлайн-replay snapshot строк через зафиксированный prefilter")
+    replay.add_argument("--awards", required=True)
+    replay.add_argument("--snapshot", required=True)
+    replay.add_argument("--output", required=True)
+    replay.set_defaults(func=command_replay)
     args = parser.parse_args()
     return args.func(args)
 
