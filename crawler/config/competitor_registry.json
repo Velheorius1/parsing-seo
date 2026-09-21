@@ -1,0 +1,26 @@
+{
+  "as_of": "2026-09-13",
+  "purpose": "Исследовательский реестр. Победы связывать только по точному ИНН; названия не объединяют суммы автоматически.",
+  "entities": [
+    {"name":"MICROS PAK","inn":"303743362","input_names":["micros pak","print micros uz"],"status":"primary_requisites","note":"Print Micros Uz пока трактуется как бренд Micros Pak.","sources":["https://web2print.uz/requisites","https://micros.uz/print/"]},
+    {"name":"AZIZOVLAR GRAND DEPOT","inn":"205878837","input_names":["azizovlar grand depot"],"status":"registry_catalog","sources":["https://orginfo.uz/ru/organization/421567511907/","https://tashkent.hh.uz/vacancy/133192457"]},
+    {"name":"DIZAYN-PRINT","inn":"204447012","input_names":["dizayn print","design print"],"status":"procurement_confirmed","sources":["https://orginfo.uz/ru/organization/11634466672c/","https://etender.uzex.uz/lot/470815"]},
+    {"name":"STANDARD POLIGRAF SERVICE","inn":"207063624","input_names":["standart poligraf service","standart polygraf service"],"status":"procurement_confirmed","sources":["https://statsnet.co/companies/uz/58762407","https://etender.uzex.uz/lot/497106"]},
+    {"name":"STANDARD POLIGRAF BOOKS","inn":null,"input_names":["standart poligraf books","standart polygraph books"],"status":"unresolved","note":"Одинаковый адрес с Service не доказывает общий ИНН.","sources":["https://zakm.uz/media/books/Yumshoqoy_ismli_tipratikancha.pdf"]},
+    {"name":"KATRANT","inn":"200628873","input_names":["katrant"],"status":"registry_catalog","sources":["https://orginfo.uz/ru/organization/bcd423421823/"]},
+    {"name":"FASTBINDER","inn":"207061714","input_names":["fastbinder"],"status":"registry_catalog","sources":["https://orginfo.uz/ru/organization/75c2c46f4e15/"]},
+    {"name":"COMPLEX PRINT","inn":"303410911","input_names":["complex print"],"status":"published_company_notice","note":"Источник ИНН 2022 года, нужен свежий первичный cross-check.","sources":["https://yuz.uz/file/newspaper/48c4f7b587f011ac7a8563b07f6934f3.pdf"]},
+    {"name":"SMARTPACK PRINT","inn":"306867159","input_names":["smart pack print"],"status":"registry_catalog","sources":["https://orginfo.uz/ru/organization/25819bfac7a4/"]},
+    {"name":"CREDO PRINT GROUP","inn":"204695568","input_names":["kredo print","credo print"],"status":"procurement_confirmed","sources":["https://orginfo.uz/ru/organization/f4e9d19cf433/","https://etender.uzex.uz/lot/482774"]},
+    {"name":"EUROASIA PRINT","inn":"302630551","input_names":["euroasia print","eurasia print"],"status":"registry_catalog","sources":["https://orginfo.uz/ru/organization/45bfb990759d/"]},
+    {"name":"CENTRIS","inn":"307491912","input_names":["centris print"],"status":"brand_catalog_crosscheck","note":"Не сливать с CENTRIS-PRINT 308717019.","sources":["https://orginfo.uz/ru/organization/88315451e017/","https://www.goldenpages.uz/company/?Id=101918"]},
+    {"name":"PRINTUZ","inn":"304788646","input_names":["print uz","printuz"],"status":"primary_requisites_and_procurement","sources":["https://print.uz/privacy","https://etender.uzex.uz/lot/450680"]},
+    {"name":"PECHATNIK VOSTOKA","inn":"308044785","input_names":["pechatnick vostoka","pechatnik vostoka"],"status":"procurement_confirmed","sources":["https://etender.uzex.uz/lot/497899"]},
+    {"name":"KOLORPAK","inn":"205353003","input_names":["kolorpak"],"status":"procurement_confirmed","note":"Не подменять ИНН 205049902: это другое одноимённое юрлицо.","sources":["https://orginfo.uz/ru/organization/3cba2f5ea443/","https://etender.uzex.uz/lot/461980"]},
+    {"name":"JURABEK PRINT","inn":"207100252","input_names":["jurabek print"],"status":"registry_catalog","sources":["https://orginfo.uz/ru/organization/fce0883a16c9/"]},
+    {"name":"PRINTWELL","inn":"307897026","input_names":["printwell"],"status":"registry_catalog","sources":["https://ihamkor.uz/uz/subject/d7868f97d954dddac57d416f5ba7d5dc?n=%22PRINTWELL%22+MCHJ&section=gi&u=1733445392","https://www.printwell.uz/"]}
+  ],
+  "separate_candidates": [
+    {"name":"CENTRIS-PRINT","inn":"308717019","status":"separate_entity_brand_relationship_unresolved","note":"Показывать отдельно, пока связь с заданным брендом не доказана.","sources":["https://orginfo.uz/ru/organization/08563272fb29/"]}
+  ]
+}
