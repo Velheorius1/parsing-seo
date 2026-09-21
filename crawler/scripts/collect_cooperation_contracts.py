@@ -10,6 +10,7 @@ reported as a complete archive.
 import argparse
 import hashlib
 import json
+import os
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -21,6 +22,12 @@ from crawler.core.competitor_audit import entity_for_inn, load_registry, normali
 
 ENDPOINT = "https://stat-new.cooperation.uz/gateway/api-stat/auction-contracts"
 SOURCE = "Cooperation.uz Публичный реестр договоров"
+
+
+def client_kwargs() -> Dict[str, Any]:
+    """Use the existing dedicated Cooperation proxy when explicitly supplied."""
+    proxy = os.getenv("COMPETITOR_COOP_PROXY_URL", "").strip()
+    return {"proxy": proxy} if proxy else {}
 
 
 def _date(value: Any) -> date:
@@ -72,7 +79,7 @@ def collect(date_from: date, page_size: int, page_cap: int,
     # serving its own browser UI without authentication.  This is compatibility
     # with that public UI, not a credential or an access-control bypass.
     headers = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
-    with httpx.Client(timeout=30, headers=headers) as client:
+    with httpx.Client(timeout=30, headers=headers, **client_kwargs()) as client:
         for page_index in range(page_cap):
             params = {"skip": page_index * page_size, "take": page_size}
             response = client.get(ENDPOINT, params=params)
