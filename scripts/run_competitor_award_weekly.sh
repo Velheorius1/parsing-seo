@@ -12,4 +12,4 @@ date_from=$(date -u -d '30 days ago' +%F)
 .venv/bin/python3 -m crawler.scripts.monitor_competitor_awards \
   --source-runs "$data_dir/receipts/$run_at-sources.json" \
   --state "$data_dir/state.json" \
-  --output "$data_dir/receipts/$run_at-delta.json" --advance-state
+  --output "$data_dir/receipts/$run_at-delta.json" --send-telegram --advance-state

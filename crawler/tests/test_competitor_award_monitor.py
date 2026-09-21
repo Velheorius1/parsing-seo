@@ -1,6 +1,8 @@
 import sys
 
-from crawler.scripts.monitor_competitor_awards import SOURCE_PASSPORT, delta, multi_source_delta
+from crawler.scripts.monitor_competitor_awards import (
+    SOURCE_PASSPORT, build_digest, delta, deliver_report, multi_source_delta,
+)
 
 
 def _snapshot(complete=True, fetched=1):
@@ -52,6 +54,21 @@ def test_changed_confirmed_award_is_reported_without_becoming_new():
     result = multi_source_delta(run, baseline)
     assert result["new_awards"] == []
     assert len(result["changed_awards"]) == 1
+
+
+def test_bootstrap_and_empty_delta_do_not_call_telegram():
+    calls = []
+    sender = lambda text: calls.append(text) or True
+    assert deliver_report({"bootstrap": True, "new_awards": [], "changed_awards": []}, sender) is True
+    assert deliver_report({"bootstrap": False, "new_awards": [], "changed_awards": []}, sender) is True
+    assert calls == []
+
+
+def test_delivery_failure_is_reported_to_caller():
+    report = {"bootstrap": False, "new_awards": [{"winner_name": "PRINTUZ", "winner_inn": "304788646",
+              "amount": "25000001", "currency": "UZS", "title": "Книга"}], "changed_awards": []}
+    assert deliver_report(report, lambda _text: False) is False
+    assert "PRINTUZ" in build_digest(report)
 
 
 if __name__ == "__main__":

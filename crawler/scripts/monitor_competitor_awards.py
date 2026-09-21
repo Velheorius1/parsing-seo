@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+import httpx
+
 from crawler.core.competitor_audit import above_threshold, normalize_inn
 
 
@@ -30,6 +32,54 @@ SOURCE_PASSPORT = (
     ("xt_xarid", "XT-Xarid public procedures"),
     ("hayotbirja", "Hayotbirja public procedures (XT mirror)"),
 )
+
+
+def _money(value: Any) -> str:
+    try:
+        return "{:,.0f}".format(float(value)).replace(",", " ")
+    except (TypeError, ValueError):
+        return str(value or "?")
+
+
+def build_digest(report: Dict[str, Any]) -> str:
+    """Build one compact retrospective digest (never an urgent lead alert)."""
+    new_rows = report.get("new_awards") or []
+    changed_rows = report.get("changed_awards") or []
+    lines = ["🏆 Победы конкурентов за неделю", ""]
+    for label, rows in (("Новые", new_rows), ("Изменения", changed_rows)):
+        if not rows:
+            continue
+        lines.append("%s: %d" % (label, len(rows)))
+        for row in rows[:10]:
+            name = row.get("winner_name") or "ИНН %s" % row.get("winner_inn")
+            title = str(row.get("title") or "без названия")[:100]
+            lines.append("• %s · %s %s\n%s" % (name, _money(row.get("amount")),
+                                                row.get("currency") or "", title))
+            if row.get("source_url"):
+                lines.append(str(row["source_url"]))
+        if len(rows) > 10:
+            lines.append("…и ещё %d" % (len(rows) - 10))
+        lines.append("")
+    lines.append("Ретроспективный мониторинг договоров; не открытый тендерный алерт.")
+    return "\n".join(lines).strip()
+
+
+def deliver_report(report: Dict[str, Any], sender) -> bool:
+    """Silent baseline/empty run; otherwise require confirmed delivery."""
+    if report.get("bootstrap") or not ((report.get("new_awards") or []) +
+                                       (report.get("changed_awards") or [])):
+        return True
+    return bool(sender(build_digest(report)))
+
+
+def _telegram_sender(text: str) -> bool:
+    from crawler.config.settings import settings
+    if not settings.telegram_bot_token or not settings.telegram_alert_chat_id:
+        return False
+    response = httpx.post("https://api.telegram.org/bot%s/sendMessage" % settings.telegram_bot_token,
+                          json={"chat_id": settings.telegram_alert_chat_id, "text": text,
+                                "disable_web_page_preview": True}, timeout=30)
+    return response.status_code == 200 and response.json().get("ok") is True
 
 
 def qualified_awards(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -147,6 +197,7 @@ def main() -> int:
     parser.add_argument("--state", required=True, help="missing file means first-run baseline")
     parser.add_argument("--output", required=True)
     parser.add_argument("--advance-state", action="store_true", help="write state only if snapshot is complete")
+    parser.add_argument("--send-telegram", action="store_true", help="send non-empty non-bootstrap digest")
     args = parser.parse_args()
     state_path = Path(args.state)
     prior = _read(state_path, {"award_keys": []})
@@ -160,6 +211,14 @@ def main() -> int:
         can_advance = report["snapshot_complete"]
     report["generated_at"] = datetime.now(timezone.utc).isoformat()
     report["state_advanced"] = False
+    report["telegram_delivered"] = None
+    if args.send_telegram:
+        report["telegram_delivered"] = deliver_report(report, _telegram_sender)
+        if not report["telegram_delivered"]:
+            _write(Path(args.output), report)
+            print(json.dumps({"output": args.output, "telegram_delivered": False,
+                              "state_advanced": False}, ensure_ascii=False))
+            return 3
     if args.advance_state and can_advance:
         _write(state_path, report["state_candidate"])
         report["state_advanced"] = True
