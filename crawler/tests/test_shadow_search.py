@@ -12,7 +12,7 @@ if "crawler.config.settings" not in sys.modules:
     )
     sys.modules["crawler.config.settings"] = _m
 
-from crawler.scripts.shadow_search import AUDIT_CANDIDATES, _matches
+from crawler.scripts.shadow_search import AUDIT_CANDIDATES, _matches, _passes_price_gate
 
 
 def _candidate(cid):
@@ -39,6 +39,13 @@ def test_matbaa_requires_a_print_context():
 def test_jurnal_and_gazeta_variants_match():
     assert _matches(_candidate("audit-jurnal"), {"title": "Рўйхатга олиш журнали", "search_text": ""})
     assert _matches(_candidate("audit-gazeta"), {"title": "davriy nashr", "search_text": ""})
+
+
+def test_price_gate_matches_production_fail_open_semantics():
+    assert not _passes_price_gate({"price": 19_999_999}, 20_000_000)
+    assert _passes_price_gate({"price": 20_000_000}, 20_000_000)
+    assert _passes_price_gate({"price": None}, 20_000_000)
+    assert _passes_price_gate({"price": "unknown"}, 20_000_000)
 
 
 if __name__ == "__main__":
