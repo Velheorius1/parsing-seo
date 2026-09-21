@@ -117,6 +117,17 @@ def _matches(cand, row):
     return not context or any(w.lower() in text for w in context)
 
 
+def _passes_price_gate(row, min_price):
+    """Mirror production's fail-open price gate for shadow measurements."""
+    value = row.get("price")
+    if value is None or value == "":
+        return True
+    try:
+        return float(value) >= float(min_price)
+    except (TypeError, ValueError):
+        return True
+
+
 def _to_tender(r):
     # extra_info intentionally omitted — shadow only needs title/search_text/org for
     # matching + judging, and DB extra_info holds int/bool values that fail the
@@ -173,8 +184,8 @@ async def _judge_inscope(tenders):
     return len(judged), judged
 
 
-async def scan(candidate_ids=None, judge_limit=JUDGE_SAMPLE):
-    # type: (object, int) -> int
+async def scan(candidate_ids=None, judge_limit=JUDGE_SAMPLE, min_price=None):
+    # type: (object, int, object) -> int
     from crawler.auth.session_store import session_store
     c = _client()
     st = _load_state(session_store)
@@ -190,13 +201,16 @@ async def scan(candidate_ids=None, judge_limit=JUDGE_SAMPLE):
     rows = _pull_missed(c)
     logger.info("[Shadow] %d non-alerted lots in window", len(rows))
     # production keyword matcher — isolate TRUE new recall (production kw didn't match)
-    from crawler.core.notifier import _get_keywords, _find_matching_keyword
+    from crawler.core.notifier import MIN_PRICE, _get_keywords, _find_matching_keyword
+    effective_min_price = MIN_PRICE if min_price is None else min_price
     kws = _get_keywords()
     results = st.setdefault("results", {})
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     for cand in cands:
         caught = []
         for r in rows:
+            if not _passes_price_gate(r, effective_min_price):
+                continue
             if not _matches(cand, r):
                 continue
             t = _to_tender(r)
@@ -209,6 +223,7 @@ async def scan(candidate_ids=None, judge_limit=JUDGE_SAMPLE):
         sample = random.sample(caught, min(judge_limit, len(caught))) if caught else []
         in_scope, judged = await _judge_inscope(sample)
         rec = {"date": now, "candidate": cand["id"], "type": cand["type"],
+               "min_price": effective_min_price,
                "new_catches": len(caught),
                "judged": len(sample), "in_scope": in_scope,
                "in_scope_pct": round(100 * in_scope / len(sample)) if sample else None,
@@ -345,6 +360,8 @@ if __name__ == "__main__":
                     help="scan one named candidate (repeatable)")
     ap.add_argument("--judge-limit", type=int, default=JUDGE_SAMPLE,
                     help="max AI judgments per candidate; 0 = lexical-only")
+    ap.add_argument("--min-price", type=float,
+                    help="minimum lot price; defaults to the production alert gate")
     a = ap.parse_args()
     if a.promote:
         sys.exit(promote(a.promote))
@@ -357,10 +374,13 @@ if __name__ == "__main__":
     if a.scan:
         if a.judge_limit < 0:
             ap.error("--judge-limit must be >= 0")
+        if a.min_price is not None and a.min_price < 0:
+            ap.error("--min-price must be >= 0")
         selected = list(a.candidate)
         if a.audit_candidates:
             selected.extend(c["id"] for c in AUDIT_CANDIDATES)
-        sys.exit(asyncio.run(scan(candidate_ids=selected, judge_limit=a.judge_limit)))
+        sys.exit(asyncio.run(scan(candidate_ids=selected, judge_limit=a.judge_limit,
+                                  min_price=a.min_price)))
     if a.report:
         sys.exit(asyncio.run(report(send_tg=a.tg)))
     ap.error("one of --scan/--report/--promote/--add-keyword/--add-tnved required")
