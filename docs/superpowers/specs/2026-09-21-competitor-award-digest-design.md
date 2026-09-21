@@ -6,22 +6,23 @@
 победах конкурентов**. Digest является ретроспективной конкурентной разведкой:
 он не заменяет и не меняет срочные алерты об открытых закупках.
 
-Первый production scope: публичные Ebirja E-shop contracts. UZEX/ETender и
-Direct добавляются только после отдельного адаптера и проверки их стабильного
-watermark.
+Первый production scope: все девять строк паспорта источников. Exact-INN
+events допустимы только из complete UZEX Deals/Direct и complete Ebirja Shop;
+прочие источники обязаны присутствовать в health-report со своим ограничением,
+но не могут фабриковать победы из name-only/publicly-unobservable данных.
 
 ## Поток
 
 ```text
-Ebirja public archive, 7-day window
-  -> exact INN / conservative name-candidate queue
-  -> максимум 25 public shop detail cards
-  -> exact producer.tin + strictly >20m UZS
+all public sources, 30-day overlap
+  -> exact INN / conservative Ebirja name-candidate queue
+  -> максимум 25 public Ebirja Shop detail cards
+  -> exact producer.tin + strictly >20m UZS, where currency is known
   -> local state delta
   -> один Telegram digest
 ```
 
-1. Collector должен пересечь нижнюю границу 7-дневного окна или завершиться
+1. Collector должен пересечь нижнюю границу 30-дневного окна или завершиться
    по надёжному page-count. Page-cap, schema/HTTP error и недогруженная detail
    card означают incomplete run.
 2. Detail запрашивается только для кандидатов с exact INN из registry либо
@@ -46,6 +47,8 @@ Ebirja public archive, 7-day window
 
 * State — versioned JSON в `/opt/parsing-seo/data/competitor-award-monitor/`;
   ключ — `source:winner_inn:contract_number`.
+* Для complete exact-INN источника хранится content hash доказательных полей;
+  изменённая сумма/статус/победитель попадает в отдельный блок revisions.
 * Raw page receipts/detail hashes — 90 дней, затем ротация отдельной
   обслуживающей задачей. Не хранить credentials или full Telegram responses.
 * Начальный bootstrap создаёт baseline без отправки: historical contracts не
@@ -58,14 +61,15 @@ Ebirja public archive, 7-day window
 * Telegram non-200: exit non-zero, state не меняется.
 * Empty complete run: exit 0, state может сохранить snapshot keys, Telegram не
   вызывается.
-* Hard limits: window 7 дней, page cap 50, detail cap 25, HTTP timeout 30 s.
+* Hard limits: overlap 30 дней, page cap 50, detail cap 25, HTTP timeout 30 s.
 
 ## Не входит в выпуск
 
 * Изменение `ALERT_KEYWORDS`, AI-gate или текущих urgent alerts.
 * Автоподача заявок и уведомления о Direct contracts как об открытом спросе.
 * Fuzzy-слияние CENTRIS и CENTRIS-PRINT.
-* Cooperation/XT/Hayot: у них пока нет достаточного публичного winner evidence.
+* Cooperation/XT/Hayot и Ebirja name-only branches не дают award event, пока
+  публичный источник не раскрывает доказательный winner INN/currency.
 
 ## Приёмка
 
