@@ -14,6 +14,7 @@ from typing import Any, Dict, List
 
 from crawler.scripts.collect_cooperation_contracts import collect as collect_cooperation
 from crawler.scripts.collect_ebirja_contract_api import collect_source
+from crawler.scripts.collect_uzex_award_api import collect as collect_uzex
 from crawler.core.competitor_audit import load_registry
 
 
@@ -34,12 +35,14 @@ def build_runs(date_from: date, page_size: int, page_cap: int) -> Dict[str, Dict
     """Collect every public source once, retaining limitations explicitly."""
     captured = datetime.now(timezone.utc).isoformat()
     runs = {}  # type: Dict[str, Dict[str, Any]]
-    # UZEX award/Direct need their dedicated exact-INN API adapters.  Do not
-    # substitute a name match from a shallow page for a verified award.
-    runs["etender_deals"] = {"status": "exact_inn_adapter_pending", "captured_at": captured,
-                              "detail": "requires dedicated ETender award adapter; stale cache is not a weekly run"}
-    runs["uzex_direct"] = {"status": "exact_inn_adapter_pending", "captured_at": captured,
-                            "detail": "requires dedicated Direct-contract adapter; stale cache is not a weekly run"}
+    for key, source_id in (("deals", "etender_deals"), ("direct", "uzex_direct")):
+        try:
+            result = collect_uzex(key, date_from, page_size, page_cap)
+            runs[source_id] = {"status": "complete" if result["complete"] else "incomplete",
+                               "captured_at": result["captured_at"], "awards": result["awards"],
+                               "detail": result["completion"], "receipt": result}
+        except Exception as exc:
+            runs[source_id] = {"status": "collector_error", "captured_at": captured, "detail": str(exc)[:180]}
     for source_key, source_id in (("shop", "ebirja_shop"), ("auction", "ebirja_auction"),
                                   ("tender", "ebirja_tender"), ("selection", "ebirja_selection")):
         try:
