@@ -119,6 +119,30 @@ def registry_inns(registry: Dict[str, List[Dict[str, Any]]], include_candidates:
             if normalize_inn(entity.get("inn")) is not None]
 
 
+def normalize_name(value: Any) -> str:
+    """Conservative comparison form for public registries that omit INN."""
+    return "".join(char for char in str(value or "").casefold() if char.isalnum())
+
+
+def name_candidates(registry: Dict[str, List[Dict[str, Any]]], supplier_name: Any) -> List[Dict[str, Any]]:
+    """Return review candidates, never an identity or economic aggregation."""
+    supplier = normalize_name(supplier_name)
+    if not supplier:
+        return []
+    matches = []
+    for section in ("entities", "separate_candidates"):
+        for entity in registry.get(section, []):
+            aliases = [entity.get("name") or ""] + list(entity.get("input_names") or [])
+            matching_aliases = []
+            for alias in aliases:
+                normalized = normalize_name(alias)
+                if len(normalized) >= 6 and normalized in supplier:
+                    matching_aliases.append(alias)
+            if matching_aliases:
+                matches.append({"entity": entity, "section": section, "aliases": matching_aliases})
+    return matches
+
+
 def page_body(source: str, page_index: int, page_size: int = 500) -> Dict[str, Any]:
     """Строит тело запроса, не скрывая различия пагинации публичных API."""
     if page_index < 0 or page_size <= 0:

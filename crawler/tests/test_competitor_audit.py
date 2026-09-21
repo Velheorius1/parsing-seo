@@ -6,6 +6,7 @@ from crawler.core.competitor_audit import (
     above_threshold,
     entity_for_inn,
     load_registry,
+    name_candidates,
     normalize_inn,
 )
 
@@ -54,6 +55,14 @@ def test_threshold_is_strict_and_currency_aware():
     assert above_threshold(None, "UZS") is None
     assert above_threshold("30000000", "USD") is None
     assert above_threshold(Decimal("30000000"), "Сум") is True
+
+
+def test_public_name_match_is_a_candidate_not_an_inn_identity():
+    registry = {"entities": [{"name": "PRINTUZ", "inn": "304788646", "input_names": ["print uz"]}],
+                "separate_candidates": []}
+    candidates = name_candidates(registry, "PRINTUZ MCHJ")
+    assert candidates[0]["entity"]["inn"] == "304788646"
+    assert candidates[0]["section"] == "entities"
 
 
 if __name__ == "__main__":

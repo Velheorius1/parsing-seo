@@ -314,6 +314,10 @@ def _parse_contract_text(text, link, contract_type):
         'external_id': 'ebirja-ctr-%s' % ext_id,
         'title': 'Договор %s | %s' % (contract_number, lot_number) if contract_number else lot_number,
         'organization': buyer,
+        # Kept separately for read-only audit collectors.  The production path
+        # still has search_text for backwards compatibility, but an audit must
+        # never try to recover an entity name by parsing that free-text field.
+        'winner_name': executor,
         'price': price,
         'currency': 'UZS',
         'deadline': date,
