@@ -14,6 +14,7 @@ Flow:
   --report              weekly: print/TG per-candidate table (catches, in-scope%, samples)
   --promote <cand_id>   graduate: keyword→settings.alert_keywords; tnved→settings.tnved_scope
   --add-keyword W / --add-tnved P   register a new candidate to shadow-test
+  --add-audit-candidates             register the 2026-09 competitor-audit terms
 
 State in crawler_settings: shadow_candidates_v1 (defs+stats). Log: logs/shadow_catches.jsonl.
 """
@@ -62,6 +63,26 @@ SEED = [
                "chop etish", "nashriyot", "нашриёт", "yorliq", "buklet"]},
 ]
 
+# Terms found in the competitor-winner audit (2026-09-21).  They deliberately
+# stay in shadow: a lexical catch is not a production alert.  `all_of` is the
+# essential guard for polysemous terms such as "blank" and "matbaa" — they
+# must co-occur with a printing/packaging signal before spending an AI judge
+# call.  This keeps the experiment useful without turning it into a token sink.
+AUDIT_CANDIDATES = [
+    {"id": "audit-yoriqnoma", "type": "keyword", "source": "competitor-audit-2026-09-21",
+     "value": ["yoriqnoma", "yo'riqnoma", "йўриқнома"]},
+    {"id": "audit-blank-context", "type": "keyword", "source": "competitor-audit-2026-09-21",
+     "value": ["blank", "blankalar", "бланкопечатан"],
+     "all_of": ["печать", "bosma", "qogoz", "тираж", "format", "офсет", "ламинац", "пакет", "картон"]},
+    {"id": "audit-jurnal", "type": "keyword", "source": "competitor-audit-2026-09-21",
+     "value": ["jurnal", "журнал", "журнали"]},
+    {"id": "audit-gazeta", "type": "keyword", "source": "competitor-audit-2026-09-21",
+     "value": ["gazeta", "газета", "davriy nashr", "периодическ"]},
+    {"id": "audit-matbaa-context", "type": "keyword", "source": "competitor-audit-2026-09-21",
+     "value": ["matbaa", "матбаа"],
+     "all_of": ["печать", "bosma", "qogoz", "тираж", "format", "офсет", "ламинац", "пакет", "картон"]},
+]
+
 FIELDS = ("external_id,title,organization,price,deadline,source,search_text,"
           "message_type,extra_info,alert_seq")
 
@@ -88,7 +109,12 @@ def _matches(cand, row):
         t = _tnved_of(row)
         return bool(t) and any(t.startswith(p) for p in cand["value"])
     text = ((row.get("title") or "") + " " + (row.get("search_text") or "")).lower()
-    return any(w.lower() in text for w in cand["value"])
+    if not any(w.lower() in text for w in cand["value"]):
+        return False
+    # OR inside the primary term group, AND with at least one contextual signal.
+    # Absence of all_of preserves matching for older/manual candidates.
+    context = cand.get("all_of") or []
+    return not context or any(w.lower() in text for w in context)
 
 
 def _to_tender(r):
@@ -147,11 +173,18 @@ async def _judge_inscope(tenders):
     return len(judged), judged
 
 
-async def scan():
+async def scan(candidate_ids=None, judge_limit=JUDGE_SAMPLE):
+    # type: (object, int) -> int
     from crawler.auth.session_store import session_store
     c = _client()
     st = _load_state(session_store)
     cands = st.get("candidates") or []
+    if candidate_ids:
+        wanted = set(candidate_ids)
+        cands = [cand for cand in cands if cand.get("id") in wanted]
+        missing = wanted - {cand.get("id") for cand in cands}
+        if missing:
+            logger.warning("[Shadow] unknown candidates skipped: %s", ", ".join(sorted(missing)))
     if not cands:
         logger.info("[Shadow] no candidates"); return 0
     rows = _pull_missed(c)
@@ -172,8 +205,8 @@ async def scan():
             caught.append(t)
         import random
         logger.info("[Shadow] %-16s matched %d new lots, judging %d...",
-                    cand["id"], len(caught), min(JUDGE_SAMPLE, len(caught)))
-        sample = random.sample(caught, min(JUDGE_SAMPLE, len(caught))) if caught else []
+                    cand["id"], len(caught), min(judge_limit, len(caught)))
+        sample = random.sample(caught, min(judge_limit, len(caught))) if caught else []
         in_scope, judged = await _judge_inscope(sample)
         rec = {"date": now, "candidate": cand["id"], "type": cand["type"],
                "new_catches": len(caught),
@@ -271,6 +304,32 @@ def add_candidate(kind, value):
     return 0
 
 
+def add_audit_candidates():
+    """Idempotently register the approved competitor-audit hypotheses.
+
+    This writes only shadow definitions to crawler_settings; it never touches
+    alert_keywords and therefore cannot increase live alert volume.
+    """
+    from crawler.auth.session_store import session_store
+    st = _load_state(session_store)
+    candidates = st.setdefault("candidates", [])
+    by_id = {cand.get("id"): cand for cand in candidates}
+    added, updated = 0, 0
+    for definition in AUDIT_CANDIDATES:
+        existing = by_id.get(definition["id"])
+        if existing is None:
+            candidates.append(dict(definition))
+            by_id[definition["id"]] = candidates[-1]
+            added += 1
+        elif existing != definition:
+            existing.update(definition)
+            updated += 1
+    session_store.set_setting(STATE_KEY, st)
+    print("audit shadow candidates: +%d, updated=%d, total=%d" %
+          (added, updated, len(candidates)))
+    return 0
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--scan", action="store_true")
@@ -279,6 +338,13 @@ if __name__ == "__main__":
     ap.add_argument("--promote")
     ap.add_argument("--add-keyword")
     ap.add_argument("--add-tnved")
+    ap.add_argument("--add-audit-candidates", action="store_true")
+    ap.add_argument("--audit-candidates", action="store_true",
+                    help="scan only the five competitor-audit hypotheses")
+    ap.add_argument("--candidate", action="append", default=[],
+                    help="scan one named candidate (repeatable)")
+    ap.add_argument("--judge-limit", type=int, default=JUDGE_SAMPLE,
+                    help="max AI judgments per candidate; 0 = lexical-only")
     a = ap.parse_args()
     if a.promote:
         sys.exit(promote(a.promote))
@@ -286,8 +352,15 @@ if __name__ == "__main__":
         sys.exit(add_candidate("keyword", a.add_keyword))
     if a.add_tnved:
         sys.exit(add_candidate("tnved", a.add_tnved))
+    if a.add_audit_candidates:
+        sys.exit(add_audit_candidates())
     if a.scan:
-        sys.exit(asyncio.run(scan()))
+        if a.judge_limit < 0:
+            ap.error("--judge-limit must be >= 0")
+        selected = list(a.candidate)
+        if a.audit_candidates:
+            selected.extend(c["id"] for c in AUDIT_CANDIDATES)
+        sys.exit(asyncio.run(scan(candidate_ids=selected, judge_limit=a.judge_limit)))
     if a.report:
         sys.exit(asyncio.run(report(send_tg=a.tg)))
     ap.error("one of --scan/--report/--promote/--add-keyword/--add-tnved required")
