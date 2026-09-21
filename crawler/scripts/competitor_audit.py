@@ -23,6 +23,7 @@ from typing import Any, Dict, Iterable, List, Set
 from crawler.core.competitor_audit import (
     award_in_window,
     collect_pages,
+    historical_coverage,
     load_registry,
     normalize_award,
     page_body,
@@ -174,6 +175,29 @@ def command_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_coverage(args: argparse.Namespace) -> int:
+    awards = []
+    with Path(args.awards).open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                awards.append(json.loads(line))
+    snapshot = json.loads(Path(args.snapshot).read_text(encoding="utf-8"))
+    crawler_rows = snapshot.get("rows", [])
+    matrix = []
+    for award in awards:
+        coverage = historical_coverage(award, crawler_rows)
+        matrix.append({"award": award, "historical_coverage": coverage})
+    target = Path(args.output)
+    _write_json(target, {"scope": "snapshot-only; no Telegram sent_at reconstruction",
+                         "rows": matrix})
+    summary = {}
+    for row in matrix:
+        outcome = row["historical_coverage"]["outcome"]
+        summary[outcome] = summary.get(outcome, 0) + 1
+    print(json.dumps({"matrix": str(target), "rows": len(matrix), "outcomes": summary}, ensure_ascii=False))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -192,6 +216,11 @@ def main() -> int:
     report = subparsers.add_parser("report", help="Сводка нормализованных awards")
     report.add_argument("--awards", required=True)
     report.set_defaults(func=command_report)
+    coverage = subparsers.add_parser("coverage", help="Связать awards с сохранённым crawler snapshot")
+    coverage.add_argument("--awards", required=True)
+    coverage.add_argument("--snapshot", required=True)
+    coverage.add_argument("--output", required=True)
+    coverage.set_defaults(func=command_coverage)
     args = parser.parse_args()
     return args.func(args)
 

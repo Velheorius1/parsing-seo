@@ -335,3 +335,27 @@ def award_in_window(award: Dict[str, Any], date_from: str, date_to: str) -> Opti
     except ValueError:
         return None
     return date.fromisoformat(date_from) <= value <= date.fromisoformat(date_to)
+
+
+def historical_coverage(award: Dict[str, Any], crawler_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Классифицирует только доказательства из snapshot, не изобретая sent_at.
+
+    Строка фида результатов появляется после дедлайна и потому не подтверждает
+    своевременный алерт. ``telegram_message_id`` без времени отправки также не
+    позволяет доказать timely capture.
+    """
+    procedure_id = str(award.get("procedure_id") or "")
+    suffix = "/lot/%s" % procedure_id
+    matched = [row for row in crawler_rows if str(row.get("source_url") or "").endswith(suffix)]
+    if not matched:
+        return {"outcome": "unknown", "timely": None, "reason": "no_snapshot_match", "rows": []}
+    active = [row for row in matched if row.get("deadline")]
+    if not active:
+        return {"outcome": "late_result_only", "timely": False,
+                "reason": "only_result_rows", "rows": matched}
+    if any(row.get("telegram_sent_at") for row in active):
+        return {"outcome": "timely_push", "timely": True,
+                "reason": "active_row_with_sent_timestamp", "rows": active}
+    if any(row.get("alert_seq") is not None or row.get("telegram_message_id") is not None for row in active):
+        return {"outcome": "unknown", "timely": None, "reason": "message_time_missing", "rows": active}
+    return {"outcome": "unknown", "timely": None, "reason": "active_row_without_alert_evidence", "rows": active}
