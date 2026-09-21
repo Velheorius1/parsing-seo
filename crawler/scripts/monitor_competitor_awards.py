@@ -90,6 +90,7 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
     ``not_collected`` rather than silently omitted.
     """
     old = prior_state.get("sources") or {}
+    bootstrap = not bool(old)
     statuses, new_awards, candidate_state = [], [], {}
     for source_id, label in SOURCE_PASSPORT:
         run = source_runs.get(source_id) or {"status": "not_collected"}
@@ -101,7 +102,8 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
             previous = set((old.get(source_id) or {}).get("award_keys") or [])
             entry["qualified_awards"] = len(current)
             entry["new_awards"] = len([row for row in current if row["key"] not in previous])
-            new_awards.extend(row for row in current if row["key"] not in previous)
+            if not bootstrap:
+                new_awards.extend(row for row in current if row["key"] not in previous)
             candidate_state[source_id] = {"award_keys": sorted(row["key"] for row in current),
                                           "captured_at": run.get("captured_at")}
         else:
@@ -112,7 +114,7 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
             if source_id in old:
                 candidate_state[source_id] = old[source_id]
         statuses.append(entry)
-    return {"sources": statuses, "new_awards": new_awards,
+    return {"sources": statuses, "new_awards": new_awards, "bootstrap": bootstrap,
             "state_candidate": {"sources": candidate_state},
             "all_sources_reported": len(statuses) == len(SOURCE_PASSPORT)}
 
@@ -155,6 +157,8 @@ def main() -> int:
                       "all_sources_reported": report.get("all_sources_reported"),
                       "new_awards": len(report["new_awards"]), "state_advanced": report["state_advanced"]},
                      ensure_ascii=False))
+    if args.source_runs:
+        return 0 if report["all_sources_reported"] else 2
     return 0 if report["snapshot_complete"] else 2
 
 

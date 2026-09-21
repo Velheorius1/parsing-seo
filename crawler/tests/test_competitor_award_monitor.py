@@ -36,6 +36,14 @@ def test_all_exchange_report_keeps_unavailable_rows_and_preserves_their_state():
     assert result["state_candidate"]["sources"]["uzex_direct"] == prior["sources"]["uzex_direct"]
 
 
+def test_first_multi_source_run_is_a_silent_baseline():
+    result = multi_source_delta({"etender_deals": {"status": "complete", "awards": [
+        {"winner_inn": "304788646", "amount": 20000001, "currency": "UZS", "award_id": "A1"}]}}, {})
+    assert result["bootstrap"] is True
+    assert result["new_awards"] == []
+    assert result["state_candidate"]["sources"]["etender_deals"]["award_keys"] == ["etender_deals:304788646:A1"]
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failures = 0
