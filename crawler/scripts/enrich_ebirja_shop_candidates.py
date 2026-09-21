@@ -104,6 +104,7 @@ def main() -> int:
     candidates = candidate_rows(snapshot, registry)
     results = enrich(candidates, args.max_details)
     output = {"captured_at": datetime.now(timezone.utc).isoformat(), "mode": "public_api_read_only_bounded",
+              "archive_complete": snapshot.get("complete") is True,
               "candidate_count": len(candidates), "fetched_count": len(results), "max_details": args.max_details,
               "results": results}
     target = Path(args.output)
