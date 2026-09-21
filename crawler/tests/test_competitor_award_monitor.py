@@ -1,6 +1,6 @@
 import sys
 
-from crawler.scripts.monitor_competitor_awards import delta
+from crawler.scripts.monitor_competitor_awards import SOURCE_PASSPORT, delta, multi_source_delta
 
 
 def _snapshot(complete=True, fetched=1):
@@ -20,6 +20,20 @@ def test_incomplete_detail_snapshot_never_qualifies_for_state_advance():
     result = delta(_snapshot(fetched=0), {"award_keys": []})
     assert result["snapshot_complete"] is False
     assert len(result["new_awards"]) == 1
+
+
+def test_all_exchange_report_keeps_unavailable_rows_and_preserves_their_state():
+    prior = {"sources": {"uzex_direct": {"award_keys": ["uzex_direct:304788646:OLD"]}}}
+    result = multi_source_delta({"etender_deals": {"status": "complete", "awards": [
+        {"winner_inn": "304788646", "amount": 20000001, "currency": "UZS", "award_id": "A1"}]},
+                                 "xt_xarid": {"status": "winner_unobservable"}}, prior)
+    assert result["all_sources_reported"] is True
+    assert len(result["sources"]) == len(SOURCE_PASSPORT)
+    assert result["new_awards"][0]["key"] == "etender_deals:304788646:A1"
+    statuses = {row["source_id"]: row["status"] for row in result["sources"]}
+    assert statuses["xt_xarid"] == "winner_unobservable"
+    assert statuses["hayotbirja"] == "not_collected"
+    assert result["state_candidate"]["sources"]["uzex_direct"] == prior["sources"]["uzex_direct"]
 
 
 if __name__ == "__main__":

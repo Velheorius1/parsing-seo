@@ -15,6 +15,22 @@ from typing import Any, Dict, List
 from crawler.core.competitor_audit import above_threshold, normalize_inn
 
 
+# Every weekly report must contain each of these rows.  ``winner_unobservable``
+# and ``auth_required`` are useful outcomes: treating either as an empty list
+# of awards would fabricate a zero-result claim.
+SOURCE_PASSPORT = (
+    ("etender_deals", "ETender UZEX Deals"),
+    ("uzex_direct", "UZEX/Xarid Direct"),
+    ("ebirja_shop", "Ebirja E-shop contracts"),
+    ("ebirja_auction", "Ebirja auction contracts"),
+    ("ebirja_tender", "Ebirja tender contracts"),
+    ("ebirja_selection", "Ebirja selection contracts"),
+    ("cooperation_contracts", "Cooperation contracts"),
+    ("xt_xarid", "XT-Xarid public procedures"),
+    ("hayotbirja", "Hayotbirja public procedures (XT mirror)"),
+)
+
+
 def qualified_awards(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
     awards = []
     for item in snapshot.get("results") or []:
@@ -48,6 +64,59 @@ def delta(snapshot: Dict[str, Any], prior_state: Dict[str, Any]) -> Dict[str, An
                                 "captured_at": snapshot.get("captured_at")}}
 
 
+def _qualified_source_awards(source_id: str, source_run: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Validate generic collector output before it can become a digest event."""
+    awards = []
+    for row in source_run.get("awards") or []:
+        winner_inn = normalize_inn(row.get("winner_inn"))
+        if winner_inn is None or above_threshold(row.get("amount"), row.get("currency")) is not True:
+            continue
+        contract = row.get("contract_number") or row.get("award_id") or row.get("procedure_id")
+        if not contract:
+            continue
+        event = dict(row)
+        event["key"] = "%s:%s:%s" % (source_id, winner_inn, contract)
+        event["winner_inn"] = winner_inn
+        awards.append(event)
+    return awards
+
+
+def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict[str, Any]) -> Dict[str, Any]:
+    """Build an all-exchange report without advancing incomplete source state.
+
+    ``source_runs`` is intentionally collector-neutral: ETender, Direct,
+    Ebirja and Cooperation can supply their own receipts, while XT/Hayot can
+    honestly report ``winner_unobservable``.  Absent sources are rendered as
+    ``not_collected`` rather than silently omitted.
+    """
+    old = prior_state.get("sources") or {}
+    statuses, new_awards, candidate_state = [], [], {}
+    for source_id, label in SOURCE_PASSPORT:
+        run = source_runs.get(source_id) or {"status": "not_collected"}
+        status = str(run.get("status") or "not_collected")
+        entry = {"source_id": source_id, "label": label, "status": status,
+                 "detail": run.get("detail")}
+        if status == "complete":
+            current = _qualified_source_awards(source_id, run)
+            previous = set((old.get(source_id) or {}).get("award_keys") or [])
+            entry["qualified_awards"] = len(current)
+            entry["new_awards"] = len([row for row in current if row["key"] not in previous])
+            new_awards.extend(row for row in current if row["key"] not in previous)
+            candidate_state[source_id] = {"award_keys": sorted(row["key"] for row in current),
+                                          "captured_at": run.get("captured_at")}
+        else:
+            entry["qualified_awards"] = None
+            entry["new_awards"] = None
+            # Preserve prior state on incomplete / unobservable / auth-required
+            # runs so a temporary failure can never make an award look new/old.
+            if source_id in old:
+                candidate_state[source_id] = old[source_id]
+        statuses.append(entry)
+    return {"sources": statuses, "new_awards": new_awards,
+            "state_candidate": {"sources": candidate_state},
+            "all_sources_reported": len(statuses) == len(SOURCE_PASSPORT)}
+
+
 def _read(path: Path, fallback: Dict[str, Any]) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else fallback
 
@@ -59,19 +128,31 @@ def _write(path: Path, value: Dict[str, Any]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--snapshot", required=True)
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument("--snapshot", help="legacy bounded Ebirja snapshot")
+    input_group.add_argument("--source-runs", help="all-exchange source-run manifest JSON")
     parser.add_argument("--state", required=True, help="missing file means first-run baseline")
     parser.add_argument("--output", required=True)
     parser.add_argument("--advance-state", action="store_true", help="write state only if snapshot is complete")
     args = parser.parse_args()
-    report = delta(_read(Path(args.snapshot), {}), _read(Path(args.state), {"award_keys": []}))
+    state_path = Path(args.state)
+    prior = _read(state_path, {"award_keys": []})
+    if args.source_runs:
+        report = multi_source_delta(_read(Path(args.source_runs), {}), prior)
+        complete_sources = [row["source_id"] for row in report["sources"] if row["status"] == "complete"]
+        report["state_safe_sources"] = complete_sources
+        can_advance = bool(complete_sources)
+    else:
+        report = delta(_read(Path(args.snapshot), {}), prior)
+        can_advance = report["snapshot_complete"]
     report["generated_at"] = datetime.now(timezone.utc).isoformat()
     report["state_advanced"] = False
-    if args.advance_state and report["snapshot_complete"]:
-        _write(Path(args.state), report["state_candidate"])
+    if args.advance_state and can_advance:
+        _write(state_path, report["state_candidate"])
         report["state_advanced"] = True
     _write(Path(args.output), report)
-    print(json.dumps({"output": args.output, "snapshot_complete": report["snapshot_complete"],
+    print(json.dumps({"output": args.output, "snapshot_complete": report.get("snapshot_complete"),
+                      "all_sources_reported": report.get("all_sources_reported"),
                       "new_awards": len(report["new_awards"]), "state_advanced": report["state_advanced"]},
                      ensure_ascii=False))
     return 0 if report["snapshot_complete"] else 2
