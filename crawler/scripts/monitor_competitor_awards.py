@@ -119,6 +119,12 @@ def _qualified_source_awards(source_id: str, source_run: Dict[str, Any]) -> List
     """Validate generic collector output before it can become a digest event."""
     awards = []
     for row in source_run.get("awards") or []:
+        # UZEX collectors distinguish a participant from the actual winner.
+        # A missing or false outcome is not sufficient evidence for a weekly
+        # competitor-win report, even when the bidder, amount and contract ID
+        # otherwise match every gate.
+        if source_id in ("etender_deals", "uzex_direct") and row.get("is_win") is not True:
+            continue
         # The bounded UZEX public collector emits audit-shaped records
         # (final_total/evidence_url).  The weekly monitor historically expected
         # manifest-shaped amount/source_url and silently discarded those real
@@ -139,7 +145,7 @@ def _qualified_source_awards(source_id: str, source_run: Dict[str, Any]) -> List
         event["key"] = "%s:%s:%s" % (source_id, winner_inn, contract)
         event["winner_inn"] = winner_inn
         fingerprint = {key: event.get(key) for key in ("winner_inn", "contract_number", "award_id", "procedure_id",
-                                                        "amount", "currency", "title", "status")}
+                                                        "amount", "currency", "title", "status", "is_win")}
         event["content_hash"] = hashlib.sha256(json.dumps(fingerprint, ensure_ascii=False, sort_keys=True,
                                                             default=str).encode("utf-8")).hexdigest()
         awards.append(event)

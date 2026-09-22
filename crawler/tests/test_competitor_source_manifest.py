@@ -11,6 +11,7 @@ def test_manifest_contains_every_exchange_and_never_converts_limits_to_zero():
                      "final_total": 30000000, "currency": "UZS", "award_id": "A1"}], [], ebirja)
     assert len(result) == 9
     assert result["etender_deals"]["status"] == "complete"
+    assert result["etender_deals"]["awards"][0]["is_win"] is True
     assert result["ebirja_shop"]["awards"][0]["winner_inn"] == "205353003"
     assert result["cooperation_contracts"]["status"] == "currency_unobservable"
     assert result["xt_xarid"]["status"] == "winner_unobservable"
