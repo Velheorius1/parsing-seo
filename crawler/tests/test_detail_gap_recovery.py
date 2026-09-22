@@ -1,6 +1,9 @@
 """Pure contracts for bounded detail-gap recovery."""
 import sys
+import json
+import tempfile
 import types
+from pathlib import Path
 
 if "crawler.config.settings" not in sys.modules:
     module = types.ModuleType("crawler.config.settings")
@@ -13,7 +16,8 @@ if "crawler.config.settings" not in sys.modules:
 
 from crawler.core.models import SourceConfig
 from crawler.scripts.recover_detail_gap import (
-    candidate_ids, detail_text, parse_gap, update_payload,
+    candidate_ids, detail_id_for_row, detail_text, load_targets, parse_gap,
+    update_payload,
 )
 
 
@@ -45,6 +49,36 @@ def test_recovery_update_preserves_metadata_and_prepends_detail_once():
     assert payload["search_text"].startswith("Картхолдер картонный")
     assert payload["extra_info"]["buyer"] == "Банк"
     assert payload["extra_info"]["_detail_text"] == "Картхолдер картонный"
+
+
+def test_detail_id_uses_source_url_when_external_id_is_a_display_number():
+    row = {
+        "external_id": "26111006513690",
+        "source_url": "https://etender.uzex.uz/lot/513690",
+    }
+    assert detail_id_for_row(row, ["513690", "513708"]) == "513690"
+
+
+def test_detail_id_prefers_exact_external_id_for_xarid():
+    row = {
+        "external_id": "24542",
+        "source_url": "https://xarid.uzex.uz/competition/24542",
+    }
+    assert detail_id_for_row(row, ["24542"]) == "24542"
+
+
+def test_exact_target_manifest_is_deduplicated_and_validated():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "targets.json"
+        path.write_text(json.dumps({"targets": [
+            {"source": "ETender UZEX", "detail_id": "513690"},
+            {"source": "ETender UZEX", "detail_id": "513690"},
+            {"source": "Xarid Конкурсы", "detail_id": 24542},
+        ]}), encoding="utf-8")
+        assert load_targets(str(path)) == [
+            ("ETender UZEX", "513690"),
+            ("Xarid Конкурсы", "24542"),
+        ]
 
 
 if __name__ == "__main__":
