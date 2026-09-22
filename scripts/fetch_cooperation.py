@@ -81,6 +81,13 @@ ALERT_KEYWORDS = (
 
 _MIN_STEM = 4
 
+# PostgREST encodes every id into a single `in_(...)` filter. The former 300-id
+# batches intermittently hit the proxy/gateway limit in production (502/504),
+# after which the whole Cooperation source stopped before upsert and alerting.
+# Fifty keeps normal queries small; recursive splitting below preserves a hard
+# fail-closed boundary if the upstream limit changes again.
+_ID_QUERY_CHUNK = 50
+
 
 # ── Keyword matching (same logic as crawler notifier) ───────────
 
@@ -584,9 +591,18 @@ def _ids_present(client, source_name, candidate_ids, only_alerted=False):
     alert was sent. Cost is now O(fetched), not O(table), and shrinks nothing else."""
     from crawler.core.db import query_with_retry
     found = set()  # type: Set[str]
-    chunk = 300  # keep the URL well under PostgREST/proxy length limits
-    for i in range(0, len(candidate_ids), chunk):
-        part = candidate_ids[i:i + chunk]
+
+    def _query_part(part, label):
+        # type: (List[str], str) -> Set[str]
+        """Query one bounded group; isolate an upstream size failure.
+
+        A failed group is never treated as "no rows": that would turn known
+        alerted lots into false-new candidates.  Split until the query works,
+        and let a one-id failure surface to the caller for an honest source
+        failure rather than silently changing alert behaviour.
+        """
+        if not part:
+            return set()
 
         def _q(p=part):
             q = client.table('tenders').select('external_id').eq('source', source_name).in_('external_id', p)
@@ -594,9 +610,22 @@ def _ids_present(client, source_name, candidate_ids, only_alerted=False):
                 q = q.not_.is_('alert_seq', 'null')
             return q.execute()
 
-        resp = query_with_retry(_q, label='coop ids %s[%d]' % ('alerted' if only_alerted else 'existing', i))
-        for r in (resp.data or []):
-            found.add(r['external_id'])
+        try:
+            resp = query_with_retry(
+                _q, label='coop ids %s %s' % ('alerted' if only_alerted else 'existing', label))
+            return set(r['external_id'] for r in (resp.data or []) if r.get('external_id'))
+        except Exception as exc:
+            if len(part) <= 1:
+                logger.error('[Coop] id lookup failed even for one id (%s): %s',
+                             label, str(exc)[:160])
+                raise
+            middle = len(part) // 2
+            logger.warning('[Coop] id lookup batch %s (%d ids) failed; splitting: %s',
+                           label, len(part), str(exc)[:120])
+            return _query_part(part[:middle], label + 'a') | _query_part(part[middle:], label + 'b')
+
+    for i in range(0, len(candidate_ids), _ID_QUERY_CHUNK):
+        found.update(_query_part(candidate_ids[i:i + _ID_QUERY_CHUNK], str(i)))
     return found
 
 

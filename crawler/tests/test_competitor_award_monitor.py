@@ -1,7 +1,7 @@
 import sys
 
 from crawler.scripts.monitor_competitor_awards import (
-    SOURCE_PASSPORT, build_digest, delta, deliver_report, multi_source_delta,
+    SOURCE_PASSPORT, _qualified_source_awards, build_digest, delta, deliver_report, multi_source_delta,
 )
 
 
@@ -54,6 +54,16 @@ def test_changed_confirmed_award_is_reported_without_becoming_new():
     result = multi_source_delta(run, baseline)
     assert result["new_awards"] == []
     assert len(result["changed_awards"]) == 1
+
+
+def test_public_uzex_audit_shape_is_normalized_before_threshold_gate():
+    run = {"awards": [{"winner_inn": "304788646", "award_id": "A-1",
+                        "final_total": "25000001", "currency": "UZS",
+                        "evidence_url": "https://etender.uzex.uz/lot/1", "title": "Печать"}]}
+    awards = _qualified_source_awards("etender_deals", run)
+    assert len(awards) == 1
+    assert awards[0]["amount"] == "25000001"
+    assert awards[0]["source_url"].endswith("/1")
 
 
 def test_bootstrap_and_empty_delta_do_not_call_telegram():

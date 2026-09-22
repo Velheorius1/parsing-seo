@@ -38,6 +38,8 @@ import sys
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
+import yaml
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -87,7 +89,7 @@ ALERT_MAX_BACKOFF_SECONDS = 24 * 3600
 # Supabase FAIL collapses the alert body; these components are treated as
 # UNKNOWN (not FAIL) in the rendered body so the alert signature stays stable.
 SUPABASE_DEPENDENT_COMPONENTS = (
-    "freshness", "sources", "sources.low", "sources.heavy", "telegram",
+    "freshness", "freshness.full_api", "sources", "sources.low", "sources.heavy", "telegram",
     "token.", "geo.", "geo_sources", "eimzo_auth",
 )
 
@@ -202,8 +204,8 @@ class HealthCheck:
         try:
             client = self._get_client()
             result = client.table("crawl_runs").select(
-                "started_at, total_fetched, total_new"
-            ).order("started_at", desc=True).limit(5).execute()
+                "started_at, total_fetched, total_new, source_filter, errors_count, error_messages"
+            ).order("started_at", desc=True).limit(100).execute()
 
             if not result.data:
                 self._add("freshness", WARN, "No crawl runs found")
@@ -227,8 +229,53 @@ class HealthCheck:
                     self._add("freshness", WARN, "Could not parse crawl time: %s" % started[:30])
             else:
                 self._add("freshness", WARN, "No started_at in crawl_run")
+            self._check_full_api_freshness(result.data)
         except Exception as exc:
             self._add("freshness", FAIL, "Could not check freshness: %s" % str(exc)[:80])
+
+    def _check_full_api_freshness(self, runs):
+        # type: (List[Dict[str, Any]]) -> None
+        """Check the actual all-non-Telegram profile, not any recent subset."""
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "sources.yaml")
+        try:
+            with open(config_path, "r", encoding="utf-8") as fh:
+                raw = yaml.safe_load(fh) or {}
+            expected = set(
+                item.get("id") for item in (raw.get("sources") or [])
+                if item.get("id") and item.get("enabled", True) and item.get("adapter") != "telegram"
+            )
+        except Exception as exc:
+            self._add("freshness.full_api", WARN,
+                      "Cannot load full API profile: %s" % str(exc)[:80])
+            return
+        full_runs = [row for row in runs if set(row.get("source_filter") or []) == expected]
+        if not full_runs:
+            self._add("freshness.full_api", FAIL,
+                      "No completed full API crawl in the last 100 runs")
+            return
+        latest = full_runs[0]
+        started = latest.get("started_at") or ""
+        try:
+            age_hours = (datetime.now(timezone.utc) - datetime.fromisoformat(
+                started.replace("Z", "+00:00"))).total_seconds() / 3600
+        except Exception:
+            self._add("freshness.full_api", WARN,
+                      "Could not parse full API crawl time: %s" % started[:30])
+            return
+        errors = int(latest.get("errors_count") or 0)
+        if errors:
+            self._add("freshness.full_api", FAIL,
+                      "Latest full API crawl %.1fh ago ended with %d error(s)" % (age_hours, errors))
+        elif age_hours < 4:
+            self._add("freshness.full_api", OK,
+                      "Full API crawl %.1fh ago (%d fetched, %d new)" % (
+                          age_hours, latest.get("total_fetched", 0), latest.get("total_new", 0)))
+        elif age_hours < 8:
+            self._add("freshness.full_api", WARN,
+                      "Full API crawl %.1fh ago (may be stale)" % age_hours)
+        else:
+            self._add("freshness.full_api", FAIL,
+                      "Full API crawl %.1fh ago (STALE!)" % age_hours)
 
     # ── Check 3: Source Health ──
 

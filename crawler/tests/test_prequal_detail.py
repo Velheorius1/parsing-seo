@@ -71,6 +71,15 @@ def test_positions_read_product_names():
     assert positions_from_detail(data) == ["Услуга публикации статьи"]
 
 
+def test_positions_include_material_description_when_available():
+    """Название может маскировать предмет, а описание содержит материал."""
+    data = {"details": [{"productName": "Подарочная корзина",
+                         "description": "Meva va yong'oq mahsulotlari"}]}
+    assert positions_from_detail(data) == [
+        "Подарочная корзина — Meva va yong'oq mahsulotlari"
+    ]
+
+
 def test_repeated_position_is_collapsed():
     """У лота 100279 «Услуга по установке баннера» стоит ДВАЖДЫ — для модели
     это одно слово дважды, только шум и лишние токены."""
