@@ -119,13 +119,23 @@ def _qualified_source_awards(source_id: str, source_run: Dict[str, Any]) -> List
     """Validate generic collector output before it can become a digest event."""
     awards = []
     for row in source_run.get("awards") or []:
+        # The bounded UZEX public collector emits audit-shaped records
+        # (final_total/evidence_url).  The weekly monitor historically expected
+        # manifest-shaped amount/source_url and silently discarded those real
+        # wins at the price threshold.
+        amount = row.get("amount")
+        if amount is None:
+            amount = row.get("final_total")
+        source_url = row.get("source_url") or row.get("evidence_url")
         winner_inn = normalize_inn(row.get("winner_inn"))
-        if winner_inn is None or above_threshold(row.get("amount"), row.get("currency")) is not True:
+        if winner_inn is None or above_threshold(amount, row.get("currency")) is not True:
             continue
         contract = row.get("contract_number") or row.get("award_id") or row.get("procedure_id")
         if not contract:
             continue
         event = dict(row)
+        event["amount"] = amount
+        event["source_url"] = source_url
         event["key"] = "%s:%s:%s" % (source_id, winner_inn, contract)
         event["winner_inn"] = winner_inn
         fingerprint = {key: event.get(key) for key in ("winner_inn", "contract_number", "award_id", "procedure_id",

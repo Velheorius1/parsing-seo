@@ -128,6 +128,14 @@ def _passes_price_gate(row, min_price):
         return True
 
 
+def _promotion_block_reason(candidate):
+    """Return a safety reason when live matching cannot preserve shadow rules."""
+    if candidate.get("all_of"):
+        return ("контекстный кандидат: live alert_keywords не поддерживает all_of; "
+                "нужен отдельный production matcher")
+    return None
+
+
 def _to_tender(r):
     # extra_info intentionally omitted — shadow only needs title/search_text/org for
     # matching + judging, and DB extra_info holds int/bool values that fail the
@@ -252,7 +260,9 @@ async def report(send_tg=False):
     worth = []
     for cid, r in sorted(results.items(), key=lambda kv: -(kv[1].get("new_catches") or 0)):
         pct = r.get("in_scope_pct")
-        flag = "✅" if (pct is not None and pct >= 60 and (r.get("new_catches") or 0) >= 3) else "·"
+        candidate = next((c for c in st.get("candidates", []) if c.get("id") == cid), {})
+        flag = "✅" if (pct is not None and pct >= 60 and (r.get("new_catches") or 0) >= 3 and
+                         _promotion_block_reason(candidate) is None) else "·"
         lines.append("%s *%s* (%s): поймал бы %d новых, in-scope ~%s%%"
                      % (flag, cid, r.get("type"), r.get("new_catches") or 0,
                         pct if pct is not None else "?"))
@@ -281,6 +291,10 @@ def promote(cand_id):
     cand = next((c for c in st.get("candidates", []) if c["id"] == cand_id), None)
     if not cand:
         print("нет кандидата %s" % cand_id); return 1
+    blocked = _promotion_block_reason(cand)
+    if blocked:
+        print("не промоутится %s: %s" % (cand_id, blocked))
+        return 2
     c = _client()
     if cand["type"] == "keyword":
         row = (c.table("crawler_settings").select("value").eq("key", "alert_keywords")

@@ -12,7 +12,9 @@ if "crawler.config.settings" not in sys.modules:
     )
     sys.modules["crawler.config.settings"] = _m
 
-from crawler.scripts.shadow_search import AUDIT_CANDIDATES, _matches, _passes_price_gate
+from crawler.scripts.shadow_search import (
+    AUDIT_CANDIDATES, _matches, _passes_price_gate, _promotion_block_reason,
+)
 
 
 def _candidate(cid):
@@ -46,6 +48,11 @@ def test_price_gate_matches_production_fail_open_semantics():
     assert _passes_price_gate({"price": 20_000_000}, 20_000_000)
     assert _passes_price_gate({"price": None}, 20_000_000)
     assert _passes_price_gate({"price": "unknown"}, 20_000_000)
+
+
+def test_contextual_shadow_candidate_cannot_be_promoted_as_plain_keyword():
+    assert _promotion_block_reason(_candidate("audit-blank-context"))
+    assert _promotion_block_reason(_candidate("audit-yoriqnoma")) is None
 
 
 if __name__ == "__main__":
