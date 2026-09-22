@@ -47,6 +47,20 @@ def test_all_exchange_report_keeps_unavailable_rows_and_preserves_their_state():
     assert result["state_candidate"]["sources"]["uzex_direct"] == prior["sources"]["uzex_direct"]
 
 
+def test_partial_identity_keeps_old_awards_and_reports_verified_new_awards():
+    old_key = "ebirja_shop:205353003:old"
+    prior = {"sources": {"ebirja_shop": {"award_keys": [old_key], "content_hashes": {old_key: "old"}}}}
+    result = multi_source_delta({"ebirja_shop": {"status": "partial_identity", "awards": [{
+        "winner_inn": "205353003", "contract_number": "new", "amount": 25000001,
+        "currency": "UZS", "product_title": "Картхолдер", "description": "картон",
+    }]}}, prior)
+
+    state = result["state_candidate"]["sources"]["ebirja_shop"]
+    assert result["all_sources_reported"] is False
+    assert [row["key"] for row in result["new_awards"]] == ["ebirja_shop:205353003:new"]
+    assert set(state["award_keys"]) == {old_key, "ebirja_shop:205353003:new"}
+
+
 def test_first_multi_source_run_is_a_silent_baseline():
     result = multi_source_delta({"etender_deals": {"status": "complete", "awards": [
         {"winner_inn": "304788646", "amount": 20000001, "currency": "UZS", "award_id": "A1",
