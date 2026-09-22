@@ -66,6 +66,26 @@ async def _fetch_source(adapter: BaseAdapter) -> List[RawTender]:
     return await adapter.fetch()
 
 
+def _record_adapter_result(adapter, result, crawl_log):  # type: ignore[no-untyped-def]
+    """Record both thrown failures and adapters' explicit partial failures."""
+    sid = adapter.config.id
+    if isinstance(result, Exception):
+        error = str(result)[:200]
+        logger.error("[%s] Exception: %s", sid, error)
+        crawl_log.log_source_result(sid, 0, error=error)
+        return [], {"count": 0, "skipped_no_auth": False, "error": error}
+
+    rows = list(result)
+    reported_error = getattr(adapter, "last_error", None)
+    error = str(reported_error)[:200] if reported_error else None
+    crawl_log.log_source_result(sid, len(rows), error=error)
+    return rows, {
+        "count": len(rows),
+        "skipped_no_auth": getattr(adapter, "last_skipped_no_auth", False),
+        "error": error,
+    }
+
+
 async def run(
     config_path: str,
     dry_run: bool = False,
@@ -176,21 +196,10 @@ async def _run_pipeline(
 
     for adapter, result in zip(all_adapters, all_results):
         sid = adapter.config.id
-        if isinstance(result, Exception):
-            err = str(result)[:200]
-            logger.error("[%s] Exception: %s", sid, err)
-            stats[sid] = 0
-            crawl_log.log_source_result(sid, 0, error=err)
-            outcomes[sid] = {"count": 0, "skipped_no_auth": False, "error": err}
-        else:
-            stats[sid] = len(result)
-            all_tenders.extend(result)
-            crawl_log.log_source_result(sid, len(result))
-            outcomes[sid] = {
-                "count": len(result),
-                "skipped_no_auth": getattr(adapter, "last_skipped_no_auth", False),
-                "error": getattr(adapter, "last_error", None),
-            }
+        rows, outcome = _record_adapter_result(adapter, result, crawl_log)
+        stats[sid] = outcome["count"]
+        all_tenders.extend(rows)
+        outcomes[sid] = outcome
 
     # Log summary
     total = sum(stats.values())
@@ -239,9 +248,25 @@ async def _run_pipeline(
     crawl_log.log_enrichment(enriched_count, ai_calls=enriched_count)
 
     # Upsert to Supabase
-    upserted, new_tenders = await upsert_tenders(all_tenders, dry_run=dry_run)
-    logger.info("Upserted %d / %d tenders to Supabase (%d new)", upserted, total, len(new_tenders))
-    crawl_log.log_upsert(upserted, len(new_tenders))
+    upsert_outcome = await upsert_tenders(all_tenders, dry_run=dry_run)
+    upserted, new_tenders = upsert_outcome
+    deferred_count = upsert_outcome.deferred_count
+    failed_count = upsert_outcome.failed_count
+    if deferred_count:
+        crawl_log.log_pipeline_error(
+            "upsert_lookup",
+            RuntimeError("%d tenders deferred after failed existence lookup" % deferred_count),
+        )
+    if failed_count:
+        crawl_log.log_pipeline_error(
+            "upsert_write",
+            RuntimeError("%d tenders failed database upsert" % failed_count),
+        )
+    logger.info(
+        "Upserted %d / %d tenders to Supabase (%d new, %d deferred, %d write failures)",
+        upserted, total, len(new_tenders), deferred_count, failed_count,
+    )
+    crawl_log.log_upsert(upserted, len(new_tenders), deferred_count, failed_count)
 
     # Предмет лота у предквалификаций — ДО гейтов (22.08). Список GetLots
     # отдаёт только категорию, поэтому и ключевой гейт, и AI до сих пор судили
@@ -309,12 +334,11 @@ async def _run_pipeline(
     if not dry_run and not lite:
         from crawler.core.notifier import send_healthcheck
 
-        errors = [
-            sid for sid, result in zip(
-                [a.config.id for a in all_adapters], all_results
-            )
-            if isinstance(result, Exception)
-        ]
+        errors = [sid for sid, outcome in outcomes.items() if outcome.get("error")]
+        if deferred_count:
+            errors.append("database_lookup")
+        if failed_count:
+            errors.append("database_upsert")
         await send_healthcheck(stats, len(new_tenders), alerts_sent, errors)
 
     # Zero-result tracker (task #6, RISK-1) — alerts sources that returned

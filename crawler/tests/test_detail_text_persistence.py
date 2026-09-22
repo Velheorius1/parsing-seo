@@ -17,7 +17,7 @@ if "crawler.config.settings" not in sys.modules:
     sys.modules["crawler.config.settings"] = _m
 
 from crawler.core import db
-from crawler.core.db import _restore_persisted_detail, upsert_tenders
+from crawler.core.db import _get_existing_rows, _restore_persisted_detail, upsert_tenders
 from crawler.core.models import RawTender
 from crawler.core.notifier import _format_alert
 from crawler.adapters.api import ApiAdapter
@@ -146,11 +146,97 @@ def test_lookup_failure_defers_tender_without_write_or_false_new_alert():
         supabase_url="fake", supabase_service_role_key="fake", batch_size=100,
     )
     with patch.object(db, "_get_client", return_value=client), patch.object(db, "settings", settings):
-        upserted, new_tenders = asyncio.run(upsert_tenders([_tender(detail_persistence=True)]))
+        outcome = asyncio.run(upsert_tenders([_tender(detail_persistence=True)]))
 
-    assert upserted == 0
-    assert new_tenders == []
+    assert outcome.total_upserted == 0
+    assert outcome.new_tenders == []
+    assert outcome.deferred_count == 1
     assert client.upsert_rows == []
+
+
+def test_failed_upsert_is_not_returned_as_a_new_alert_candidate():
+    client = _MemoryClient()
+    client.execute = lambda: (_ for _ in ()).throw(RuntimeError("upsert unavailable")) \
+        if client.operation == "upsert" else types.SimpleNamespace(data=[])
+
+    with patch("time.sleep", return_value=None):
+        outcome = _upsert_with_client([_tender()], client)
+
+    assert outcome.total_upserted == 0
+    assert outcome.new_tenders == []
+    assert outcome.failed_count == 1
+
+
+class _ChunkedLookupClient:
+    def __init__(self, fail_first=False, fail_prefix=None):
+        self.fail_first = fail_first
+        self.fail_prefix = fail_prefix
+        self.calls = []
+        self.current_ids = []
+
+    def table(self, *_args):
+        return self
+
+    def select(self, *_args):
+        return self
+
+    def eq(self, *_args):
+        return self
+
+    def in_(self, _field, values):
+        self.current_ids = list(values)
+        return self
+
+    def execute(self):
+        ids = list(self.current_ids)
+        self.calls.append(ids)
+        if self.fail_first and len(self.calls) == 1:
+            raise RuntimeError("502 Bad Gateway")
+        if self.fail_prefix and any(value.startswith(self.fail_prefix) for value in ids):
+            raise RuntimeError("502 Bad Gateway")
+        return types.SimpleNamespace(data=[])
+
+
+def test_existing_lookup_chunks_long_id_lists_below_url_limit():
+    tenders = [
+        _tender(id="t-%d" % i, external_id="2611100651%04d" % i)
+        for i in range(205)
+    ]
+    client = _ChunkedLookupClient()
+
+    existing, unknown = _get_existing_rows(client, tenders)
+
+    assert existing == {}
+    assert unknown == set()
+    assert [len(batch) for batch in client.calls] == [100, 100, 5]
+
+
+def test_existing_lookup_retries_a_transient_gateway_failure():
+    tenders = [_tender(external_id="26111006510001")]
+    client = _ChunkedLookupClient(fail_first=True)
+
+    with patch("time.sleep", return_value=None):
+        existing, unknown = _get_existing_rows(client, tenders)
+
+    assert existing == {}
+    assert unknown == set()
+    assert len(client.calls) == 2
+
+
+def test_existing_lookup_marks_only_the_persistently_failed_chunk_unknown():
+    tenders = [
+        _tender(id="t-%d" % i, external_id=("bad-" if i < 100 else "ok-") + str(i))
+        for i in range(150)
+    ]
+    client = _ChunkedLookupClient(fail_prefix="bad-")
+
+    with patch("time.sleep", return_value=None):
+        existing, unknown = _get_existing_rows(client, tenders)
+
+    assert existing == {}
+    assert len(unknown) == 100
+    assert all(external_id.startswith("bad-") for external_id, _source in unknown)
+    assert any(len(batch) == 50 for batch in client.calls)
 
 
 class _MemoryClient:
