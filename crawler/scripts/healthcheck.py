@@ -333,6 +333,45 @@ class HealthCheck:
 
     # ── Check 4: Feedback Bot ──
 
+    def check_feedback_bot_polling(self):
+        # type: () -> None
+        """Verify that the live feedback bot can actually poll Telegram.
+
+        A running systemd unit is not proof that Telegram accepts ``getUpdates``:
+        a competing poller or configured webhook produces HTTP 409 while the
+        Python process stays alive.  Do not probe getUpdates here — that would
+        create the exact race being monitored.  The bot's own recent journal is
+        the authoritative, non-invasive observation point.
+        """
+        try:
+            result = subprocess.run(
+                ["journalctl", "-u", "parsing-feedback-bot",
+                 "--since", "5 minutes ago", "--no-pager"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                self._add("feedback_bot.polling", WARN,
+                          "Could not read feedback-bot journal (exit %s)" % result.returncode)
+                return
+
+            journal = result.stdout or ""
+            if "409 Conflict" in journal:
+                self._add("feedback_bot.polling", FAIL,
+                          "Telegram rejects getUpdates with HTTP 409 — "
+                          "check competing poller or webhook")
+            elif "getUpdates" in journal and "HTTP/1.1 200" in journal:
+                self._add("feedback_bot.polling", OK,
+                          "Recent Telegram getUpdates polling succeeded (HTTP 200)")
+            else:
+                self._add("feedback_bot.polling", WARN,
+                          "No successful getUpdates result in the last 5 minutes")
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            self._add("feedback_bot.polling", WARN,
+                      "Could not read feedback-bot journal: %s" % type(exc).__name__)
+        except Exception as exc:
+            self._add("feedback_bot.polling", WARN,
+                      "Could not check polling: %s" % str(exc)[:60])
+
     def check_feedback_bot(self):
         # type: () -> None
         """Check if feedback_bot systemd service is running (VPS only)."""
@@ -373,6 +412,7 @@ class HealthCheck:
                     self._add("feedback_bot", OK, "active, code fresh (started %s)" % ts[:20])
             except Exception:
                 self._add("feedback_bot", OK, "systemd service active (staleness unchecked)")
+            self.check_feedback_bot_polling()
         except FileNotFoundError:
             self._add("feedback_bot", WARN, "systemctl not found (not on VPS?)")
         except Exception as exc:

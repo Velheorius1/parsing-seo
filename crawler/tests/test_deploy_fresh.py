@@ -23,7 +23,7 @@ import subprocess
 import sys
 import types
 
-from crawler.scripts.healthcheck import FAIL, OK, HealthCheck, blocking_dirty
+from crawler.scripts.healthcheck import FAIL, OK, WARN, HealthCheck, blocking_dirty
 
 
 # ── blocking_dirty: what counts as a mine ──
@@ -131,6 +131,50 @@ def test_dirty_wins_over_behind_diagnosis():
     msg = _last(hc)["message"]
     assert "logs/metrics.jsonl" in msg, msg
     assert "грязн" in msg, msg
+
+
+# ── feedback polling: process active is not enough ────────────────────────
+
+def _poll_hc(journal="", returncode=0):
+    """HealthCheck with journalctl isolated from the host journal."""
+    hc = HealthCheck()
+    import crawler.scripts.healthcheck as H
+
+    H.subprocess = types.SimpleNamespace(
+        run=lambda *args, **kwargs: _Fake(journal, returncode),
+        TimeoutExpired=subprocess.TimeoutExpired,
+    )
+    return hc
+
+
+def _poll_last(hc):
+    rows = [r for r in hc.results if r["component"] == "feedback_bot.polling"]
+    assert rows, "check_feedback_bot_polling не отчитался вовсе"
+    return rows[-1]
+
+
+def test_feedback_polling_conflict_is_FAIL():
+    hc = _poll_hc('getUpdates "HTTP/1.1 409 Conflict"')
+    hc.check_feedback_bot_polling()
+    assert _poll_last(hc)["status"] == FAIL
+
+
+def test_feedback_polling_recent_success_is_OK():
+    hc = _poll_hc('getUpdates "HTTP/1.1 200 OK"')
+    hc.check_feedback_bot_polling()
+    assert _poll_last(hc)["status"] == OK
+
+
+def test_feedback_polling_without_fresh_evidence_is_WARN():
+    hc = _poll_hc('Feedback bot started. Listening for callback queries...')
+    hc.check_feedback_bot_polling()
+    assert _poll_last(hc)["status"] == WARN
+
+
+def test_feedback_polling_unreadable_journal_is_WARN():
+    hc = _poll_hc(returncode=1)
+    hc.check_feedback_bot_polling()
+    assert _poll_last(hc)["status"] == WARN
 
 
 if __name__ == "__main__":
