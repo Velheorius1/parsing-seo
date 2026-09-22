@@ -303,6 +303,16 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
             current = _qualified_source_awards(source_id, run)
             previous = set((old.get(source_id) or {}).get("award_keys") or [])
             old_hashes = (old.get(source_id) or {}).get("content_hashes") or {}
+            # A transient/capped detail lookup is absence of evidence, not an
+            # empty specification. Preserve the last confirmed fingerprint for
+            # that exact award until a later run has authoritative detail again.
+            # Other changes are delayed for this row by at most one healthy run,
+            # which is safer than a weekly false correction alert.
+            for row in current:
+                if (row.get("_specification_status") in ("unavailable", "capped") and
+                        row["key"] in previous):
+                    row["content_hash"] = old_hashes.get(row["key"])
+                    row["content_change_deferred"] = "specification_unavailable"
             entry["qualified_awards"] = len(current)
             entry["new_awards"] = len([row for row in current if row["key"] not in previous])
             entry["changed_awards"] = len([row for row in current if row["key"] in previous and

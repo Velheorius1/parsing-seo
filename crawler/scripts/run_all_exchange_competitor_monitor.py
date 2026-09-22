@@ -84,7 +84,7 @@ def build_runs(date_from: date, page_size: int, page_cap: int, max_details: int 
             try:
                 result = collect_uzex(key, date_from, page_size, page_cap)
                 awards, detail_enrichment = enrich_awards(source_id, result["awards"], detail_client.get,
-                                                          max_details=25)
+                                                          max_details=max_details)
                 runs[source_id] = {"status": "complete" if result["complete"] else "incomplete",
                                    "captured_at": result["captured_at"], "awards": awards,
                                    "detail": result["completion"], "detail_enrichment": detail_enrichment,
