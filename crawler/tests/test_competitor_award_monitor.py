@@ -1,5 +1,12 @@
 import sys
+import copy
+import json
+import tempfile
+import httpx
+from pathlib import Path
+from unittest.mock import patch
 
+from crawler.scripts import monitor_competitor_awards as monitor
 from crawler.scripts.monitor_competitor_awards import (
     SOURCE_PASSPORT, _qualified_source_awards, build_digest, delta, deliver_report, digest_batches,
     multi_source_delta, state_after_delivery,
@@ -159,13 +166,106 @@ def test_partial_delivery_advances_only_confirmed_awards():
     assert state["sources"]["etender_deals"]["award_keys"] == receipt["delivered_keys"]
 
 
+def test_network_exception_after_first_batch_keeps_confirmed_checkpoint():
+    report = {"bootstrap": False, "new_awards": _many_awards(), "changed_awards": []}
+    calls, checkpointed = [], []
+
+    def sender(_text):
+        calls.append(1)
+        if len(calls) == 2:
+            raise httpx.ConnectTimeout("simulated second-batch timeout")
+        return True
+
+    receipt = deliver_report(report, sender, on_confirm=lambda keys: checkpointed.extend(keys))
+
+    assert receipt["complete"] is False
+    assert receipt["error"] == "ConnectTimeout"
+    assert receipt["delivered_keys"] == checkpointed
+    assert checkpointed == digest_batches(report)[0]["award_keys"]
+
+
+def test_pending_outbox_is_retried_when_awards_leave_the_next_snapshot_window():
+    pending = {"new_awards": _many_awards(2), "changed_awards": []}
+    current = {"bootstrap": False, "new_awards": [], "changed_awards": []}
+
+    merged = monitor.merge_delivery_outbox(current, pending)
+    remaining = monitor.outbox_after_delivery(merged, [pending["new_awards"][0]["key"]])
+
+    assert [row["key"] for row in merged["new_awards"]] == [
+        row["key"] for row in pending["new_awards"]
+    ]
+    assert [row["key"] for row in remaining["new_awards"]] == [
+        pending["new_awards"][1]["key"]
+    ]
+
+
+def test_preview_does_not_create_or_mutate_delivery_outbox():
+    report = {"bootstrap": False, "new_awards": _many_awards(1), "changed_awards": []}
+    before = {"new_awards": _many_awards(1), "changed_awards": []}
+
+    preview = monitor.prepare_delivery_outbox(report, before, send_telegram=False)
+
+    assert preview is None
+    assert before["new_awards"][0]["key"] == report["new_awards"][0]["key"]
+
+
+def test_main_persists_first_batch_before_second_batch_network_exception():
+    awards = _many_awards()
+    candidate = {"sources": {"etender_deals": {
+        "award_keys": [row["key"] for row in awards],
+        "content_hashes": {row["key"]: "h" + str(index) for index, row in enumerate(awards)},
+        "captured_at": "now",
+    }}}
+    report = {
+        "sources": [{"source_id": "etender_deals", "status": "complete"}],
+        "new_awards": awards, "changed_awards": [], "bootstrap": False,
+        "state_candidate": candidate, "all_sources_reported": True,
+    }
+    prior = {"sources": {"etender_deals": {"award_keys": [], "content_hashes": {}}}}
+    calls = []
+
+    def sender(_text):
+        calls.append(1)
+        if len(calls) == 2:
+            raise httpx.ConnectTimeout("simulated second-batch timeout")
+        return True
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source_path, state_path = root / "source.json", root / "state.json"
+        outbox_path, output_path = root / "outbox.json", root / "output.json"
+        source_path.write_text("{}", encoding="utf-8")
+        old_argv = list(sys.argv)
+        try:
+            sys.argv = ["monitor", "--source-runs", str(source_path), "--state", str(state_path),
+                        "--outbox", str(outbox_path), "--output", str(output_path),
+                        "--send-telegram", "--advance-state"]
+            with patch.object(monitor, "_read", side_effect=lambda path, fallback:
+                              prior if Path(path) == state_path else fallback), \
+                 patch.object(monitor, "multi_source_delta", return_value=copy.deepcopy(report)), \
+                 patch.object(monitor, "_telegram_sender", side_effect=sender):
+                exit_code = monitor.main()
+        finally:
+            sys.argv = old_argv
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        outbox = json.loads(outbox_path.read_text(encoding="utf-8"))
+        receipt = json.loads(output_path.read_text(encoding="utf-8"))
+
+    first_batch = digest_batches(report)[0]["award_keys"]
+    assert exit_code == 3
+    assert state["sources"]["etender_deals"]["award_keys"] == first_batch
+    assert {row["key"] for row in outbox["new_awards"]}.isdisjoint(first_batch)
+    assert receipt["telegram_delivery"]["error"] == "ConnectTimeout"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failures = 0
     for test in tests:
         try:
             test(); print("PASS", test.__name__)
-        except AssertionError as exc:
-            print("FAIL", test.__name__, str(exc)); failures += 1
+        except Exception as exc:
+            print("FAIL", test.__name__, "%s: %s" % (type(exc).__name__, exc)); failures += 1
     print("\n%d/%d passed" % (len(tests) - failures, len(tests)))
     sys.exit(1 if failures else 0)

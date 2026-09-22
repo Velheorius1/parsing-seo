@@ -90,17 +90,83 @@ def build_digest(report: Dict[str, Any]) -> str:
     return "\n\n".join(batch["text"] for batch in digest_batches(report))
 
 
-def deliver_report(report: Dict[str, Any], sender) -> Dict[str, Any]:
-    """Deliver bounded batches, retaining exactly which award keys were confirmed."""
+def deliver_report(report: Dict[str, Any], sender, on_confirm=None) -> Dict[str, Any]:
+    """Deliver bounded batches and checkpoint each unambiguous confirmation.
+
+    ``sender`` may raise on a transport or malformed-response failure.  Those
+    failures are delivery outcomes, not process failures: callers need the
+    first confirmed batches in order to persist their recovery state.
+    """
     if report.get("bootstrap") or not ((report.get("new_awards") or []) +
                                        (report.get("changed_awards") or [])):
-        return {"complete": True, "delivered_keys": [], "failed_batch": None}
+        return {"complete": True, "delivered_keys": [], "failed_batch": None, "error": None}
     delivered = []
     for index, batch in enumerate(digest_batches(report)):
-        if not sender(batch["text"]):
-            return {"complete": False, "delivered_keys": delivered, "failed_batch": index}
+        try:
+            sent = sender(batch["text"])
+        except Exception as exc:
+            return {"complete": False, "delivered_keys": delivered, "failed_batch": index,
+                    "error": type(exc).__name__}
+        if not sent:
+            return {"complete": False, "delivered_keys": delivered, "failed_batch": index,
+                    "error": "sender_returned_false"}
+        try:
+            if on_confirm is not None:
+                on_confirm(batch["award_keys"])
+        except Exception as exc:
+            # Telegram may already have accepted the batch. Keep it pending
+            # rather than fabricate a confirmation we failed to persist.
+            return {"complete": False, "delivered_keys": delivered, "failed_batch": index,
+                    "error": "checkpoint_%s" % type(exc).__name__}
         delivered.extend(batch["award_keys"])
-    return {"complete": True, "delivered_keys": delivered, "failed_batch": None}
+    return {"complete": True, "delivered_keys": delivered, "failed_batch": None, "error": None}
+
+
+def _delivery_buckets(value: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    # Keep a deliberately small, JSON-compatible outbox schema. The bucket
+    # encodes whether a delayed record remains a new award or a correction.
+    return {
+        "new_awards": [dict(row) for row in (value.get("new_awards") or [])
+                       if isinstance(row, dict) and row.get("key")],
+        "changed_awards": [dict(row) for row in (value.get("changed_awards") or [])
+                           if isinstance(row, dict) and row.get("key")],
+    }
+
+
+def merge_delivery_outbox(report: Dict[str, Any], pending: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge durable pending events into the current delivery report.
+
+    Current evidence wins for a matching key; pending events absent from the
+    new 30-day collection window stay deliverable until confirmed.
+    """
+    current = _delivery_buckets(report)
+    pending_rows = _delivery_buckets(pending)
+    current_keys = {row["key"] for rows in current.values() for row in rows}
+    merged = {bucket: list(rows) for bucket, rows in current.items()}
+    for bucket, rows in pending_rows.items():
+        merged[bucket].extend(row for row in rows if row["key"] not in current_keys)
+    result = dict(report)
+    result.update(merged)
+    return result
+
+
+def outbox_after_delivery(outbox: Dict[str, Any], delivered_keys: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """Return the durable retry queue after removing confirmed batch keys."""
+    delivered = set(delivered_keys)
+    buckets = _delivery_buckets(outbox)
+    return {bucket: [row for row in rows if row["key"] not in delivered]
+            for bucket, rows in buckets.items()}
+
+
+def prepare_delivery_outbox(report: Dict[str, Any], pending: Dict[str, Any],
+                            send_telegram: bool) -> Any:
+    """Build an outbox only for a real, non-bootstrap delivery attempt."""
+    if not send_telegram or report.get("bootstrap"):
+        return None
+    merged = merge_delivery_outbox(report, pending)
+    if not ((merged.get("new_awards") or []) + (merged.get("changed_awards") or [])):
+        return None
+    return merged
 
 
 def state_after_delivery(prior_state: Dict[str, Any], candidate: Dict[str, Any],
@@ -267,8 +333,11 @@ def _read(path: Path, fallback: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _write(path: Path, value: Dict[str, Any]) -> None:
+    """Atomically replace a JSON receipt/state/outbox file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    temporary.replace(path)
 
 
 def main() -> int:
@@ -278,6 +347,7 @@ def main() -> int:
     input_group.add_argument("--source-runs", help="all-exchange source-run manifest JSON")
     parser.add_argument("--state", required=True, help="missing file means first-run baseline")
     parser.add_argument("--output", required=True)
+    parser.add_argument("--outbox", help="durable retry queue; defaults beside --state when sending")
     parser.add_argument("--advance-state", action="store_true", help="write state only if snapshot is complete")
     parser.add_argument("--send-telegram", action="store_true", help="send non-empty non-bootstrap digest")
     args = parser.parse_args()
@@ -294,20 +364,47 @@ def main() -> int:
     report["generated_at"] = datetime.now(timezone.utc).isoformat()
     report["state_advanced"] = False
     report["telegram_delivered"] = None
-    delivery = {"complete": True, "delivered_keys": [], "failed_batch": None}
+    delivery = {"complete": True, "delivered_keys": [], "failed_batch": None, "error": None}
     if args.send_telegram:
-        delivery = deliver_report(report, _telegram_sender)
+        outbox_path = Path(args.outbox) if args.outbox else state_path.with_name(state_path.name + ".outbox.json")
+        pending = _read(outbox_path, {"new_awards": [], "changed_awards": []})
+        delivery_report = prepare_delivery_outbox(report, pending, send_telegram=True)
+        if delivery_report is not None:
+            # Persist before the first Telegram call. A later weekly window can
+            # be empty and must not make an unconfirmed award disappear.
+            report = delivery_report
+            outbox = _delivery_buckets(report)
+            _write(outbox_path, outbox)
+            checkpoint_state = prior
+
+            def _checkpoint(keys):
+                # State first: if the subsequent outbox write fails, the next
+                # run can at worst duplicate a known message, never discard it.
+                nonlocal checkpoint_state, outbox
+                if args.advance_state and can_advance:
+                    checkpoint_state = state_after_delivery(checkpoint_state, report["state_candidate"], keys)
+                    _write(state_path, checkpoint_state)
+                    report["state_advanced"] = True
+                outbox = outbox_after_delivery(outbox, keys)
+                _write(outbox_path, outbox)
+
+            delivery = deliver_report(report, _telegram_sender, on_confirm=_checkpoint)
+        else:
+            delivery = deliver_report(report, _telegram_sender)
         report["telegram_delivered"] = delivery["complete"]
         report["telegram_delivery"] = delivery
     if args.advance_state and can_advance:
         no_events = not ((report.get("new_awards") or []) + (report.get("changed_awards") or []))
         if delivery["complete"] or report.get("bootstrap") or no_events:
             next_state = report["state_candidate"]
-        elif delivery["delivered_keys"]:
+        elif delivery["delivered_keys"] and not report["state_advanced"]:
             next_state = state_after_delivery(prior, report["state_candidate"], delivery["delivered_keys"])
         else:
             next_state = None
-        if next_state is not None:
+        # Per-batch checkpoints retain prior keys during a partial delivery.
+        # A fully confirmed run may now replace that checkpoint with the exact
+        # current candidate, including legitimate expirations from the window.
+        if next_state is not None and (delivery["complete"] or not report["state_advanced"]):
             _write(state_path, next_state)
             report["state_advanced"] = True
     _write(Path(args.output), report)
