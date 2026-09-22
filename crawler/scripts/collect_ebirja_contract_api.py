@@ -51,12 +51,13 @@ def normalize(source_key: str, row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def collect_source(source_key: str, date_from: date, page_size: int, page_cap: int) -> Dict[str, Any]:
+def collect_source(source_key: str, date_from: date, page_size: int, page_cap: int,
+                   client_factory=httpx.Client) -> Dict[str, Any]:
     spec = SOURCES[source_key]
     pages = []
     normalized = []
     completion = "page_cap"
-    with httpx.Client(timeout=30, headers={"Accept": "application/json"}) as client:
+    with client_factory(timeout=30, headers={"Accept": "application/json"}) as client:
         for page in range(page_cap):
             params = dict(spec["params"])
             params.update({"currentPage": page, "perPage": page_size})
@@ -64,31 +65,54 @@ def collect_source(source_key: str, date_from: date, page_size: int, page_cap: i
             response.raise_for_status()
             raw_bytes = response.content
             payload = response.json()
-            result = payload.get("result") or {}
-            rows = result.get("data") or []
+            if not isinstance(payload, dict):
+                completion = "invalid_payload_schema"
+                break
+            result = payload.get("result")
+            if not isinstance(result, dict):
+                completion = "invalid_result_schema"
+                break
+            rows = result.get("data")
+            meta = result.get("meta")
+            if not isinstance(rows, list):
+                completion = "invalid_rows_schema"
+                break
+            if not isinstance(meta, dict):
+                completion = "invalid_meta_schema"
+                break
             pages.append({
                 "page": page,
                 "params": params,
                 "sha256": hashlib.sha256(raw_bytes).hexdigest(),
                 "rows": rows,
-                "meta": result.get("meta") or {},
+                "meta": meta,
             })
             if not rows:
                 completion = "empty_page"
                 break
             page_normalized = [normalize(source_key, row) for row in rows]
             normalized.extend(page_normalized)
-            dates = []
-            for row in page_normalized:
-                try:
-                    dates.append(_date(row["awarded_at"]))
-                except (TypeError, ValueError):
-                    pass
-            if dates and len(dates) == len(page_normalized) and max(dates) < date_from:
+            try:
+                dates = [_date(row["awarded_at"]) for row in page_normalized]
+            except (TypeError, ValueError):
+                completion = "unreliable_dates"
+                break
+            if max(dates) < date_from:
                 completion = "date_boundary"
                 break
-            meta = result.get("meta") or {}
-            if page + 1 >= int(meta.get("pageCount") or 0):
+            page_count = meta.get("pageCount")
+            if isinstance(page_count, bool):
+                completion = "invalid_page_count"
+                break
+            try:
+                page_count = int(page_count)
+            except (TypeError, ValueError):
+                completion = "invalid_page_count"
+                break
+            if page_count < 1:
+                completion = "invalid_page_count"
+                break
+            if page + 1 >= page_count:
                 completion = "page_count_end"
                 break
     in_window = []

@@ -33,6 +33,14 @@ SOURCE_PASSPORT = (
     ("hayotbirja", "Hayotbirja public procedures (XT mirror)"),
 )
 
+# These are the only statuses that make an all-exchange receipt meaningful:
+# completed data or an explicitly permanent public limitation. A synthesized
+# passport row is not itself evidence that the collector actually ran.
+_REPORTED_STATUSES = frozenset((
+    "complete", "complete_name_only", "currency_unobservable",
+    "winner_unobservable", "mirror",
+))
+
 
 def _money(value: Any) -> str:
     try:
@@ -200,9 +208,10 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
             if source_id in old:
                 candidate_state[source_id] = old[source_id]
         statuses.append(entry)
+    all_sources_reported = all(row["status"] in _REPORTED_STATUSES for row in statuses)
     return {"sources": statuses, "new_awards": new_awards, "changed_awards": changed_awards, "bootstrap": bootstrap,
             "state_candidate": {"sources": candidate_state},
-            "all_sources_reported": len(statuses) == len(SOURCE_PASSPORT)}
+            "all_sources_reported": all_sources_reported}
 
 
 def _read(path: Path, fallback: Dict[str, Any]) -> Dict[str, Any]:
