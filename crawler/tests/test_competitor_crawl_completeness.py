@@ -10,6 +10,7 @@ from crawler.scripts.monitor_competitor_awards import multi_source_delta
 
 class _Response:
     content = b"{}"
+    status_code = 200
 
     def __init__(self, payload):
         self.payload = payload
@@ -19,6 +20,16 @@ class _Response:
 
     def json(self):
         return self.payload
+
+
+class _RpcPost:
+    def __init__(self, payloads):
+        self.payloads = payloads
+        self.calls = []
+
+    def __call__(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return _Response(self.payloads[url])
 
 
 class _Client:
@@ -110,6 +121,35 @@ def test_all_nine_complete_or_known_limit_rows_are_reported():
         "hayotbirja": {"status": "mirror"},
     }, {"sources": {}})
     assert result["all_sources_reported"] is True
+
+
+def test_public_rpc_passport_observes_both_xt_and_hayot_and_confirms_mirror():
+    post = _RpcPost({
+        "https://api.xt-xarid.uz/rpc": {"result": [{"id": 7}, {"id": 9}]},
+        "https://api.hayotbirja.uz/rpc": {"result": [{"id": 7}, {"id": 9}]},
+    })
+
+    result = runner._public_rpc_runs(post)
+
+    assert result["xt_xarid"]["status"] == "winner_unobservable"
+    assert result["hayotbirja"]["status"] == "mirror"
+    assert result["xt_xarid"]["receipt"]["sample_ids"] == ["7", "9"]
+    assert result["hayotbirja"]["receipt"]["mirror_sample_match"] is True
+    assert len(post.calls) == 2
+    assert all(call[1]["json"]["params"]["limit"] == 5 for call in post.calls)
+
+
+def test_public_rpc_passport_reports_schema_failure_and_does_not_claim_mirror():
+    post = _RpcPost({
+        "https://api.xt-xarid.uz/rpc": {"error": {"message": "temporary"}},
+        "https://api.hayotbirja.uz/rpc": {"result": [{"id": 7}]},
+    })
+
+    result = runner._public_rpc_runs(post)
+
+    assert result["xt_xarid"]["status"] == "collector_error"
+    assert result["hayotbirja"]["status"] == "mirror_unconfirmed"
+    assert "winner_unobservable" not in result["xt_xarid"]["status"]
 
 
 if __name__ == "__main__":
