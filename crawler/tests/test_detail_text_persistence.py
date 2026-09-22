@@ -208,7 +208,7 @@ def test_existing_lookup_chunks_long_id_lists_below_url_limit():
 
     assert existing == {}
     assert unknown == set()
-    assert [len(batch) for batch in client.calls] == [100, 100, 5]
+    assert [len(batch) for batch in client.calls] == [40, 40, 40, 40, 40, 5]
 
 
 def test_existing_lookup_retries_a_transient_gateway_failure():
@@ -225,7 +225,7 @@ def test_existing_lookup_retries_a_transient_gateway_failure():
 
 def test_existing_lookup_marks_only_the_persistently_failed_chunk_unknown():
     tenders = [
-        _tender(id="t-%d" % i, external_id=("bad-" if i < 100 else "ok-") + str(i))
+        _tender(id="t-%d" % i, external_id=("bad-" if i < 80 else "ok-") + str(i))
         for i in range(150)
     ]
     client = _ChunkedLookupClient(fail_prefix="bad-")
@@ -234,9 +234,9 @@ def test_existing_lookup_marks_only_the_persistently_failed_chunk_unknown():
         existing, unknown = _get_existing_rows(client, tenders)
 
     assert existing == {}
-    assert len(unknown) == 100
+    assert len(unknown) == 80
     assert all(external_id.startswith("bad-") for external_id, _source in unknown)
-    assert any(len(batch) == 50 for batch in client.calls)
+    assert max(len(batch) for batch in client.calls) == 40
 
 
 class _MemoryClient:

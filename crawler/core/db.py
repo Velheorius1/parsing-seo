@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 TABLE = "tenders"
 UPSERT_CONFLICT = "external_id,source"
+EXISTING_LOOKUP_BATCH_SIZE = 40
 
 
 
@@ -199,11 +200,14 @@ def _get_existing_rows(
     for source in sources:
         source_ids = [t.external_id for t in tenders if t.source == source]
         retain_detail = any(t.detail_persistence for t in tenders if t.source == source)
-        # The filter is encoded into the request URL. 500 long UZEX identifiers
-        # reliably exceeded the proxy URI limit in production (HTTP 414), so use
-        # the same conservative chunk size as other indexed `in_` queries.
-        for i in range(0, len(source_ids), 100):
-            batch_ids = source_ids[i : i + 100]
+        # The filter is encoded into the request URL. 500 ordinary identifiers
+        # caused HTTP 414, while even 100 UUID-like B2Biz/Cooperation identifiers
+        # produced repeatable proxy 502s. Keep a conservative URL budget here;
+        # the extra indexed lookups are cheap compared with silently deferring a
+        # whole source chunk.
+        size = EXISTING_LOOKUP_BATCH_SIZE
+        for i in range(0, len(source_ids), size):
+            batch_ids = source_ids[i : i + size]
             try:
                 def _lookup():  # type: ignore[no-untyped-def]
                     return (
