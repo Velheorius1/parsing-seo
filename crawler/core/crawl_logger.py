@@ -94,6 +94,16 @@ class CrawlRunLogger:
         # type: (int) -> None
         self.ai_calls += count
 
+    def log_pipeline_error(self, stage, exc):
+        # type: (str, Exception) -> None
+        """Record a failure outside an individual source adapter.
+
+        Previously a formatter/result/post-processing exception escaped the
+        runner before finalize(), leaving no crawl_runs row at all. Monitoring
+        then mistook a small successful profile for a healthy full crawl.
+        """
+        self.errors.append("[%s] %s" % (stage, str(exc)[:200]))
+
     async def finalize(self):
         # type: () -> None
         """Persist run stats to JSONL file and optionally to Supabase."""

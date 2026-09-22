@@ -72,6 +72,29 @@ async def run(
     source_ids: List[str] = None,
     lite: bool = False,
 ) -> Dict[str, int]:
+    """Run the pipeline and always persist a terminal crawl-run record."""
+    from crawler.core.crawl_logger import CrawlRunLogger
+
+    crawl_log = CrawlRunLogger(dry_run=dry_run, source_filter=source_ids)
+    try:
+        return await _run_pipeline(config_path, dry_run=dry_run,
+                                   source_ids=source_ids, lite=lite,
+                                   crawl_log=crawl_log)
+    except Exception as exc:
+        crawl_log.log_pipeline_error("runner", exc)
+        logger.exception("Crawl failed before completion")
+        raise
+    finally:
+        await crawl_log.finalize()
+
+
+async def _run_pipeline(
+    config_path: str,
+    dry_run: bool = False,
+    source_ids: List[str] = None,
+    lite: bool = False,
+    crawl_log=None,
+) -> Dict[str, int]:
     """Run the full crawl pipeline.
 
     1. Load sources from YAML
@@ -85,10 +108,7 @@ async def run(
         dry_run: If True, don't write to DB
         source_ids: Optional filter — only run these source IDs
     """
-    from crawler.core.crawl_logger import CrawlRunLogger
-
     _register_all_adapters()
-    crawl_log = CrawlRunLogger(dry_run=dry_run, source_filter=source_ids)
 
     sources = load_sources(config_path)
     # Полный набор включённых — ДО фильтра прогона: краулы ходят разными
@@ -339,7 +359,6 @@ async def run(
     # каждые 20 мин затёрли бы baseline полного краула и регрессия-детектор
     # сравнивал бы яблоки с апельсинами.
     if lite:
-        await crawl_log.finalize()
         return stats
 
     from crawler.core.quality_tracker import (
@@ -403,9 +422,6 @@ async def run(
         snapshot.overall.pct("price"),
         snapshot.overall.pct("deadline"),
     )
-
-    # Finalize crawl run log
-    await crawl_log.finalize()
 
     return stats
 
