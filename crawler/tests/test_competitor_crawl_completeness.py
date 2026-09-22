@@ -59,6 +59,20 @@ def test_ebirja_bad_rows_schema_is_incomplete_not_empty_archive():
     assert result["completion"] == "invalid_rows_schema"
 
 
+def test_ebirja_empty_first_page_with_nonzero_meta_is_incomplete_and_keeps_baseline():
+    payload = {"result": {"data": [], "meta": {"pageCount": 10, "totalCount": 100}}}
+    result = collect_source("shop", date(2026, 9, 1), 100, 1,
+                            client_factory=lambda **kwargs: _Client(payload, **kwargs))
+    prior = {"sources": {"ebirja_shop": {
+        "award_keys": ["ebirja_shop:205353003:old"], "content_hashes": {}}}}
+    delta = multi_source_delta({"ebirja_shop": {
+        "status": "complete" if result["complete"] else "incomplete", "awards": []}}, prior)
+
+    assert result["complete"] is False
+    assert result["completion"] == "inconsistent_empty_page"
+    assert delta["state_candidate"]["sources"]["ebirja_shop"] == prior["sources"]["ebirja_shop"]
+
+
 def test_name_only_source_keeps_incomplete_status_from_its_receipt():
     original = runner.collect_source
     try:

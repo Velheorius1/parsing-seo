@@ -87,8 +87,41 @@ def collect_source(source_key: str, date_from: date, page_size: int, page_cap: i
                 "rows": rows,
                 "meta": meta,
             })
+            page_count = meta.get("pageCount")
+            if isinstance(page_count, bool):
+                completion = "invalid_page_count"
+                break
+            try:
+                page_count = int(page_count)
+            except (TypeError, ValueError):
+                completion = "invalid_page_count"
+                break
+            if page_count < 0:
+                completion = "invalid_page_count"
+                break
             if not rows:
-                completion = "empty_page"
+                total_count = meta.get("totalCount")
+                if isinstance(total_count, bool):
+                    completion = "invalid_total_count"
+                    break
+                try:
+                    total_count = int(total_count)
+                except (TypeError, ValueError):
+                    completion = "invalid_total_count"
+                    break
+                if total_count < 0:
+                    completion = "invalid_total_count"
+                    break
+                # A page-zero empty list cannot prove an archive is empty when
+                # the server simultaneously reports remaining pages/rows. Such
+                # a response may be a transient API/cache inconsistency; never
+                # let it erase a competitor source baseline.
+                if total_count == 0 and page_count in (0, 1):
+                    completion = "empty_page"
+                elif page >= page_count:
+                    completion = "empty_page"
+                else:
+                    completion = "inconsistent_empty_page"
                 break
             page_normalized = [normalize(source_key, row) for row in rows]
             normalized.extend(page_normalized)
@@ -99,15 +132,6 @@ def collect_source(source_key: str, date_from: date, page_size: int, page_cap: i
                 break
             if max(dates) < date_from:
                 completion = "date_boundary"
-                break
-            page_count = meta.get("pageCount")
-            if isinstance(page_count, bool):
-                completion = "invalid_page_count"
-                break
-            try:
-                page_count = int(page_count)
-            except (TypeError, ValueError):
-                completion = "invalid_page_count"
                 break
             if page_count < 1:
                 completion = "invalid_page_count"
