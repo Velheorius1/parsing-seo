@@ -55,6 +55,9 @@ def build_digest(report: Dict[str, Any]) -> str:
             title = str(row.get("title") or "без названия")[:100]
             lines.append("• %s · %s %s\n%s" % (name, _money(row.get("amount")),
                                                 row.get("currency") or "", title))
+            specification = " ".join(str(row.get("specification_text") or "").split())[:280]
+            if specification:
+                lines.append("Позиции: %s" % specification)
             if row.get("source_url"):
                 lines.append(str(row["source_url"]))
         if len(rows) > 10:
@@ -142,10 +145,16 @@ def _qualified_source_awards(source_id: str, source_run: Dict[str, Any]) -> List
         event = dict(row)
         event["amount"] = amount
         event["source_url"] = source_url
+        # Ebirja shop detail has product_title/description instead of the
+        # generic award title/specification fields. Reuse that already fetched
+        # evidence rather than making another public-card request.
+        event["title"] = event.get("title") or event.get("product_title")
+        event["specification_text"] = event.get("specification_text") or event.get("description")
         event["key"] = "%s:%s:%s" % (source_id, winner_inn, contract)
         event["winner_inn"] = winner_inn
         fingerprint = {key: event.get(key) for key in ("winner_inn", "contract_number", "award_id", "procedure_id",
-                                                        "amount", "currency", "title", "status", "is_win")}
+                                                        "amount", "currency", "title", "status", "is_win",
+                                                        "specification_text")}
         event["content_hash"] = hashlib.sha256(json.dumps(fingerprint, ensure_ascii=False, sort_keys=True,
                                                             default=str).encode("utf-8")).hexdigest()
         awards.append(event)
