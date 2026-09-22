@@ -154,6 +154,10 @@ class SourceConfig(BaseModel):
     use_system_ca: bool = False
     # П7: двухшаговый detail-fetch (см. DetailFetchConfig)
     detail_fetch: Optional[DetailFetchConfig] = None
+    # Keep a previously fetched specification across repeat list-crawls. Opt-in
+    # because reading JSONB for every ordinary source would add payload and can
+    # accidentally preserve stale free text.
+    detail_persistence: bool = False
     # Client-side item filter — applied to raw dict items BEFORE _convert_all.
     # Keys are dot-paths supporting [*] wildcard for list iteration.
     # Values are either scalars (equality) or {op: value} where op is eq/ne/in/nin/gt/gte/lt/lte.
@@ -212,6 +216,11 @@ class RawTender(BaseModel):
     # example UZEX prequalification lots) for replay and the frontend.  The
     # formatter deliberately skips those structured values.
     extra_info: Dict[str, Any] = Field(default_factory=dict)
+    # Ephemeral source capability: when true, `core.db` restores the persisted
+    # detail/specification before a later list-upsert can overwrite it. This is
+    # deliberately not a database column — it describes the current adapter,
+    # not a tender attribute.
+    detail_persistence: bool = False
     # AI relevance (migration 017). Populated by notifier._ai_check_relevance
     # for tenders that reach the keyword/bypass gate. NULL = not yet scored.
     relevance_score: Optional[int] = None  # 0-100

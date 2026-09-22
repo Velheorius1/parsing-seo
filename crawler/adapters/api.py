@@ -866,6 +866,13 @@ class ApiAdapter(BaseAdapter):
                             value = "%s.%s.%s %s" % (m.group(2), m.group(1), m.group(3), m.group(4))
                     extra_info[label] = value
 
+        # The list endpoint does not repeat detail API payload on later crawls.
+        # Keep it separately so core.db can restore it before the next upsert;
+        # the formatter treats underscore-prefixed keys as internal metadata.
+        detail_text = _safe_str(item.get("_detail_text"))
+        if detail_text and cfg.detail_persistence:
+            extra_info["_detail_text"] = detail_text
+
         return RawTender(
             id=tender_id,
             external_id=ext_id_val,
@@ -883,4 +890,5 @@ class ApiAdapter(BaseAdapter):
             status=status,
             search_text=search_text,
             extra_info=extra_info,
+            detail_persistence=cfg.detail_persistence,
         )

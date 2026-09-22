@@ -1,7 +1,7 @@
 """Supabase upsert logic for tenders."""
 
 import logging
-from typing import List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from crawler.config.settings import settings
 from crawler.core.models import RawTender
@@ -165,35 +165,85 @@ def update_relevance_fields(
         return False
 
 
-def _get_existing_keys(
+def _get_existing_rows(
     client,  # type: ignore[no-untyped-def]
     tenders: List[RawTender],
-) -> Set[Tuple[str, str]]:
-    """Fetch existing (external_id, source) pairs from DB for the given tenders.
+) -> Dict[Tuple[str, str], Dict[str, Any]]:
+    """Fetch existing keys and opted-in detail metadata for these tenders.
 
-    Returns set of tuples that already exist in the database.
+    Ordinary sources retain the old, light `(external_id, source)` query. Only
+    sources explicitly marked `detail_persistence` read JSONB detail state.
     """
-    existing = set()  # type: Set[Tuple[str, str]]
+    existing = {}  # type: Dict[Tuple[str, str], Dict[str, Any]]
     # Group by source to minimize queries
     sources = set(t.source for t in tenders)
     for source in sources:
         source_ids = [t.external_id for t in tenders if t.source == source]
+        retain_detail = any(t.detail_persistence for t in tenders if t.source == source)
         # Query in batches of 500 (Supabase filter limit)
         for i in range(0, len(source_ids), 500):
             batch_ids = source_ids[i : i + 500]
             try:
                 resp = (
                     client.table(TABLE)
-                    .select("external_id,source")
+                    .select("external_id,source,extra_info" if retain_detail else "external_id,source")
                     .eq("source", source)
                     .in_("external_id", batch_ids)
                     .execute()
                 )
-                for row in resp.data:
-                    existing.add((row["external_id"], row["source"]))
+                for row in (resp.data or []):
+                    existing[(row["external_id"], row["source"])] = row
             except Exception as exc:
                 logger.warning("[DB] Failed to check existing for %s: %s", source, str(exc))
     return existing
+
+
+def _merge_detail_text(search_text, detail_text):
+    # type: (str, Any) -> str
+    """Put stored specification back into the searchable text once, capped.
+
+    Detail goes first because the relevance call reads the first 320 characters;
+    title is supplied to that call separately, while the hidden specification is
+    often the only evidence that a deliberately vague tender is ours.
+    """
+    detail = " ".join(str(detail_text or "").split())
+    current = " ".join(str(search_text or "").split())
+    if not detail or detail.lower() in current.lower():
+        return current
+    return ("%s | %s" % (detail, current)).strip(" |")[:2000]
+
+
+def _restore_persisted_detail(tenders, existing_rows):
+    # type: (List[RawTender], Dict[Tuple[str, str], Dict[str, Any]]) -> None
+    """Restore only opted-in detail payload before list data overwrites a row."""
+    for tender in tenders:
+        if not tender.detail_persistence:
+            continue
+        row = existing_rows.get((tender.external_id, tender.source))
+        stored = (row or {}).get("extra_info") or {}
+        if not isinstance(stored, dict):
+            continue
+
+        current_extra = dict(tender.extra_info or {})
+        detail_text = stored.get("_detail_text")
+        if detail_text:
+            tender.search_text = _merge_detail_text(tender.search_text, detail_text)
+            current_extra["_detail_text"] = detail_text
+
+        # Prequalification details use the richer lots payload rather than the
+        # generic API string. Preserve it alongside live list metadata, then
+        # reconstruct its human-readable positions exactly as replay does.
+        lots = stored.get("lots")
+        if tender.source == "UZEX Предквалификации" and isinstance(lots, list):
+            from crawler.core.prequal_detail import merged_search_text, positions_from_detail
+            merged = merged_search_text(
+                tender.search_text, positions_from_detail({"details": lots})
+            )
+            if merged:
+                tender.search_text = merged
+            current_extra["lots"] = lots
+
+        tender.extra_info = current_extra
 
 
 async def upsert_tenders(
@@ -226,7 +276,9 @@ async def upsert_tenders(
     client = _get_client()
 
     # Find which tenders are NEW (not in DB yet)
-    existing_keys = _get_existing_keys(client, tenders)
+    existing_rows = _get_existing_rows(client, tenders)
+    existing_keys = set(existing_rows.keys())
+    _restore_persisted_detail(tenders, existing_rows)
     new_tenders = [
         t for t in tenders
         if (t.external_id, t.source) not in existing_keys
