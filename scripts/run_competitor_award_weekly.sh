@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Read-only all-exchange competitor award monitor. No Telegram delivery.
+# Weekly all-exchange competitor award monitor. Collection is read-only, then
+# confirmed new/changed awards are delivered to Telegram and state is advanced.
 set -euo pipefail
 cd /opt/parsing-seo
 data_dir=/opt/parsing-seo/data/competitor-award-monitor
