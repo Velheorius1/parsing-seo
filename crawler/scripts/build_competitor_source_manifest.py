@@ -21,7 +21,7 @@ def _award_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
              "amount": row.get("final_total"), "currency": row.get("currency"),
              "award_id": row.get("award_id"), "procedure_id": row.get("procedure_id"),
              "contract_number": row.get("contract_id"), "title": row.get("title"),
-             "source_url": row.get("evidence_url")} for row in rows
+             "source_url": row.get("evidence_url"), "is_win": True} for row in rows
             if row.get("is_win") is True and row.get("above_threshold") is True]
 
 

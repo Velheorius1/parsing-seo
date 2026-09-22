@@ -27,7 +27,8 @@ def test_incomplete_detail_snapshot_never_qualifies_for_state_advance():
 def test_all_exchange_report_keeps_unavailable_rows_and_preserves_their_state():
     prior = {"sources": {"uzex_direct": {"award_keys": ["uzex_direct:304788646:OLD"]}}}
     result = multi_source_delta({"etender_deals": {"status": "complete", "awards": [
-        {"winner_inn": "304788646", "amount": 20000001, "currency": "UZS", "award_id": "A1"}]},
+        {"winner_inn": "304788646", "amount": 20000001, "currency": "UZS", "award_id": "A1",
+         "is_win": True}]},
                                  "xt_xarid": {"status": "winner_unobservable"}}, prior)
     assert result["all_sources_reported"] is True
     assert len(result["sources"]) == len(SOURCE_PASSPORT)
@@ -40,7 +41,8 @@ def test_all_exchange_report_keeps_unavailable_rows_and_preserves_their_state():
 
 def test_first_multi_source_run_is_a_silent_baseline():
     result = multi_source_delta({"etender_deals": {"status": "complete", "awards": [
-        {"winner_inn": "304788646", "amount": 20000001, "currency": "UZS", "award_id": "A1"}]}}, {})
+        {"winner_inn": "304788646", "amount": 20000001, "currency": "UZS", "award_id": "A1",
+         "is_win": True}]}}, {})
     assert result["bootstrap"] is True
     assert result["new_awards"] == []
 
@@ -48,7 +50,7 @@ def test_first_multi_source_run_is_a_silent_baseline():
 def test_changed_confirmed_award_is_reported_without_becoming_new():
     run = {"uzex_direct": {"status": "complete", "captured_at": "2026-09-21T00:00:00Z", "awards": [{
         "winner_inn": "304788646", "contract_number": "77", "amount": "25000000", "currency": "UZS",
-        "title": "old title"}]}}
+        "title": "old title", "is_win": True}]}}
     baseline = multi_source_delta(run, {"sources": {}})["state_candidate"]
     run["uzex_direct"]["awards"][0]["amount"] = "26000000"
     result = multi_source_delta(run, baseline)
@@ -59,11 +61,27 @@ def test_changed_confirmed_award_is_reported_without_becoming_new():
 def test_public_uzex_audit_shape_is_normalized_before_threshold_gate():
     run = {"awards": [{"winner_inn": "304788646", "award_id": "A-1",
                         "final_total": "25000001", "currency": "UZS",
-                        "evidence_url": "https://etender.uzex.uz/lot/1", "title": "Печать"}]}
+                        "evidence_url": "https://etender.uzex.uz/lot/1", "title": "Печать",
+                        "is_win": True}]}
     awards = _qualified_source_awards("etender_deals", run)
     assert len(awards) == 1
     assert awards[0]["amount"] == "25000001"
     assert awards[0]["source_url"].endswith("/1")
+
+
+def test_public_uzex_row_without_confirmed_win_is_not_an_award():
+    run = {"awards": [{"winner_inn": "304788646", "award_id": "A-rejected",
+                        "final_total": "25000001", "currency": "UZS",
+                        "evidence_url": "https://etender.uzex.uz/lot/rejected", "is_win": False}]}
+    assert _qualified_source_awards("etender_deals", run) == []
+
+
+def test_public_uzex_row_with_confirmed_win_is_an_award():
+    run = {"awards": [{"winner_inn": "304788646", "award_id": "A-confirmed",
+                        "final_total": "25000001", "currency": "UZS",
+                        "evidence_url": "https://etender.uzex.uz/lot/confirmed", "is_win": True}]}
+    awards = _qualified_source_awards("etender_deals", run)
+    assert [award["key"] for award in awards] == ["etender_deals:304788646:A-confirmed"]
 
 
 def test_bootstrap_and_empty_delta_do_not_call_telegram():
