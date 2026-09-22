@@ -299,7 +299,7 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
         status = str(run.get("status") or "not_collected")
         entry = {"source_id": source_id, "label": label, "status": status,
                  "detail": run.get("detail")}
-        if status == "complete":
+        if status in ("complete", "partial_identity"):
             current = _qualified_source_awards(source_id, run)
             previous = set((old.get(source_id) or {}).get("award_keys") or [])
             old_hashes = (old.get(source_id) or {}).get("content_hashes") or {}
@@ -311,8 +311,17 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
                 new_awards.extend(row for row in current if row["key"] not in previous)
                 changed_awards.extend(row for row in current if row["key"] in previous and
                                       old_hashes.get(row["key"]) != row["content_hash"])
-            candidate_state[source_id] = {"award_keys": sorted(row["key"] for row in current),
-                                          "content_hashes": {row["key"]: row["content_hash"] for row in current},
+            if status == "partial_identity":
+                # Exact winners are usable evidence, but unresolved cards mean
+                # this snapshot cannot prove that an older award disappeared.
+                candidate_keys = previous | {row["key"] for row in current}
+                candidate_hashes = dict(old_hashes)
+                candidate_hashes.update({row["key"]: row["content_hash"] for row in current})
+            else:
+                candidate_keys = {row["key"] for row in current}
+                candidate_hashes = {row["key"]: row["content_hash"] for row in current}
+            candidate_state[source_id] = {"award_keys": sorted(candidate_keys),
+                                          "content_hashes": candidate_hashes,
                                           "captured_at": run.get("captured_at")}
         else:
             entry["qualified_awards"] = None
@@ -355,7 +364,8 @@ def main() -> int:
     prior = _read(state_path, {"award_keys": []})
     if args.source_runs:
         report = multi_source_delta(_read(Path(args.source_runs), {}), prior)
-        complete_sources = [row["source_id"] for row in report["sources"] if row["status"] == "complete"]
+        complete_sources = [row["source_id"] for row in report["sources"]
+                            if row["status"] in ("complete", "partial_identity")]
         report["state_safe_sources"] = complete_sources
         can_advance = bool(complete_sources)
     else:

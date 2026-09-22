@@ -17,9 +17,10 @@ def test_detail_cards_require_exact_registry_inn_after_name_candidate_selection(
         {"detail": {"winner_name": "KOLORPAK MCHJ", "winner_inn": "205353003", "contract_number": "right"}},
     ]
 
-    awards, rejected = runner._exact_ebirja_awards(details, REGISTRY)
+    awards, rejected, unresolved = runner._exact_ebirja_awards(details, REGISTRY)
 
     assert rejected == 1
+    assert unresolved == 0
     assert [row["contract_number"] for row in awards] == ["right"]
     assert awards[0]["competitor"] == "Kolorpak"
 
@@ -39,13 +40,42 @@ def test_wrong_detail_inn_does_not_make_full_detail_fetch_incomplete():
     assert result["identity_rejected_count"] == 1
 
 
+def test_missing_winner_inn_is_unresolved_not_a_confirmed_foreign_rejection():
+    details = [
+        {"detail": {"winner_inn": "205049902", "contract_number": "foreign"}},
+        {"detail": {"winner_inn": None, "contract_number": "unknown"}},
+        {"detail": {"winner_inn": "205353003", "contract_number": "ours"}},
+    ]
+
+    awards, rejected, unresolved = runner._exact_ebirja_awards(details, REGISTRY)
+
+    assert [row["contract_number"] for row in awards] == ["ours"]
+    assert rejected == 1
+    assert unresolved == 1
+
+
+def test_missing_winner_inn_makes_shop_run_partial_identity():
+    original = (runner.collect_source, runner.candidate_rows, runner.enrich)
+    try:
+        runner.collect_source = lambda *_args: {"complete": True, "completion": "date_boundary"}
+        runner.candidate_rows = lambda *_args: [{"archive_row": {"procedure_id": "1"}}]
+        runner.enrich = lambda *_args: [{"detail": {"winner_inn": None, "contract_number": "unknown"}}]
+        result = runner._ebirja_run("shop", date(2026, 9, 1), 100, 1, REGISTRY, 1)
+    finally:
+        runner.collect_source, runner.candidate_rows, runner.enrich = original
+
+    assert result["status"] == "partial_identity"
+    assert result["identity_rejected_count"] == 0
+    assert result["identity_unresolved_count"] == 1
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failures = 0
     for test in tests:
         try:
             test(); print("PASS", test.__name__)
-        except AssertionError as exc:
-            print("FAIL", test.__name__, str(exc)); failures += 1
+        except Exception as exc:
+            print("FAIL", test.__name__, "%s: %s" % (type(exc).__name__, exc)); failures += 1
     print("\n%d/%d passed" % (len(tests) - failures, len(tests)))
     sys.exit(1 if failures else 0)

@@ -19,31 +19,35 @@ from crawler.scripts.collect_ebirja_contract_api import collect_source
 from crawler.scripts.enrich_ebirja_shop_candidates import candidate_rows, enrich
 from crawler.scripts.enrich_competitor_award_specs import enrich_awards
 from crawler.scripts.collect_uzex_award_api import collect as collect_uzex
-from crawler.core.competitor_audit import entity_for_inn, load_registry
+from crawler.core.competitor_audit import entity_for_inn, load_registry, normalize_inn
 
 
 def _exact_ebirja_awards(details, registry):
-    # type: (List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]) -> (List[Dict[str, Any]], int)
+    # type: (List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]) -> (List[Dict[str, Any]], int, int)
     """Keep Ebirja Shop wins only after the detail INN joins the registry.
 
     Name matching selects a bounded detail-card queue; it is never evidence of
-    identity. A valid-looking but unregistered INN must be visible in receipts
-    as a rejected candidate, not silently promoted to a competitor win.
+    identity. A valid-looking but unregistered INN is a confirmed rejection;
+    an absent or malformed INN is unresolved and must not erase prior history.
     """
-    awards, rejected = [], 0
+    awards, rejected, unresolved = [], 0, 0
     for entry in details:
         detail = entry.get("detail") if isinstance(entry, dict) else None
         if not isinstance(detail, dict):
-            rejected += 1
+            unresolved += 1
             continue
-        entity = entity_for_inn(registry, detail.get("winner_inn"))
+        winner_inn = normalize_inn(detail.get("winner_inn"))
+        if winner_inn is None:
+            unresolved += 1
+            continue
+        entity = entity_for_inn(registry, winner_inn)
         if entity is None:
             rejected += 1
             continue
         award = dict(detail)
         award["competitor"] = entity["name"]
         awards.append(award)
-    return awards, rejected
+    return awards, rejected, unresolved
 
 
 def _ebirja_run(source_key: str, date_from: date, page_size: int, page_cap: int,
@@ -56,11 +60,15 @@ def _ebirja_run(source_key: str, date_from: date, page_size: int, page_cap: int,
         candidates = candidate_rows({"sources": [result]}, registry)
         details = enrich(candidates, max_details)
         complete = result["complete"] and len(candidates) == len(details)
-        awards, identity_rejected = _exact_ebirja_awards(details, registry)
-        return {"status": "complete" if complete else "incomplete", "captured_at": datetime.now(timezone.utc).isoformat(),
+        awards, identity_rejected, identity_unresolved = _exact_ebirja_awards(details, registry)
+        status = "complete" if complete else "incomplete"
+        if complete and identity_unresolved:
+            status = "partial_identity"
+        return {"status": status, "captured_at": datetime.now(timezone.utc).isoformat(),
                 "detail": result["completion"], "awards": awards,
                 "receipt": result, "candidate_count": len(candidates), "fetched_count": len(details),
-                "identity_rejected_count": identity_rejected}
+                "identity_rejected_count": identity_rejected,
+                "identity_unresolved_count": identity_unresolved}
     status = "complete_name_only" if result["complete"] else "incomplete_name_only"
     return {"status": status, "captured_at": datetime.now(timezone.utc).isoformat(),
             "detail": ("public contract list has no winner INN; %s" % result["completion"]),
