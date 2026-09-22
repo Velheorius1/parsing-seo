@@ -12,9 +12,12 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+import httpx
+
 from crawler.scripts.collect_cooperation_contracts import collect as collect_cooperation
 from crawler.scripts.collect_ebirja_contract_api import collect_source
 from crawler.scripts.enrich_ebirja_shop_candidates import candidate_rows, enrich
+from crawler.scripts.enrich_competitor_award_specs import enrich_awards
 from crawler.scripts.collect_uzex_award_api import collect as collect_uzex
 from crawler.core.competitor_audit import load_registry
 
@@ -40,14 +43,18 @@ def build_runs(date_from: date, page_size: int, page_cap: int, max_details: int 
     """Collect every public source once, retaining limitations explicitly."""
     captured = datetime.now(timezone.utc).isoformat()
     runs = {}  # type: Dict[str, Dict[str, Any]]
-    for key, source_id in (("deals", "etender_deals"), ("direct", "uzex_direct")):
-        try:
-            result = collect_uzex(key, date_from, page_size, page_cap)
-            runs[source_id] = {"status": "complete" if result["complete"] else "incomplete",
-                               "captured_at": result["captured_at"], "awards": result["awards"],
-                               "detail": result["completion"], "receipt": result}
-        except Exception as exc:
-            runs[source_id] = {"status": "collector_error", "captured_at": captured, "detail": str(exc)[:180]}
+    with httpx.Client(timeout=20) as detail_client:
+        for key, source_id in (("deals", "etender_deals"), ("direct", "uzex_direct")):
+            try:
+                result = collect_uzex(key, date_from, page_size, page_cap)
+                awards, detail_enrichment = enrich_awards(source_id, result["awards"], detail_client.get,
+                                                          max_details=25)
+                runs[source_id] = {"status": "complete" if result["complete"] else "incomplete",
+                                   "captured_at": result["captured_at"], "awards": awards,
+                                   "detail": result["completion"], "detail_enrichment": detail_enrichment,
+                                   "receipt": result}
+            except Exception as exc:
+                runs[source_id] = {"status": "collector_error", "captured_at": captured, "detail": str(exc)[:180]}
     registry = load_registry()
     for source_key, source_id in (("shop", "ebirja_shop"), ("auction", "ebirja_auction"),
                                   ("tender", "ebirja_tender"), ("selection", "ebirja_selection")):

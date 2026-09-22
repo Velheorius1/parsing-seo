@@ -58,6 +58,17 @@ def test_changed_confirmed_award_is_reported_without_becoming_new():
     assert len(result["changed_awards"]) == 1
 
 
+def test_specification_correction_is_reported_as_change_not_new_award():
+    run = {"etender_deals": {"status": "complete", "captured_at": "2026-09-22T00:00:00Z", "awards": [{
+        "winner_inn": "304788646", "award_id": "77", "final_total": "25000000", "currency": "UZS",
+        "title": "neutral title", "is_win": True, "specification_text": "Бланки · 100000"}]}}
+    baseline = multi_source_delta(run, {"sources": {}})["state_candidate"]
+    run["etender_deals"]["awards"][0]["specification_text"] = "Бланки · 120000"
+    result = multi_source_delta(run, baseline)
+    assert result["new_awards"] == []
+    assert len(result["changed_awards"]) == 1
+
+
 def test_public_uzex_audit_shape_is_normalized_before_threshold_gate():
     run = {"awards": [{"winner_inn": "304788646", "award_id": "A-1",
                         "final_total": "25000001", "currency": "UZS",
@@ -82,6 +93,24 @@ def test_public_uzex_row_with_confirmed_win_is_an_award():
                         "evidence_url": "https://etender.uzex.uz/lot/confirmed", "is_win": True}]}
     awards = _qualified_source_awards("etender_deals", run)
     assert [award["key"] for award in awards] == ["etender_deals:304788646:A-confirmed"]
+
+
+def test_ebirja_detail_fields_become_digest_title_and_specification():
+    run = {"awards": [{"winner_inn": "205353003", "contract_number": "XD1", "amount": "25000001",
+                         "currency": "UZS", "product_title": "Картонный футляр",
+                         "description": "ламинированный картон с печатью"}]}
+    award = _qualified_source_awards("ebirja_shop", run)[0]
+    assert award["title"] == "Картонный футляр"
+    assert award["specification_text"] == "ламинированный картон с печатью"
+
+
+def test_digest_renders_bounded_optional_specification():
+    report = {"new_awards": [{"winner_name": "PRINTUZ", "winner_inn": "304788646",
+              "amount": "25000001", "currency": "UZS", "title": "neutral title",
+              "specification_text": "x" * 400}], "changed_awards": []}
+    text = build_digest(report)
+    line = next(line for line in text.splitlines() if line.startswith("Позиции: "))
+    assert len(line.removeprefix("Позиции: ")) == 280
 
 
 def test_bootstrap_and_empty_delta_do_not_call_telegram():
