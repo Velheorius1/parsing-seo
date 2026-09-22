@@ -40,6 +40,7 @@ _REPORTED_STATUSES = frozenset((
     "complete", "complete_name_only", "currency_unobservable",
     "winner_unobservable", "mirror",
 ))
+_TELEGRAM_SAFE_CHARS = 3500
 
 
 def _money(value: Any) -> str:
@@ -49,38 +50,85 @@ def _money(value: Any) -> str:
         return str(value or "?")
 
 
+def _award_block(row: Dict[str, Any]) -> str:
+    name = str(row.get("winner_name") or "ИНН %s" % row.get("winner_inn"))[:140]
+    title = str(row.get("title") or "без названия")[:180]
+    lines = ["• %s · %s %s\n%s" % (name, _money(row.get("amount")), row.get("currency") or "", title)]
+    specification = " ".join(str(row.get("specification_text") or "").split())[:280]
+    if specification:
+        lines.append("Позиции: %s" % specification)
+    if row.get("source_url"):
+        # A malformed URL must not make one report exceed Telegram's hard cap.
+        lines.append(str(row["source_url"])[:700])
+    return "\n".join(lines)
+
+
+def digest_batches(report: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Bound the digest while retaining the exact award keys in each message."""
+    batches, lines, keys, has_entries = [], ["🏆 Победы конкурентов за неделю"], [], False
+    for label, rows in (("Новые", report.get("new_awards") or []),
+                        ("Изменения", report.get("changed_awards") or [])):
+        for row in rows:
+            key = str(row.get("key") or "")
+            entry = "%s:\n%s" % (label, _award_block(row))
+            if has_entries and len("\n\n".join(lines + [entry])) > _TELEGRAM_SAFE_CHARS:
+                batches.append({"text": "\n\n".join(lines), "award_keys": keys})
+                lines, keys, has_entries = ["🏆 Победы конкурентов за неделю (продолжение)"], [], False
+            # Every field is bounded above; keep the final guard for unusual Unicode.
+            lines.append(entry[:_TELEGRAM_SAFE_CHARS - 100])
+            has_entries = True
+            if key:
+                keys.append(key)
+    if has_entries:
+        lines.append("Ретроспективный мониторинг договоров; не открытый тендерный алерт.")
+        batches.append({"text": "\n\n".join(lines)[:_TELEGRAM_SAFE_CHARS], "award_keys": keys})
+    return batches
+
+
 def build_digest(report: Dict[str, Any]) -> str:
-    """Build one compact retrospective digest (never an urgent lead alert)."""
-    new_rows = report.get("new_awards") or []
-    changed_rows = report.get("changed_awards") or []
-    lines = ["🏆 Победы конкурентов за неделю", ""]
-    for label, rows in (("Новые", new_rows), ("Изменения", changed_rows)):
-        if not rows:
-            continue
-        lines.append("%s: %d" % (label, len(rows)))
-        for row in rows[:10]:
-            name = row.get("winner_name") or "ИНН %s" % row.get("winner_inn")
-            title = str(row.get("title") or "без названия")[:100]
-            lines.append("• %s · %s %s\n%s" % (name, _money(row.get("amount")),
-                                                row.get("currency") or "", title))
-            specification = " ".join(str(row.get("specification_text") or "").split())[:280]
-            if specification:
-                lines.append("Позиции: %s" % specification)
-            if row.get("source_url"):
-                lines.append(str(row["source_url"]))
-        if len(rows) > 10:
-            lines.append("…и ещё %d" % (len(rows) - 10))
-        lines.append("")
-    lines.append("Ретроспективный мониторинг договоров; не открытый тендерный алерт.")
-    return "\n".join(lines).strip()
+    """Human-readable rendering of all delivery batches, for previews/tests."""
+    return "\n\n".join(batch["text"] for batch in digest_batches(report))
 
 
-def deliver_report(report: Dict[str, Any], sender) -> bool:
-    """Silent baseline/empty run; otherwise require confirmed delivery."""
+def deliver_report(report: Dict[str, Any], sender) -> Dict[str, Any]:
+    """Deliver bounded batches, retaining exactly which award keys were confirmed."""
     if report.get("bootstrap") or not ((report.get("new_awards") or []) +
                                        (report.get("changed_awards") or [])):
-        return True
-    return bool(sender(build_digest(report)))
+        return {"complete": True, "delivered_keys": [], "failed_batch": None}
+    delivered = []
+    for index, batch in enumerate(digest_batches(report)):
+        if not sender(batch["text"]):
+            return {"complete": False, "delivered_keys": delivered, "failed_batch": index}
+        delivered.extend(batch["award_keys"])
+    return {"complete": True, "delivered_keys": delivered, "failed_batch": None}
+
+
+def state_after_delivery(prior_state: Dict[str, Any], candidate: Dict[str, Any],
+                         delivered_keys: List[str]) -> Dict[str, Any]:
+    """Advance only confirmed events after a partial Telegram failure."""
+    delivered = set(delivered_keys)
+    if "sources" not in candidate:
+        prior_keys = set(prior_state.get("award_keys") or [])
+        current_keys = set(candidate.get("award_keys") or [])
+        return {"award_keys": sorted(prior_keys | (delivered & current_keys)),
+                "captured_at": candidate.get("captured_at")}
+    prior_sources = prior_state.get("sources") or {}
+    out = {}  # type: Dict[str, Any]
+    for source_id, current in (candidate.get("sources") or {}).items():
+        old = prior_sources.get(source_id) or {}
+        source_delivered = {key for key in delivered if key.startswith(source_id + ":")}
+        old_keys = set(old.get("award_keys") or [])
+        current_keys = set(current.get("award_keys") or [])
+        hashes = dict(old.get("content_hashes") or {})
+        for key in source_delivered & current_keys:
+            hashes[key] = (current.get("content_hashes") or {}).get(key)
+        out[source_id] = {"award_keys": sorted(old_keys | (source_delivered & current_keys)),
+                          "content_hashes": hashes,
+                          "captured_at": current.get("captured_at") or old.get("captured_at")}
+    for source_id, old in prior_sources.items():
+        if source_id not in out:
+            out[source_id] = old
+    return {"sources": out}
 
 
 def _telegram_sender(text: str) -> bool:
@@ -246,21 +294,29 @@ def main() -> int:
     report["generated_at"] = datetime.now(timezone.utc).isoformat()
     report["state_advanced"] = False
     report["telegram_delivered"] = None
+    delivery = {"complete": True, "delivered_keys": [], "failed_batch": None}
     if args.send_telegram:
-        report["telegram_delivered"] = deliver_report(report, _telegram_sender)
-        if not report["telegram_delivered"]:
-            _write(Path(args.output), report)
-            print(json.dumps({"output": args.output, "telegram_delivered": False,
-                              "state_advanced": False}, ensure_ascii=False))
-            return 3
+        delivery = deliver_report(report, _telegram_sender)
+        report["telegram_delivered"] = delivery["complete"]
+        report["telegram_delivery"] = delivery
     if args.advance_state and can_advance:
-        _write(state_path, report["state_candidate"])
-        report["state_advanced"] = True
+        no_events = not ((report.get("new_awards") or []) + (report.get("changed_awards") or []))
+        if delivery["complete"] or report.get("bootstrap") or no_events:
+            next_state = report["state_candidate"]
+        elif delivery["delivered_keys"]:
+            next_state = state_after_delivery(prior, report["state_candidate"], delivery["delivered_keys"])
+        else:
+            next_state = None
+        if next_state is not None:
+            _write(state_path, next_state)
+            report["state_advanced"] = True
     _write(Path(args.output), report)
     print(json.dumps({"output": args.output, "snapshot_complete": report.get("snapshot_complete"),
                       "all_sources_reported": report.get("all_sources_reported"),
                       "new_awards": len(report["new_awards"]), "state_advanced": report["state_advanced"]},
                      ensure_ascii=False))
+    if args.send_telegram and not delivery["complete"]:
+        return 3
     if args.source_runs:
         return 0 if report["all_sources_reported"] else 2
     return 0 if report["snapshot_complete"] else 2
