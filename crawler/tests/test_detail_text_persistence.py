@@ -153,6 +153,111 @@ def test_lookup_failure_defers_tender_without_write_or_false_new_alert():
     assert client.upsert_rows == []
 
 
+class _MemoryClient:
+    def __init__(self, existing=None):
+        self.existing = list(existing or [])
+        self.operation = None
+        self.source = None
+        self.ids = []
+        self.upsert_rows = []
+
+    def table(self, *_args):
+        return self
+
+    def select(self, *_args):
+        self.operation = "select"
+        return self
+
+    def eq(self, field, value):
+        if field == "source":
+            self.source = value
+        return self
+
+    def in_(self, field, values):
+        if field == "external_id":
+            self.ids = list(values)
+        return self
+
+    def upsert(self, rows, **_kwargs):
+        self.operation = "upsert"
+        self.upsert_rows.extend(rows)
+        return self
+
+    def execute(self):
+        if self.operation == "select":
+            rows = [row for row in self.existing
+                    if row.get("source") == self.source and row.get("external_id") in self.ids]
+            return types.SimpleNamespace(data=rows)
+        return types.SimpleNamespace(data=[])
+
+
+def _upsert_with_client(tenders, client):
+    settings = types.SimpleNamespace(
+        supabase_url="fake", supabase_service_role_key="fake", batch_size=100,
+    )
+    with patch.object(db, "_get_client", return_value=client), patch.object(db, "settings", settings):
+        return asyncio.run(upsert_tenders(tenders))
+
+
+def test_new_detail_capable_list_tender_without_detail_is_written_as_new():
+    client = _MemoryClient()
+    tender = _tender(detail_persistence=True)
+
+    upserted, new_tenders = _upsert_with_client([tender], client)
+
+    assert upserted == 1
+    assert new_tenders == [tender]
+    assert len(client.upsert_rows) == 1
+    assert client.upsert_rows[0]["external_id"] == "1"
+
+
+def test_new_detail_capable_tender_with_fresh_detail_is_written_as_new():
+    client = _MemoryClient()
+    tender = _tender(
+        detail_persistence=True,
+        extra_info={"_detail_text": "Картонный картхолдер"},
+    )
+
+    upserted, new_tenders = _upsert_with_client([tender], client)
+
+    assert upserted == 1
+    assert new_tenders == [tender]
+    assert client.upsert_rows[0]["extra_info"]["_detail_text"] == "Картонный картхолдер"
+
+
+def test_new_prequalification_with_fresh_lots_is_written_as_new():
+    client = _MemoryClient()
+    tender = _tender(
+        source="UZEX Предквалификации",
+        detail_persistence=True,
+        extra_info={"lots": [{"productName": "Печать буклетов", "description": "картон"}]},
+    )
+
+    upserted, new_tenders = _upsert_with_client([tender], client)
+
+    assert upserted == 1
+    assert new_tenders == [tender]
+    assert "Печать буклетов" in client.upsert_rows[0]["search_text"]
+
+
+def test_mixed_new_and_existing_sources_are_written_without_false_new_rows():
+    client = _MemoryClient(existing=[{
+        "external_id": "2", "source": "Ordinary Source",
+    }])
+    new_detail_capable = _tender(detail_persistence=True)
+    existing_ordinary = _tender(
+        id="t-2", external_id="2", source="Ordinary Source", detail_persistence=False,
+    )
+
+    upserted, new_tenders = _upsert_with_client(
+        [new_detail_capable, existing_ordinary], client,
+    )
+
+    assert upserted == 2
+    assert new_tenders == [new_detail_capable]
+    assert {row["external_id"] for row in client.upsert_rows} == {"1", "2"}
+
+
 def test_source_without_opt_in_is_not_changed():
     tender = _tender(detail_persistence=False)
     before = (tender.search_text, dict(tender.extra_info))
