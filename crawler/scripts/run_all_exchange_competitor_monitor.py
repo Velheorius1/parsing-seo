@@ -35,8 +35,10 @@ def _ebirja_run(source_key: str, date_from: date, page_size: int, page_cap: int,
         return {"status": "complete" if complete else "incomplete", "captured_at": datetime.now(timezone.utc).isoformat(),
                 "detail": result["completion"], "awards": [entry["detail"] for entry in details],
                 "receipt": result, "candidate_count": len(candidates), "fetched_count": len(details)}
-    return {"status": "complete_name_only", "captured_at": datetime.now(timezone.utc).isoformat(),
-            "detail": "public contract list has no winner INN", "receipt": result}
+    status = "complete_name_only" if result["complete"] else "incomplete_name_only"
+    return {"status": status, "captured_at": datetime.now(timezone.utc).isoformat(),
+            "detail": ("public contract list has no winner INN; %s" % result["completion"]),
+            "receipt": result}
 
 
 def build_runs(date_from: date, page_size: int, page_cap: int, max_details: int = 25) -> Dict[str, Dict[str, Any]]:
@@ -64,8 +66,10 @@ def build_runs(date_from: date, page_size: int, page_cap: int, max_details: int 
             runs[source_id] = {"status": "collector_error", "captured_at": captured, "detail": str(exc)[:180]}
     try:
         cooperation = collect_cooperation(date_from, page_size, page_cap, registry)
-        runs["cooperation_contracts"] = {"status": "currency_unobservable", "captured_at": captured,
-                                          "detail": "public registry omits contract currency", "receipt": cooperation}
+        status = "currency_unobservable" if cooperation.get("complete") else "incomplete_currency_unobservable"
+        runs["cooperation_contracts"] = {"status": status, "captured_at": captured,
+                                          "detail": "public registry omits contract currency; %s" % cooperation.get("completion"),
+                                          "receipt": cooperation}
     except Exception as exc:
         runs["cooperation_contracts"] = {"status": "collector_error", "captured_at": captured, "detail": str(exc)[:180]}
     runs["xt_xarid"] = {"status": "winner_unobservable", "captured_at": captured,

@@ -30,7 +30,7 @@ def test_all_exchange_report_keeps_unavailable_rows_and_preserves_their_state():
         {"winner_inn": "304788646", "amount": 20000001, "currency": "UZS", "award_id": "A1",
          "is_win": True}]},
                                  "xt_xarid": {"status": "winner_unobservable"}}, prior)
-    assert result["all_sources_reported"] is True
+    assert result["all_sources_reported"] is False
     assert len(result["sources"]) == len(SOURCE_PASSPORT)
     assert result["new_awards"][0]["key"] == "etender_deals:304788646:A1"
     statuses = {row["source_id"]: row["status"] for row in result["sources"]}

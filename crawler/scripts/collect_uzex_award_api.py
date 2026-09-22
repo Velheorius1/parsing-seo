@@ -40,7 +40,12 @@ def collect(source: str, date_from: date, page_size: int, page_cap: int,
         response = post(endpoint, json=body, headers={"Content-Type": "application/json"}, timeout=30)
         response.raise_for_status()
         payload = response.json()
-        batch = payload if isinstance(payload, list) else []
+        if not isinstance(payload, list):
+            completion = "invalid_payload_schema"
+            receipts.append({"page": page + 1, "body": body, "rows": None,
+                             "payload_type": type(payload).__name__})
+            break
+        batch = payload
         receipts.append({"page": page + 1, "body": body, "rows": len(batch)})
         if not batch:
             completion = "empty_page"
