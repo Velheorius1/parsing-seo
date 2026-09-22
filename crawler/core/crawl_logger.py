@@ -52,6 +52,8 @@ class CrawlRunLogger:
         self._start_mono = time.monotonic()
         self._source_stats = {}  # type: Dict[str, SourceStats]
         self.total_upserted = 0
+        self.total_deferred = 0
+        self.total_failed_upserts = 0
         self.total_new = 0
         self.enriched_count = 0
         self.ai_calls = 0
@@ -76,10 +78,12 @@ class CrawlRunLogger:
             stats.errors.append(error[:200])
             self.errors.append("[%s] %s" % (source_id, error[:200]))
 
-    def log_upsert(self, upserted, new_count):
-        # type: (int, int) -> None
+    def log_upsert(self, upserted, new_count, deferred_count=0, failed_count=0):
+        # type: (int, int, int, int) -> None
         self.total_upserted = upserted
         self.total_new = new_count
+        self.total_deferred = deferred_count
+        self.total_failed_upserts = failed_count
 
     def log_enrichment(self, enriched, ai_calls=0):
         # type: (int, int) -> None
@@ -122,6 +126,8 @@ class CrawlRunLogger:
             "total_fetched": total_fetched,
             "total_new": self.total_new,
             "total_upserted": self.total_upserted,
+            "total_deferred": self.total_deferred,
+            "total_failed_upserts": self.total_failed_upserts,
             "total_enriched": self.enriched_count,
             "alerts_sent": self.alerts_sent,
             "errors_count": len(self.errors),

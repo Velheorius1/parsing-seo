@@ -1,6 +1,7 @@
 """Supabase upsert logic for tenders."""
 
 import logging
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from crawler.config.settings import settings
@@ -14,6 +15,20 @@ UPSERT_CONFLICT = "external_id,source"
 
 
 _client = None  # type: ignore[assignment]
+
+
+@dataclass
+class UpsertOutcome:
+    """Database write result with backwards-compatible two-value unpacking."""
+
+    total_upserted: int
+    new_tenders: List[RawTender]
+    deferred_count: int = 0
+    failed_count: int = 0
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        yield self.total_upserted
+        yield self.new_tenders
 
 
 def _get_client():  # type: ignore[no-untyped-def]
@@ -184,16 +199,24 @@ def _get_existing_rows(
     for source in sources:
         source_ids = [t.external_id for t in tenders if t.source == source]
         retain_detail = any(t.detail_persistence for t in tenders if t.source == source)
-        # Query in batches of 500 (Supabase filter limit)
-        for i in range(0, len(source_ids), 500):
-            batch_ids = source_ids[i : i + 500]
+        # The filter is encoded into the request URL. 500 long UZEX identifiers
+        # reliably exceeded the proxy URI limit in production (HTTP 414), so use
+        # the same conservative chunk size as other indexed `in_` queries.
+        for i in range(0, len(source_ids), 100):
+            batch_ids = source_ids[i : i + 100]
             try:
-                resp = (
-                    client.table(TABLE)
-                    .select("external_id,source,extra_info,search_text" if retain_detail else "external_id,source")
-                    .eq("source", source)
-                    .in_("external_id", batch_ids)
-                    .execute()
+                def _lookup():  # type: ignore[no-untyped-def]
+                    return (
+                        client.table(TABLE)
+                        .select("external_id,source,extra_info,search_text" if retain_detail else "external_id,source")
+                        .eq("source", source)
+                        .in_("external_id", batch_ids)
+                        .execute()
+                    )
+                resp = query_with_retry(
+                    _lookup, label="existing %s %d-%d" % (
+                        source, i, i + len(batch_ids),
+                    ),
                 )
                 for row in (resp.data or []):
                     existing[(row["external_id"], row["source"])] = row
@@ -279,13 +302,14 @@ async def upsert_tenders(
     tenders: List[RawTender],
     batch_size: Optional[int] = None,
     dry_run: bool = False,
-) -> Tuple[int, List[RawTender]]:
+) -> UpsertOutcome:
     """Upsert tenders into Supabase in batches.
 
-    Returns (total_upserted, list_of_new_tenders).
+    Returns an outcome that still unpacks as ``(total_upserted, new_tenders)``
+    and also exposes the number safely deferred after an uncertain lookup.
     """
     if not tenders:
-        return 0, []
+        return UpsertOutcome(0, [])
 
     # Deduplicate by (external_id, source) — keep last occurrence
     seen = {}
@@ -296,29 +320,33 @@ async def upsert_tenders(
 
     if dry_run:
         logger.info("[DB] DRY RUN: would upsert %d tenders", len(tenders))
-        return len(tenders), tenders
+        return UpsertOutcome(len(tenders), tenders)
 
     if not settings.supabase_url or not settings.supabase_service_role_key:
         logger.warning("[DB] Supabase credentials not set, skipping upsert")
-        return 0, []
+        return UpsertOutcome(0, [])
 
     client = _get_client()
 
     # Find which tenders are NEW (not in DB yet)
     existing_rows, unknown_keys = _get_existing_rows(client, tenders)
+    deferred_count = 0
     if unknown_keys:
         deferred = [t for t in tenders if (t.external_id, t.source) in unknown_keys]
+        deferred_count = len(deferred)
         logger.warning("[DB] Deferring %d tenders after failed existence lookup", len(deferred))
         tenders = [t for t in tenders if (t.external_id, t.source) not in unknown_keys]
     if not tenders:
-        return 0, []
+        return UpsertOutcome(0, [], deferred_count)
     existing_keys = set(existing_rows.keys())
     _restore_persisted_detail(tenders, existing_rows)
-    new_tenders = [
+    candidate_new_tenders = [
         t for t in tenders
         if (t.external_id, t.source) not in existing_keys
     ]
-    logger.info("[DB] New tenders: %d (existing: %d)", len(new_tenders), len(existing_keys))
+    new_keys = {(t.external_id, t.source) for t in candidate_new_tenders}
+    persisted_new_tenders = []  # type: List[RawTender]
+    logger.info("[DB] New tenders: %d (existing: %d)", len(candidate_new_tenders), len(existing_keys))
 
     size = batch_size or settings.batch_size
     total = 0
@@ -331,6 +359,9 @@ async def upsert_tenders(
                 rows, on_conflict=UPSERT_CONFLICT
             ).execute()
             total += len(batch)
+            persisted_new_tenders.extend(
+                t for t in batch if (t.external_id, t.source) in new_keys
+            )
             # Detail cache is an outbox: acknowledge only after the row,
             # including extra_info._detail_text, is durably accepted by DB.
             detail_keys = [
@@ -366,6 +397,9 @@ async def upsert_tenders(
                         stripped, on_conflict=UPSERT_CONFLICT
                     ).execute()
                     total += len(batch)
+                    persisted_new_tenders.extend(
+                        t for t in batch if (t.external_id, t.source) in new_keys
+                    )
                     logger.info(
                         "[DB] Upserted batch %d-%d without %s (%d rows)",
                         i, i + len(batch), missing_keys, len(batch),
@@ -375,4 +409,9 @@ async def upsert_tenders(
                     logger.error("[DB] Fallback upsert batch %d failed: %s", i, str(exc2))
             logger.error("[DB] Upsert batch %d failed: %s", i, msg)
 
-    return total, new_tenders
+    return UpsertOutcome(
+        total,
+        persisted_new_tenders,
+        deferred_count,
+        failed_count=len(tenders) - total,
+    )
