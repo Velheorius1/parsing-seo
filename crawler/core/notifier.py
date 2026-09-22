@@ -1339,7 +1339,7 @@ def _format_alert(
             # and the tender page (not a Telegram display field). Rendering a
             # list/dict through _escape_md used to raise and abort the whole
             # crawl after the first such alert.
-            if isinstance(value, (dict, list, tuple, set)):
+            if str(label).startswith("_") or isinstance(value, (dict, list, tuple, set)):
                 continue
             parts.append("%s: %s" % (_escape_md(str(label)), _escape_md(str(value))))
     # Show all sources if tender found on multiple platforms

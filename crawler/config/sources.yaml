@@ -31,6 +31,7 @@ sources:
       external_id: display_no
       source_url_template: "https://etender.uzex.uz/lot/{id}"
     keywords_fields: [name, seller_name, category_name, _detail_text]
+    detail_persistence: true
     pagination:
       type: offset
       param: "from"
@@ -196,6 +197,7 @@ sources:
       # /home/shop/detail/{id} used the e-shop id-space -> wrong card.
       source_url_template: "https://new-xarid.uzex.uz/home/purchase/proposal-request/detail/{id}"
     keywords_fields: [category_name, customer_region_name, _detail_text]
+    detail_persistence: true
     pagination:
       type: offset
       param: "from"
@@ -1263,6 +1265,7 @@ sources:
         display_id: displayId
         address: address
     keywords_fields: [categoryName, customerName]
+    detail_persistence: true
     pagination:
       type: offset
       param: "from"
