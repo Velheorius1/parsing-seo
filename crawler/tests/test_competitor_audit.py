@@ -30,12 +30,14 @@ def test_exact_inn_does_not_depend_on_company_name_spelling():
     assert entity["inn"] == "205353003"
 
 
-def test_books_is_unresolved_and_never_inherits_service_inn():
+def test_books_has_its_own_exact_inn_and_never_inherits_service_inn():
     registry = load_registry()
     books = next(item for item in registry["entities"] if item["name"] == "STANDARD POLIGRAF BOOKS")
 
-    assert books["inn"] is None
+    assert books["inn"] == "305970088"
+    assert entity_for_inn(registry, "305970088")["name"] == "STANDARD POLIGRAF BOOKS"
     assert entity_for_inn(registry, "207063624")["name"] == "STANDARD POLIGRAF SERVICE"
+    assert books["inn"] != entity_for_inn(registry, "207063624")["inn"]
 
 
 def test_invalid_or_zero_inn_is_unresolved():
