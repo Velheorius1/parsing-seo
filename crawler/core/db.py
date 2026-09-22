@@ -241,8 +241,8 @@ def _restore_persisted_detail(tenders, existing_rows):
     for tender in tenders:
         if not tender.detail_persistence:
             continue
-        row = existing_rows.get((tender.external_id, tender.source))
-        stored = (row or {}).get("extra_info") or {}
+        row = existing_rows.get((tender.external_id, tender.source)) or {}
+        stored = row.get("extra_info") or {}
         if not isinstance(stored, dict):
             continue
 
