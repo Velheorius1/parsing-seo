@@ -2,6 +2,8 @@
 import sys
 import types
 import os
+import asyncio
+from unittest.mock import patch
 
 import yaml
 
@@ -14,7 +16,8 @@ if "crawler.config.settings" not in sys.modules:
     )
     sys.modules["crawler.config.settings"] = _m
 
-from crawler.core.db import _restore_persisted_detail
+from crawler.core import db
+from crawler.core.db import _restore_persisted_detail, upsert_tenders
 from crawler.core.models import RawTender
 from crawler.core.notifier import _format_alert
 from crawler.adapters.api import ApiAdapter
@@ -45,6 +48,37 @@ def test_repeat_list_upsert_restores_hidden_detail_and_does_not_alert_it():
     assert "Картхолдер картонный" not in _format_alert(tender, "печать")
 
 
+def test_fresh_detail_replaces_stored_detail_instead_of_being_overwritten():
+    tender = _tender(
+        detail_persistence=True,
+        search_text="Категория НОВЫЙ КАРТОННЫЙ КАРТХОЛДЕР",
+        extra_info={"_detail_text": "НОВЫЙ КАРТОННЫЙ КАРТХОЛДЕР"},
+    )
+    rows = {("1", "ETender UZEX"): {
+        "extra_info": {"_detail_text": "СТАРАЯ КОЖАНАЯ ПАПКА"},
+        "search_text": "Категория СТАРАЯ КОЖАНАЯ ПАПКА",
+    }}
+
+    _restore_persisted_detail([tender], rows)
+
+    assert tender.extra_info["_detail_text"] == "НОВЫЙ КАРТОННЫЙ КАРТХОЛДЕР"
+    assert tender.search_text.startswith("Категория НОВЫЙ"), tender.search_text
+    assert "СТАРАЯ КОЖАНАЯ" not in tender.search_text
+
+
+def test_legacy_search_text_detail_is_migrated_only_when_list_text_is_a_prefix():
+    tender = _tender(detail_persistence=True, search_text="Категория Заказчик")
+    rows = {("1", "ETender UZEX"): {
+        "extra_info": {},
+        "search_text": "Категория Заказчик | КАРТОННЫЙ КАРТХОЛДЕР С ПЕЧАТЬЮ",
+    }}
+
+    _restore_persisted_detail([tender], rows)
+
+    assert tender.extra_info["_detail_text"] == "КАРТОННЫЙ КАРТХОЛДЕР С ПЕЧАТЬЮ"
+    assert tender.search_text.startswith("КАРТОННЫЙ КАРТХОЛДЕР"), tender.search_text
+
+
 def test_prequal_lots_survive_live_list_metadata_and_restore_subject():
     tender = _tender(
         source="UZEX Предквалификации", detail_persistence=True,
@@ -59,6 +93,64 @@ def test_prequal_lots_survive_live_list_metadata_and_restore_subject():
     assert "Печать буклетов" in tender.search_text
     assert tender.extra_info["customer_inn"] == "123456789"
     assert tender.extra_info["lots"][0]["description"] == "мелованная бумага"
+
+
+def test_fresh_prequal_lots_are_not_replaced_by_stored_lots():
+    tender = _tender(
+        source="UZEX Предквалификации", detail_persistence=True,
+        extra_info={"lots": [{"productName": "Новая позиция", "description": "картон"}]},
+    )
+    rows = {("1", "UZEX Предквалификации"): {
+        "extra_info": {"lots": [{"productName": "Старая позиция", "description": "кожа"}]},
+    }}
+
+    _restore_persisted_detail([tender], rows)
+
+    assert tender.extra_info["lots"][0]["productName"] == "Новая позиция"
+    assert "Новая позиция" in tender.search_text
+    assert "Старая позиция" not in tender.search_text
+
+
+class _LookupFailureClient:
+    def __init__(self):
+        self.operation = None
+        self.upsert_rows = []
+
+    def table(self, *_args):
+        return self
+
+    def select(self, *_args):
+        self.operation = "select"
+        return self
+
+    def eq(self, *_args):
+        return self
+
+    def in_(self, *_args):
+        return self
+
+    def upsert(self, rows, **_kwargs):
+        self.operation = "upsert"
+        self.upsert_rows.extend(rows)
+        return self
+
+    def execute(self):
+        if self.operation == "select":
+            raise RuntimeError("simulated lookup timeout")
+        return types.SimpleNamespace(data=[])
+
+
+def test_lookup_failure_defers_tender_without_write_or_false_new_alert():
+    client = _LookupFailureClient()
+    settings = types.SimpleNamespace(
+        supabase_url="fake", supabase_service_role_key="fake", batch_size=100,
+    )
+    with patch.object(db, "_get_client", return_value=client), patch.object(db, "settings", settings):
+        upserted, new_tenders = asyncio.run(upsert_tenders([_tender(detail_persistence=True)]))
+
+    assert upserted == 0
+    assert new_tenders == []
+    assert client.upsert_rows == []
 
 
 def test_source_without_opt_in_is_not_changed():

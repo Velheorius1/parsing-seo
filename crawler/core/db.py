@@ -168,13 +168,17 @@ def update_relevance_fields(
 def _get_existing_rows(
     client,  # type: ignore[no-untyped-def]
     tenders: List[RawTender],
-) -> Dict[Tuple[str, str], Dict[str, Any]]:
+) -> Tuple[Dict[Tuple[str, str], Dict[str, Any]], Set[Tuple[str, str]]]:
     """Fetch existing keys and opted-in detail metadata for these tenders.
 
     Ordinary sources retain the old, light `(external_id, source)` query. Only
-    sources explicitly marked `detail_persistence` read JSONB detail state.
+    sources explicitly marked `detail_persistence` read the fields needed to
+    preserve detail state. A failed lookup is returned as ``unknown`` rather
+    than silently treated as a missing row: writing such a batch could erase a
+    persisted specification and incorrectly resend an old tender as new.
     """
     existing = {}  # type: Dict[Tuple[str, str], Dict[str, Any]]
+    unknown = set()  # type: Set[Tuple[str, str]]
     # Group by source to minimize queries
     sources = set(t.source for t in tenders)
     for source in sources:
@@ -186,7 +190,7 @@ def _get_existing_rows(
             try:
                 resp = (
                     client.table(TABLE)
-                    .select("external_id,source,extra_info" if retain_detail else "external_id,source")
+                    .select("external_id,source,extra_info,search_text" if retain_detail else "external_id,source")
                     .eq("source", source)
                     .in_("external_id", batch_ids)
                     .execute()
@@ -195,7 +199,8 @@ def _get_existing_rows(
                     existing[(row["external_id"], row["source"])] = row
             except Exception as exc:
                 logger.warning("[DB] Failed to check existing for %s: %s", source, str(exc))
-    return existing
+                unknown.update((external_id, source) for external_id in batch_ids)
+    return existing, unknown
 
 
 def _merge_detail_text(search_text, detail_text):
@@ -213,6 +218,23 @@ def _merge_detail_text(search_text, detail_text):
     return ("%s | %s" % (detail, current)).strip(" |")[:2000]
 
 
+def _legacy_detail_text(stored_search_text, incoming_search_text):
+    # type: (Any, Any) -> str
+    """Conservatively recover pre-C2 detail appended to an old list text.
+
+    Before C2, sources could persist ``list text | specification`` without the
+    dedicated JSONB field. Only migrate when the current list text is an exact
+    normalized prefix; arbitrary historical words may be an older title or
+    category and must never be promoted to a specification.
+    """
+    stored = " ".join(str(stored_search_text or "").split())
+    incoming = " ".join(str(incoming_search_text or "").split())
+    if not stored or not incoming or not stored.lower().startswith(incoming.lower()):
+        return ""
+    residual = stored[len(incoming):].strip(" |·—-\t")
+    return residual[:2000]
+
+
 def _restore_persisted_detail(tenders, existing_rows):
     # type: (List[RawTender], Dict[Tuple[str, str], Dict[str, Any]]) -> None
     """Restore only opted-in detail payload before list data overwrites a row."""
@@ -225,15 +247,22 @@ def _restore_persisted_detail(tenders, existing_rows):
             continue
 
         current_extra = dict(tender.extra_info or {})
-        detail_text = stored.get("_detail_text")
+        detail_text = current_extra.get("_detail_text")
+        if not detail_text:
+            detail_text = stored.get("_detail_text") or _legacy_detail_text(
+                row.get("search_text"), tender.search_text
+            )
         if detail_text:
+            # An incoming detail is authoritative. Persisted data is restored
+            # only for a plain list payload that did not fetch a new card.
             tender.search_text = _merge_detail_text(tender.search_text, detail_text)
             current_extra["_detail_text"] = detail_text
 
         # Prequalification details use the richer lots payload rather than the
         # generic API string. Preserve it alongside live list metadata, then
         # reconstruct its human-readable positions exactly as replay does.
-        lots = stored.get("lots")
+        live_lots = current_extra.get("lots")
+        lots = live_lots if isinstance(live_lots, list) and live_lots else stored.get("lots")
         if tender.source == "UZEX Предквалификации" and isinstance(lots, list):
             from crawler.core.prequal_detail import merged_search_text, positions_from_detail
             merged = merged_search_text(
@@ -276,7 +305,13 @@ async def upsert_tenders(
     client = _get_client()
 
     # Find which tenders are NEW (not in DB yet)
-    existing_rows = _get_existing_rows(client, tenders)
+    existing_rows, unknown_keys = _get_existing_rows(client, tenders)
+    if unknown_keys:
+        deferred = [t for t in tenders if (t.external_id, t.source) in unknown_keys]
+        logger.warning("[DB] Deferring %d tenders after failed existence lookup", len(deferred))
+        tenders = [t for t in tenders if (t.external_id, t.source) not in unknown_keys]
+    if not tenders:
+        return 0, []
     existing_keys = set(existing_rows.keys())
     _restore_persisted_detail(tenders, existing_rows)
     new_tenders = [
