@@ -22,6 +22,72 @@ from crawler.scripts.collect_uzex_award_api import collect as collect_uzex
 from crawler.core.competitor_audit import entity_for_inn, load_registry, normalize_inn
 
 
+_PUBLIC_RPC_ENDPOINTS = (
+    ("xt_xarid", "https://api.xt-xarid.uz/rpc"),
+    ("hayotbirja", "https://api.hayotbirja.uz/rpc"),
+)
+
+
+def _public_rpc_probe(url: str, post) -> Dict[str, Any]:
+    """Make one bounded schema probe without claiming winner visibility."""
+    response = post(
+        url,
+        json={"jsonrpc": "2.0", "method": "ref", "id": 1,
+              "params": {"ref": "ref_tender_public", "op": "read", "limit": 5, "offset": 0}},
+        headers={"Content-Type": "application/json"},
+        timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or payload.get("error") is not None:
+        raise ValueError("public RPC returned an error payload")
+    rows = payload.get("result")
+    if not isinstance(rows, list):
+        raise ValueError("public RPC result is not a list")
+    sample_ids = [str(row.get("id")) for row in rows if isinstance(row, dict) and row.get("id") is not None]
+    return {"observed_at": datetime.now(timezone.utc).isoformat(),
+            "http_status": getattr(response, "status_code", None),
+            "rpc_ref": "ref_tender_public", "row_count": len(rows),
+            "sample_ids": sample_ids}
+
+
+def _public_rpc_runs(post=None) -> Dict[str, Dict[str, Any]]:
+    """Return honest live passport rows for XT-Xarid and its Hayot mirror."""
+    requester = post or httpx.post
+    observations = {}  # type: Dict[str, Dict[str, Any]]
+    errors = {}  # type: Dict[str, str]
+    for source_id, url in _PUBLIC_RPC_ENDPOINTS:
+        try:
+            observations[source_id] = _public_rpc_probe(url, requester)
+        except Exception as exc:
+            errors[source_id] = "%s: %s" % (type(exc).__name__, str(exc)[:140])
+
+    xt_observation = observations.get("xt_xarid")
+    hayot_observation = observations.get("hayotbirja")
+    if xt_observation is None:
+        xt = {"status": "collector_error", "captured_at": datetime.now(timezone.utc).isoformat(),
+              "detail": errors.get("xt_xarid") or "public RPC was not observed"}
+    else:
+        xt = {"status": "winner_unobservable", "captured_at": xt_observation["observed_at"],
+              "detail": "fresh public RPC schema observed; winner INN is not exposed",
+              "receipt": xt_observation}
+
+    if hayot_observation is None:
+        hayot = {"status": "collector_error", "captured_at": datetime.now(timezone.utc).isoformat(),
+                 "detail": errors.get("hayotbirja") or "public RPC was not observed"}
+    else:
+        sample_match = (xt_observation is not None and
+                        hayot_observation["sample_ids"] == xt_observation["sample_ids"])
+        receipt = dict(hayot_observation)
+        receipt["mirror_sample_match"] = sample_match
+        hayot = {"status": "mirror" if sample_match else "mirror_unconfirmed",
+                 "captured_at": hayot_observation["observed_at"],
+                 "detail": ("fresh public RPC sample matches XT-Xarid; winner INN is not exposed"
+                            if sample_match else "public RPC observed but XT-Xarid mirror sample was not confirmed"),
+                 "receipt": receipt}
+    return {"xt_xarid": xt, "hayotbirja": hayot}
+
+
 def _exact_ebirja_awards(details, registry):
     # type: (List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]) -> (List[Dict[str, Any]], int, int)
     """Keep Ebirja Shop wins only after the detail INN joins the registry.
@@ -75,7 +141,8 @@ def _ebirja_run(source_key: str, date_from: date, page_size: int, page_cap: int,
             "receipt": result}
 
 
-def build_runs(date_from: date, page_size: int, page_cap: int, max_details: int = 25) -> Dict[str, Dict[str, Any]]:
+def build_runs(date_from: date, page_size: int, page_cap: int, max_details: int = 25,
+               rpc_post=None) -> Dict[str, Dict[str, Any]]:
     """Collect every public source once, retaining limitations explicitly."""
     captured = datetime.now(timezone.utc).isoformat()
     runs = {}  # type: Dict[str, Dict[str, Any]]
@@ -106,10 +173,7 @@ def build_runs(date_from: date, page_size: int, page_cap: int, max_details: int 
                                           "receipt": cooperation}
     except Exception as exc:
         runs["cooperation_contracts"] = {"status": "collector_error", "captured_at": captured, "detail": str(exc)[:180]}
-    runs["xt_xarid"] = {"status": "winner_unobservable", "captured_at": captured,
-                         "detail": "public RPC exposes procedure fields but not winner INN"}
-    runs["hayotbirja"] = {"status": "mirror", "captured_at": captured,
-                           "detail": "Hayotbirja mirrors XT-Xarid; public RPC omits winner INN"}
+    runs.update(_public_rpc_runs(rpc_post))
     return runs
 
 
