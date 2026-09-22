@@ -14,6 +14,7 @@ if "crawler.config.settings" not in sys.modules:
 
 from crawler.scripts.shadow_search import (
     AUDIT_CANDIDATES, _matches, _passes_price_gate, _promotion_block_reason,
+    _strict_competitor_price_state, _to_tender,
 )
 
 
@@ -48,6 +49,24 @@ def test_price_gate_matches_production_fail_open_semantics():
     assert _passes_price_gate({"price": 20_000_000}, 20_000_000)
     assert _passes_price_gate({"price": None}, 20_000_000)
     assert _passes_price_gate({"price": "unknown"}, 20_000_000)
+
+
+def test_strict_competitor_price_is_currency_aware_and_strictly_above_20m():
+    assert _strict_competitor_price_state({"price": 19_999_999, "currency": "UZS"}) == "rejected"
+    assert _strict_competitor_price_state({"price": 20_000_000, "currency": "UZS"}) == "rejected"
+    assert _strict_competitor_price_state({"price": 20_000_001, "currency": "UZS"}) == "matched"
+    assert _strict_competitor_price_state({"price": None, "currency": "UZS"}) == "unknown"
+    assert _strict_competitor_price_state({"price": 50_000_000, "currency": None}) == "unknown"
+    assert _strict_competitor_price_state({"price": 50_000_000, "currency": "USD"}) == "unknown"
+
+
+def test_shadow_tender_and_export_preserve_observed_currency():
+    tender = _to_tender({
+        "external_id": "1", "title": "Журнал", "organization": "Заказчик",
+        "source": "X", "search_text": "Журнал", "price": 25_000_000,
+        "currency": "USD",
+    })
+    assert tender.currency == "USD"
 
 
 def test_contextual_shadow_candidate_cannot_be_promoted_as_plain_keyword():

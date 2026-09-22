@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from crawler.config.settings import settings
+from crawler.core.competitor_audit import above_threshold
 from crawler.core.models import RawTender
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -84,7 +85,7 @@ AUDIT_CANDIDATES = [
 ]
 
 FIELDS = ("external_id,title,organization,price,deadline,source,search_text,"
-          "message_type,extra_info,alert_seq")
+          "currency,message_type,extra_info,alert_seq")
 
 
 def _client():
@@ -128,6 +129,16 @@ def _passes_price_gate(row, min_price):
         return True
 
 
+def _strict_competitor_price_state(row):
+    """Classify the agreed competitor sample without fail-open assumptions."""
+    verdict = above_threshold(row.get("price"), row.get("currency"))
+    if verdict is True:
+        return "matched"
+    if verdict is False:
+        return "rejected"
+    return "unknown"
+
+
 def _promotion_block_reason(candidate):
     """Return a safety reason when live matching cannot preserve shadow rules."""
     if candidate.get("all_of"):
@@ -143,7 +154,8 @@ def _to_tender(r):
     return RawTender(
         id=r.get("external_id") or "x", external_id=r.get("external_id") or "",
         title=r.get("title") or "", organization=r.get("organization") or "",
-        price=r.get("price"), deadline=r.get("deadline"), source=r.get("source") or "",
+        price=r.get("price"), currency=r.get("currency") or "",
+        deadline=r.get("deadline"), source=r.get("source") or "",
         search_text=r.get("search_text") or "", message_type=r.get("message_type") or "tender")
 
 
@@ -192,8 +204,9 @@ async def _judge_inscope(tenders):
     return len(judged), judged
 
 
-async def scan(candidate_ids=None, judge_limit=JUDGE_SAMPLE, min_price=None):
-    # type: (object, int, object) -> int
+async def scan(candidate_ids=None, judge_limit=JUDGE_SAMPLE, min_price=None,
+               strict_competitor=False):
+    # type: (object, int, object, bool) -> int
     from crawler.auth.session_store import session_store
     c = _client()
     st = _load_state(session_store)
@@ -216,14 +229,20 @@ async def scan(candidate_ids=None, judge_limit=JUDGE_SAMPLE, min_price=None):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     for cand in cands:
         caught = []
+        strict_counts = {"matched": 0, "rejected": 0, "unknown": 0}
         for r in rows:
-            if not _passes_price_gate(r, effective_min_price):
-                continue
             if not _matches(cand, r):
                 continue
             t = _to_tender(r)
             if _find_matching_keyword(t, kws):
                 continue  # production keyword already covers it → not new recall
+            if strict_competitor:
+                state = _strict_competitor_price_state(r)
+                strict_counts[state] += 1
+                if state != "matched":
+                    continue
+            elif not _passes_price_gate(r, effective_min_price):
+                continue
             caught.append(t)
         import random
         logger.info("[Shadow] %-16s matched %d new lots, judging %d...",
@@ -231,11 +250,22 @@ async def scan(candidate_ids=None, judge_limit=JUDGE_SAMPLE, min_price=None):
         sample = random.sample(caught, min(judge_limit, len(caught))) if caught else []
         in_scope, judged = await _judge_inscope(sample)
         rec = {"date": now, "candidate": cand["id"], "type": cand["type"],
-               "min_price": effective_min_price,
+               "price_mode": "strict_competitor" if strict_competitor else "production_fail_open",
+               "min_price": 20000000 if strict_competitor else effective_min_price,
                "new_catches": len(caught),
                "judged": len(sample), "in_scope": in_scope,
                "in_scope_pct": round(100 * in_scope / len(sample)) if sample else None,
-               "sample": judged[:5]}
+               "sample": judged[:5],
+               "catch_samples": [{
+                   "external_id": tender.external_id,
+                   "title": (tender.title or "")[:120],
+                   "price": tender.price,
+                   "currency": tender.currency or None,
+               } for tender in caught[:5]]}
+        if strict_competitor:
+            rec["price_matched"] = strict_counts["matched"]
+            rec["price_rejected"] = strict_counts["rejected"]
+            rec["price_unknown"] = strict_counts["unknown"]
         results[cand["id"]] = rec
         logger.info("[Shadow] %-16s new=%d judged=%d in_scope=%s%%",
                     cand["id"], len(caught), len(sample),
@@ -376,6 +406,8 @@ if __name__ == "__main__":
                     help="max AI judgments per candidate; 0 = lexical-only")
     ap.add_argument("--min-price", type=float,
                     help="minimum lot price; defaults to the production alert gate")
+    ap.add_argument("--strict-competitor", action="store_true",
+                    help="strict >20m UZS; unknown amount/currency is counted separately")
     a = ap.parse_args()
     if a.promote:
         sys.exit(promote(a.promote))
@@ -390,11 +422,14 @@ if __name__ == "__main__":
             ap.error("--judge-limit must be >= 0")
         if a.min_price is not None and a.min_price < 0:
             ap.error("--min-price must be >= 0")
+        if a.strict_competitor and a.min_price is not None:
+            ap.error("--strict-competitor cannot be combined with --min-price")
         selected = list(a.candidate)
         if a.audit_candidates:
             selected.extend(c["id"] for c in AUDIT_CANDIDATES)
         sys.exit(asyncio.run(scan(candidate_ids=selected, judge_limit=a.judge_limit,
-                                  min_price=a.min_price)))
+                                  min_price=a.min_price,
+                                  strict_competitor=a.strict_competitor)))
     if a.report:
         sys.exit(asyncio.run(report(send_tg=a.tg)))
     ap.error("one of --scan/--report/--promote/--add-keyword/--add-tnved required")
