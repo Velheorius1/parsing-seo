@@ -1,7 +1,8 @@
 import sys
 
 from crawler.scripts.monitor_competitor_awards import (
-    SOURCE_PASSPORT, _qualified_source_awards, build_digest, delta, deliver_report, multi_source_delta,
+    SOURCE_PASSPORT, _qualified_source_awards, build_digest, delta, deliver_report, digest_batches,
+    multi_source_delta, state_after_delivery,
 )
 
 
@@ -116,16 +117,46 @@ def test_digest_renders_bounded_optional_specification():
 def test_bootstrap_and_empty_delta_do_not_call_telegram():
     calls = []
     sender = lambda text: calls.append(text) or True
-    assert deliver_report({"bootstrap": True, "new_awards": [], "changed_awards": []}, sender) is True
-    assert deliver_report({"bootstrap": False, "new_awards": [], "changed_awards": []}, sender) is True
+    assert deliver_report({"bootstrap": True, "new_awards": [], "changed_awards": []}, sender)["complete"] is True
+    assert deliver_report({"bootstrap": False, "new_awards": [], "changed_awards": []}, sender)["complete"] is True
     assert calls == []
 
 
 def test_delivery_failure_is_reported_to_caller():
     report = {"bootstrap": False, "new_awards": [{"winner_name": "PRINTUZ", "winner_inn": "304788646",
               "amount": "25000001", "currency": "UZS", "title": "Книга"}], "changed_awards": []}
-    assert deliver_report(report, lambda _text: False) is False
+    assert deliver_report(report, lambda _text: False)["complete"] is False
     assert "PRINTUZ" in build_digest(report)
+
+
+def _many_awards(count=14):
+    return [{"key": "etender_deals:304788646:%d" % index, "winner_name": "PRINTUZ",
+             "winner_inn": "304788646", "amount": 25000001, "currency": "UZS",
+             "title": "Картхолдер картонный %d" % index, "specification_text": "x" * 500,
+             "source_url": "https://example.test/lot/%d" % index}
+            for index in range(count)]
+
+
+def test_long_digest_is_chunked_without_dropping_award_keys():
+    report = {"bootstrap": False, "new_awards": _many_awards(), "changed_awards": []}
+    batches = digest_batches(report)
+    assert len(batches) > 1
+    assert all(len(batch["text"]) <= 3500 for batch in batches)
+    assert [key for batch in batches for key in batch["award_keys"]] == [row["key"] for row in report["new_awards"]]
+
+
+def test_partial_delivery_advances_only_confirmed_awards():
+    report = {"bootstrap": False, "new_awards": _many_awards(), "changed_awards": []}
+    sent = []
+    receipt = deliver_report(report, lambda text: sent.append(text) or len(sent) == 1)
+    assert receipt["complete"] is False and receipt["delivered_keys"]
+    candidate = {"sources": {"etender_deals": {
+        "award_keys": [row["key"] for row in report["new_awards"]],
+        "content_hashes": {row["key"]: "h" + str(index) for index, row in enumerate(report["new_awards"])},
+        "captured_at": "now",
+    }}}
+    state = state_after_delivery({"sources": {}}, candidate, receipt["delivered_keys"])
+    assert state["sources"]["etender_deals"]["award_keys"] == receipt["delivered_keys"]
 
 
 if __name__ == "__main__":
