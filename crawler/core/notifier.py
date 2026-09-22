@@ -1335,6 +1335,12 @@ def _format_alert(
     # Extra per-source info (region, delivery days, etc.)
     if tender.extra_info:
         for label, value in tender.extra_info.items():
+            # `extra_info` also carries structured source detail for replay
+            # and the tender page (not a Telegram display field). Rendering a
+            # list/dict through _escape_md used to raise and abort the whole
+            # crawl after the first such alert.
+            if isinstance(value, (dict, list, tuple, set)):
+                continue
             parts.append("%s: %s" % (_escape_md(label), _escape_md(value)))
     # Show all sources if tender found on multiple platforms
     if extra_sources and len(extra_sources) > 1:
@@ -1830,9 +1836,16 @@ async def send_alerts(
         for i, (tender, kw) in enumerate(matching):
             seq = start_seq + i
             extra = _group_sources.get(tender.id)
-            # Look up Supabase UUID for detail page link
-            db_id = _lookup_tender_uuid(tender.external_id, tender.source)
-            text = _format_alert(tender, kw, extra_sources=extra, alert_seq=seq, db_id=db_id)
+            # Formatting/DB lookup are per-alert work. One malformed source
+            # payload must not prevent later push messages or the digest.
+            try:
+                db_id = _lookup_tender_uuid(tender.external_id, tender.source)
+                text = _format_alert(tender, kw, extra_sources=extra,
+                                     alert_seq=seq, db_id=db_id)
+            except Exception as exc:
+                logger.warning("[Alerts] Failed preparing alert #%d (%s/%s); skipping one: %s",
+                               seq, tender.source, tender.external_id, str(exc)[:160])
+                continue
             # Inline keyboard for feedback \u2014 context-aware wording. "\u041a\u043b\u0438\u0435\u043d\u0442" made no
             # sense on a tender \u2192 feedback dead 2 months (last click 2026-04-15).
             # Leads keep \u041a\u043b\u0438\u0435\u043d\u0442/\u0420\u0435\u043a\u043b\u0430\u043c\u0430/\u041c\u0438\u043c\u043e; tenders get \u0418\u043d\u0442\u0435\u0440\u0435\u0441\u043d\u043e/\u0420\u0435\u043a\u043b\u0430\u043c\u0430/\u041d\u0435 \u043c\u043e\u0451.

@@ -68,7 +68,7 @@ def lot_id(external_id):
 
 def positions_from_detail(data):
     # type: (Any) -> List[str]
-    """Названия позиций лота, по порядку и без повторов.
+    """Позиции лота со спецификацией, по порядку и без повторов.
 
     Повторы реальны: у лота 100279 «Услуга по установке баннера» стоит дважды
     (две позиции разного объёма). Для модели это одно и то же слово дважды —
@@ -83,9 +83,21 @@ def positions_from_detail(data):
             continue
         name = item.get("productName") or item.get("name") or ""
         name = " ".join(str(name).split())
-        if name and name.lower() not in seen:
-            seen.add(name.lower())
-            out.append(name)
+        description = (item.get("description") or item.get("productDescription")
+                       or item.get("specification") or "")
+        description = " ".join(str(description).split())
+        position = name
+        if name and description:
+            # A category-like productName can deliberately hide the real
+            # subject (for example a gift basket whose description lists
+            # fruit and nuts). Keep the name first for matching/replay while
+            # giving the relevance model the material specification.
+            position = "%s — %s" % (name, description)
+        elif not name:
+            position = description
+        if position and position.lower() not in seen:
+            seen.add(position.lower())
+            out.append(position)
     return out
 
 

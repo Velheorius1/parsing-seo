@@ -207,9 +207,11 @@ class RawTender(BaseModel):
     # Live demand signal: # of participants/bidders (part_count). Populated on
     # reverse auctions / RFPs (real), absent on e-shop catalogs. deep-think 2026-07-01.
     bid_count: Optional[int] = None
-    # Extra display fields rendered in TG alert (from field_map.extra_info).
-    # Key = display label (Russian), Value = resolved text.
-    extra_info: Dict[str, str] = Field(default_factory=dict)
+    # Source metadata. Scalar values from field_map.extra_info are displayed in
+    # Telegram; adapters/enrichers may also keep structured payloads here (for
+    # example UZEX prequalification lots) for replay and the frontend.  The
+    # formatter deliberately skips those structured values.
+    extra_info: Dict[str, Any] = Field(default_factory=dict)
     # AI relevance (migration 017). Populated by notifier._ai_check_relevance
     # for tenders that reach the keyword/bypass gate. NULL = not yet scored.
     relevance_score: Optional[int] = None  # 0-100
