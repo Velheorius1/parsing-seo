@@ -1341,7 +1341,7 @@ def _format_alert(
             # crawl after the first such alert.
             if isinstance(value, (dict, list, tuple, set)):
                 continue
-            parts.append("%s: %s" % (_escape_md(label), _escape_md(value)))
+            parts.append("%s: %s" % (_escape_md(str(label)), _escape_md(str(value))))
     # Show all sources if tender found on multiple platforms
     if extra_sources and len(extra_sources) > 1:
         parts.append("Площадки (%d): %s" % (len(extra_sources), ", ".join(extra_sources)))
