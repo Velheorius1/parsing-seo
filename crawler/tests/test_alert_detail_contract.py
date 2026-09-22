@@ -37,6 +37,22 @@ def test_structured_lots_are_not_rendered_and_do_not_crash_formatter():
     assert "Подарочная корзина" not in text
 
 
+def test_scalar_extra_info_values_are_rendered_without_crashing():
+    tender = _tender(extra_info={
+        "Количество": 100,
+        "Срочный": True,
+        "Примечание": None,
+        "lots": [{"productName": "Служебная позиция"}],
+    })
+
+    text = _format_alert(tender, "печать")
+
+    assert "Количество: 100" in text
+    assert "Срочный: True" in text
+    assert "Примечание: None" in text
+    assert "Служебная позиция" not in text
+
+
 def test_raw_tender_accepts_structured_detail_for_replay_contract():
     tender = _tender(extra_info={"lots": [{"productName": "Буклет"}]})
     assert tender.extra_info["lots"][0]["productName"] == "Буклет"
