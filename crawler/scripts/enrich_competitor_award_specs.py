@@ -95,6 +95,8 @@ def enrich_awards(source_id: str, awards: List[Dict[str, Any]], get: Callable[..
         return copied, summary
     candidates = [row for row in copied if _is_candidate(row)]
     summary["capped"] = max(0, len(candidates) - max_details)
+    for row in candidates[max_details:]:
+        row["_specification_status"] = "capped"
     parser = summarize_etender_detail if source_id == "etender_deals" else summarize_direct_detail
     for row in candidates[:max_details]:
         summary["attempted"] += 1
@@ -105,7 +107,9 @@ def enrich_awards(source_id: str, awards: List[Dict[str, Any]], get: Callable[..
             if not specification:
                 raise ValueError("detail has no readable line items")
             row["specification_text"] = specification
+            row["_specification_status"] = "complete"
             summary["enriched"] += 1
         except Exception:
+            row["_specification_status"] = "unavailable"
             summary["failed"] += 1
     return copied, summary

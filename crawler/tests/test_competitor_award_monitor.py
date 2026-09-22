@@ -91,6 +91,27 @@ def test_specification_correction_is_reported_as_change_not_new_award():
     assert len(result["changed_awards"]) == 1
 
 
+def test_temporary_specification_failure_does_not_fabricate_a_change():
+    healthy = {"etender_deals": {"status": "complete", "captured_at": "2026-09-21T00:00:00Z", "awards": [{
+        "winner_inn": "304788646", "award_id": "77", "final_total": "25000000", "currency": "UZS",
+        "title": "neutral title", "is_win": True, "specification_text": "Бланки · 100000",
+        "_specification_status": "complete",
+    }]}}
+    baseline = multi_source_delta(healthy, {"sources": {}})["state_candidate"]
+    failed = copy.deepcopy(healthy)
+    failed["etender_deals"]["captured_at"] = "2026-09-22T00:00:00Z"
+    failed_row = failed["etender_deals"]["awards"][0]
+    failed_row.pop("specification_text")
+    failed_row["_specification_status"] = "unavailable"
+
+    result = multi_source_delta(failed, baseline)
+
+    key = "etender_deals:304788646:77"
+    assert result["changed_awards"] == []
+    assert result["state_candidate"]["sources"]["etender_deals"]["content_hashes"][key] == \
+        baseline["sources"]["etender_deals"]["content_hashes"][key]
+
+
 def test_public_uzex_audit_shape_is_normalized_before_threshold_gate():
     run = {"awards": [{"winner_inn": "304788646", "award_id": "A-1",
                         "final_total": "25000001", "currency": "UZS",

@@ -56,7 +56,9 @@ def test_enrichment_fetches_only_confirmed_qualified_rows_and_isolates_failures(
     result, summary = enrich_awards("etender_deals", awards, get, max_details=25)
     assert [url.rsplit("/", 2)[-2] for url in calls] == ["good", "bad"]
     assert result[0]["specification_text"] == "Бланки · 100000"
+    assert result[0]["_specification_status"] == "complete"
     assert "specification_text" not in result[1]
+    assert result[1]["_specification_status"] == "unavailable"
     assert summary == {"attempted": 2, "enriched": 1, "failed": 1, "capped": 0}
 
 
@@ -72,6 +74,7 @@ def test_enrichment_honors_cap_without_touching_later_awards():
     result, summary = enrich_awards("etender_deals", awards, get, max_details=2)
     assert len(calls) == 2
     assert [row.get("specification_text") for row in result] == ["Книга", "Книга", None]
+    assert [row.get("_specification_status") for row in result] == ["complete", "complete", "capped"]
     assert summary == {"attempted": 2, "enriched": 2, "failed": 0, "capped": 1}
 
 
@@ -83,18 +86,21 @@ def test_all_exchange_runner_attaches_detail_receipt_without_changing_passport()
         runner.collect_uzex = lambda key, *_args: {"complete": True, "captured_at": "now",
                                                      "awards": [{"procedure_id": key}],
                                                      "completion": "short_page"}
-        runner.enrich_awards = lambda source_id, awards, _get, max_details: (
-            [dict(award, specification_text="позиция " + source_id) for award in awards],
-            {"attempted": 1, "enriched": 1, "failed": 0, "capped": 0})
+        def fake_enrich(source_id, awards, _get, max_details):
+            calls.append((source_id, max_details))
+            return ([dict(award, specification_text="позиция " + source_id) for award in awards],
+                    {"attempted": 1, "enriched": 1, "failed": 0, "capped": 0})
+        runner.enrich_awards = fake_enrich
         runner.load_registry = lambda: {}
         runner._ebirja_run = lambda source_key, *_args: {"status": "complete_name_only",
                                                            "detail": source_key}
         runner.collect_cooperation = lambda *_args: {"ok": True}
-        result = runner.build_runs(date(2026, 9, 1), 100, 1)
+        result = runner.build_runs(date(2026, 9, 1), 100, 1, max_details=7)
         assert len(result) == 9
         for source_id in ("etender_deals", "uzex_direct"):
             assert result[source_id]["awards"][0]["specification_text"] == "позиция " + source_id
             assert result[source_id]["detail_enrichment"]["enriched"] == 1
+        assert calls == [("etender_deals", 7), ("uzex_direct", 7)]
     finally:
         (runner.collect_uzex, runner.enrich_awards, runner.load_registry,
          runner._ebirja_run, runner.collect_cooperation) = original
