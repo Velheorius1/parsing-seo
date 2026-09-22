@@ -38,8 +38,10 @@
 import argparse
 import asyncio
 import collections
+import json
 import logging
 import os
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -162,6 +164,45 @@ def fetch_candidates(days, min_price):
     return [r for r in rows if (r.get("source") or "") not in _SKIP_SOURCES]
 
 
+def manifest_targets(value):
+    # type: (Dict) -> List[Tuple[str, str]]
+    """Exact successfully repaired rows, independent of an old AI verdict."""
+    targets = []
+    seen = set()
+    for row in value.get("rows") or []:
+        if not isinstance(row, dict) or row.get("status") != "updated":
+            continue
+        key = (str(row.get("source") or ""), str(row.get("external_id") or ""))
+        if not all(key) or key in seen:
+            continue
+        seen.add(key)
+        targets.append(key)
+    return targets
+
+
+def fetch_manifest_candidates(path):
+    # type: (str) -> List[Dict]
+    """Read exact recovered rows, including rows that AI scored before detail."""
+    from crawler.core.db import _get_client
+    value = json.loads(Path(path).read_text(encoding="utf-8"))
+    targets = manifest_targets(value)
+    client = _get_client()
+    rows = []
+    by_source = collections.defaultdict(list)
+    for source, external_id in targets:
+        by_source[source].append(external_id)
+    for source, ids in by_source.items():
+        for start in range(0, len(ids), 100):
+            result = (client.table("tenders").select(FIELDS).eq("source", source)
+                      .in_("external_id", ids[start:start + 100]).execute())
+            rows.extend(result.data or [])
+    target_set = set(targets)
+    return [row for row in rows
+            if (str(row.get("source") or ""), str(row.get("external_id") or "")) in target_set
+            and row.get("alert_seq") is None
+            and (row.get("source") or "") not in _SKIP_SOURCES]
+
+
 def survivors(rows, keywords=None, tnved_scope=None):
     # type: (List[Dict], Optional[List[str]], Optional[List[str]]) -> Tuple[List, Dict[str, int]]
     """Префильтр СЕГОДНЯШНИМ днём (now=None): решаем, шлём ли сейчас, а не
@@ -208,12 +249,15 @@ def _fmt(n):
     return "{:,.0f}".format(n or 0).replace(",", " ")
 
 
-async def run(days, min_price, cap, execute):
-    # type: (int, int, int, bool) -> int
-    rows = fetch_candidates(days, min_price)
-    by_id = dict((r["external_id"], r) for r in rows)
-    logger.info("кандидатов (не отправлялись, AI не видел, цена ≥ %s, %d дн): %d",
-                _fmt(min_price), days, len(rows))
+async def run(days, min_price, cap, execute, manifest=None, prefilter_only=False):
+    # type: (int, int, int, bool, Optional[str], bool) -> int
+    rows = fetch_manifest_candidates(manifest) if manifest else fetch_candidates(days, min_price)
+    by_id = dict(((r.get("source"), r["external_id"]), r) for r in rows)
+    if manifest:
+        logger.info("кандидатов из detail-recovery manifest (не отправлялись): %d", len(rows))
+    else:
+        logger.info("кандидатов (не отправлялись, AI не видел, цена ≥ %s, %d дн): %d",
+                    _fmt(min_price), days, len(rows))
     if not rows:
         return 0
 
@@ -230,6 +274,12 @@ async def run(days, min_price, cap, execute):
                 len(keep), len(deduped), dropped)
     if not deduped:
         logger.info("всё было дублями уже отправленного — досылать нечего")
+        return 0
+
+    if prefilter_only:
+        logger.info("ZERO-AI ПРОГОН: после prefilter/dedup осталось %d", len(deduped))
+        for tender in deduped:
+            print("%s | %s | %s" % (tender.source, tender.external_id, tender.title[:100]))
         return 0
 
     deduped.sort(key=lambda t: -_rank_price(t, deduped))
@@ -249,8 +299,8 @@ async def run(days, min_price, cap, execute):
         good = [v for v in res if v.delivered]
         logger.info("СУХОЙ ПРОГОН: дошло бы %d из %d (ошибок AI %d)",
                     len(good), len(res), sum(1 for v in res if v.ai_error))
-        for v in sorted(good, key=lambda v: -(by_id.get(v.external_id, {}).get("price") or 0)):
-            r = by_id.get(v.external_id, {})
+        for v in sorted(good, key=lambda v: -(by_id.get((v.source, v.external_id), {}).get("price") or 0)):
+            r = by_id.get((v.source, v.external_id), {})
             print("\n  %15s | score=%s %s | %s" % (
                 _fmt(r.get("price")), v.ai_score, v.ai_category or "", v.route or "—"))
             print("     %s" % (r.get("title") or "")[:88])
@@ -306,11 +356,17 @@ def main():
     ap.add_argument("--max", type=int, default=40, dest="cap")
     ap.add_argument("--execute", action="store_true",
                     help="реально досылать (по умолчанию сухой прогон)")
+    ap.add_argument("--manifest", help="receipt recover_detail_gap; exact updated rows, even if AI scored them")
+    ap.add_argument("--prefilter-only", action="store_true",
+                    help="zero-AI preview through current prefilter and sent dedup")
     args = ap.parse_args()
+    if args.execute and args.prefilter_only:
+        ap.error("--execute and --prefilter-only are mutually exclusive")
 
     from crawler.core.notifier import MIN_PRICE
     min_price = args.min_price if args.min_price is not None else MIN_PRICE
-    asyncio.run(run(args.days, min_price, args.cap, args.execute))
+    asyncio.run(run(args.days, min_price, args.cap, args.execute,
+                    manifest=args.manifest, prefilter_only=args.prefilter_only))
     return 0
 
 
