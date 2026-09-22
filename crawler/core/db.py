@@ -331,6 +331,16 @@ async def upsert_tenders(
                 rows, on_conflict=UPSERT_CONFLICT
             ).execute()
             total += len(batch)
+            # Detail cache is an outbox: acknowledge only after the row,
+            # including extra_info._detail_text, is durably accepted by DB.
+            detail_keys = [
+                (t.source, t.external_id) for t in batch
+                if t.detail_persistence and (t.extra_info or {}).get("_detail_text")
+            ]
+            if detail_keys:
+                from crawler.core.detail_cache import ack_details
+                if not ack_details(detail_keys):
+                    logger.warning("[DB] Could not acknowledge %d cached details", len(detail_keys))
             logger.info(
                 "[DB] Upserted batch %d-%d (%d rows)",
                 i,

@@ -23,6 +23,7 @@ crawler/logs/
 crawler/output/
 crawler/sessions/
 logs/
+/data/
 
 # ─── Secrets — NEVER COMMIT ───────────────────────────────────
 .env

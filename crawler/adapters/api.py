@@ -623,6 +623,14 @@ class ApiAdapter(BaseAdapter):
             pass
         max_seen = int(state.get("max_seen_id", 0)) if isinstance(state, dict) else 0
 
+        # A detail page is fetched before the combined database upsert. Restore
+        # any payload left by a failed downstream write even when the source
+        # high-water mark has already advanced beyond this item.
+        from crawler.core.detail_cache import restore_details, store_detail
+        restored = restore_details(items, cfg.name, dcfg.id_field)
+        if restored:
+            logger.info("[%s] restored %d cached detail payloads", cfg.name, restored)
+
         fresh = [it for it in items if _iid(it) > max_seen]
         if max_seen == 0 and dcfg.bootstrap == "newest":
             # Архивный list: берём срез новейших, хвост не дотягиваем by design
@@ -686,7 +694,14 @@ class ApiAdapter(BaseAdapter):
                         if s and s not in parts:
                             parts.append(s)
                 if parts:
-                    it["_detail_text"] = " ".join(parts)[:2000]
+                    detail_text = " ".join(parts)[:2000]
+                    # Cache before moving the high-water mark. If the cache
+                    # cannot be persisted, retry this item next crawl rather
+                    # than create another unrecoverable cursor gap.
+                    if not store_detail(cfg.name, iid, detail_text):
+                        logger.warning("[%s] detail cache write failed for %s", cfg.name, iid)
+                        break
+                    it["_detail_text"] = detail_text
                     enriched += 1
                 processed_max = max(processed_max, iid)
 

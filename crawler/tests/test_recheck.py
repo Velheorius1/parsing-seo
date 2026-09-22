@@ -92,6 +92,19 @@ def test_query_excludes_sources_demoted_in_prod():
     assert ("neq", ("source", "XT-Xarid э-магазин")) in f, f
 
 
+def test_detail_recovery_manifest_rechecks_only_successful_exact_rows():
+    value = {"rows": [
+        {"source": "ETender UZEX", "external_id": "42", "status": "updated",
+         "relevance_score": 10},
+        {"source": "ETender UZEX", "external_id": "43", "status": "fetch_failed"},
+        {"source": "Xarid Конкурсы", "external_id": "42", "status": "updated"},
+        {"source": "ETender UZEX", "external_id": "42", "status": "updated"},
+    ]}
+    assert R.manifest_targets(value) == [
+        ("ETender UZEX", "42"), ("Xarid Конкурсы", "42"),
+    ]
+
+
 # ── 2. судим сегодняшним днём ─────────────────────────────────────────────────
 
 def test_lot_open_at_collection_but_expired_today_does_not_survive():
