@@ -16,15 +16,29 @@ import sys
 import tempfile
 import types
 
-# Stub the DB dep imported at feedback.py module load, and the lazily-imported session_store.
+from crawler.tests._stubs import swapped_modules  # noqa: E402
+
+# Stub the DB dep imported at feedback.py module load, and the lazily-imported
+# session_store. Both are swapped in ONLY while needed and restored afterwards.
+# They used to be written into sys.modules for the whole pytest process: the
+# session_store stub here has get_setting but no set_setting, and
+# test_detail_cache — which imports session_store lazily, at run time — found
+# THIS stub in the slot and failed on patch.object(session_store, "set_setting").
 _db = types.ModuleType("crawler.core.db")
 _db._get_client = lambda: None
-sys.modules["crawler.core.db"] = _db
 _ss = types.ModuleType("crawler.auth.session_store")
 _ss.session_store = types.SimpleNamespace(get_setting=lambda k: None)
-sys.modules["crawler.auth.session_store"] = _ss
+_STUBS = {"crawler.core.db": _db, "crawler.auth.session_store": _ss}
 
-import crawler.core.feedback as F  # noqa: E402
+with swapped_modules(_STUBS):
+    import crawler.core.feedback as F  # noqa: E402
+
+
+def _mutes():
+    # get_active_mutes imports session_store lazily — the stub must be in the
+    # slot at CALL time, and only then.
+    with swapped_modules({"crawler.auth.session_store": _ss}):
+        return F.get_active_mutes()
 
 F._MUTE_CACHE_FILE = tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
 F.time = types.SimpleNamespace(sleep=lambda s: None)  # skip real backoff in tests
@@ -40,33 +54,33 @@ def _set_reader(fn):
 
 def test_healthy_read_filters_and_caches():
     _set_reader(lambda k: _GOOD)
-    m = F.get_active_mutes()
+    m = _mutes()
     assert m == {"TG: Мин сельхоз", "ETender Обсуждения"}, m  # pos>0 source vetoed
 
 
 def test_read_exception_falls_back_to_cache_not_empty():
     _set_reader(lambda k: _GOOD)
-    F.get_active_mutes()  # prime the disk cache
+    _mutes()  # prime the disk cache
 
     def boom(k):
         raise Exception("canceling statement due to statement timeout")
     _set_reader(boom)
-    m = F.get_active_mutes()
+    m = _mutes()
     assert m == {"TG: Мин сельхоз", "ETender Обсуждения"}, ("must serve cache, not empty", m)
 
 
 def test_non_dict_read_falls_back_to_cache():
     _set_reader(lambda k: _GOOD)
-    F.get_active_mutes()  # prime cache
+    _mutes()  # prime cache
     _set_reader(lambda k: None)  # get_setting returns None (missing/parse-fail)
-    m = F.get_active_mutes()
+    m = _mutes()
     assert len(m) == 2, ("None read must not collapse to empty", m)
 
 
 def test_veto_wins_over_negatives():
     # A single ✅ (pos>0) keeps a source OUT of the mute set regardless of ❌ count.
     _set_reader(lambda k: {"sources": {"Loud But Vetoed": {"neg": 99, "pos": 1}}})
-    assert F.get_active_mutes() == set()
+    assert _mutes() == set()
 
 
 if __name__ == "__main__":

@@ -6,13 +6,23 @@ import types
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(_ROOT, "scripts"))
 
-# The helper is pure with a supplied client. Avoid importing the real DB client
-# and its production settings while still exercising the real split behaviour.
-_db = types.ModuleType("crawler.core.db")
-_db.query_with_retry = lambda fn, **_kwargs: fn()
-sys.modules["crawler.core.db"] = _db
+from crawler.tests._stubs import swapped_modules  # noqa: E402
 
 import fetch_cooperation as fc  # noqa: E402
+
+# The helper is pure with a supplied client. `_ids_present` imports
+# `query_with_retry` LAZILY, inside the function, so the stub must be present
+# at CALL time — and only then. It used to be written into sys.modules at
+# module level, for the whole pytest process: that broke collection of five
+# files needing the real `_get_client`, and at run time this file's own tests
+# found test_replay_pure's exploding stub in the slot instead of this one.
+_db = types.ModuleType("crawler.core.db")
+_db.query_with_retry = lambda fn, **_kwargs: fn()
+
+
+def _ids_present(*args, **kwargs):
+    with swapped_modules({"crawler.core.db": _db}):
+        return fc._ids_present(*args, **kwargs)
 
 
 class _Response(object):
@@ -65,7 +75,7 @@ class _Client(object):
 
 def test_large_failed_batch_is_split_without_losing_existing_ids():
     client = _Client(existing={"id-2", "id-5"}, max_ids=2)
-    found = fc._ids_present(client, "Cooperation.uz Лоты",
+    found = _ids_present(client, "Cooperation.uz Лоты",
                             ["id-1", "id-2", "id-3", "id-4", "id-5"])
     assert found == {"id-2", "id-5"}, found
     assert any(len(ids) > 2 for ids, _ in client.calls), client.calls
@@ -76,7 +86,7 @@ def test_large_failed_batch_is_split_without_losing_existing_ids():
 
 def test_alerted_lookup_keeps_its_additional_filter_when_split():
     client = _Client(existing={"id-1"}, max_ids=1)
-    found = fc._ids_present(client, "Cooperation.uz Лоты", ["id-1", "id-2"], only_alerted=True)
+    found = _ids_present(client, "Cooperation.uz Лоты", ["id-1", "id-2"], only_alerted=True)
     assert found == {"id-1"}
     assert any(alerted for _, alerted in client.calls), client.calls
 
@@ -84,7 +94,7 @@ def test_alerted_lookup_keeps_its_additional_filter_when_split():
 def test_one_id_failure_is_not_silently_treated_as_absent():
     client = _Client(existing=set(), max_ids=0)
     try:
-        fc._ids_present(client, "Cooperation.uz Лоты", ["id-1"])
+        _ids_present(client, "Cooperation.uz Лоты", ["id-1"])
     except RuntimeError as exc:
         assert "504" in str(exc)
     else:

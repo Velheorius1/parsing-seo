@@ -20,6 +20,7 @@ Pytest разбирает такую цель обходом атрибутов:
 ПОЧЕМУ НЕ ЧИНИТЬ В ЖЕРТВЕ. Чинить пришлось бы в каждой следующей жертве заново,
 а список заглушек растёт. Дефект — в способе подменять, поэтому чинится способ.
 """
+import contextlib
 import importlib
 import sys
 import types
@@ -109,3 +110,57 @@ def install_settings_stub(**overrides):
             if not hasattr(existing, key):
                 setattr(existing, key, value)
     return mod
+
+
+_MISSING = object()
+
+
+@contextlib.contextmanager
+def swapped_modules(stubs):
+    # type: (dict) -> object
+    """Подменить модули ТОЛЬКО на время блока `with` и вернуть всё как было.
+
+    ЧЕМ ОТЛИЧАЕТСЯ ОТ install_stub. Тот ставит заглушку на весь процесс по
+    правилу «первый пришёл» — это годится для зависимости, которую модуль
+    читает при своём импорте: ссылка захвачена, дальше неважно, что лежит в
+    `sys.modules`. Но код, который берёт зависимость ЛЕНИВО, внутри функции
+    (`from crawler.core.db import query_with_retry` в теле `_ids_present`),
+    видит ту заглушку, что лежит в `sys.modules` в МОМЕНТ ВЫЗОВА. А при общем
+    прогоне там сидит заглушка последнего собранного по алфавиту файла.
+
+    КАК ЭТО ВЫГЛЯДЕЛО (22-24.09). test_coop_id_batches на уровне модуля
+    записал `sys.modules["crawler.core.db"] = пустой модуль`. Он собирается по
+    алфавиту раньше пяти файлов, которым нужен настоящий `_get_client`, — те
+    упали на импорте, а pytest при ошибках сбора не запустил НИ ОДНОГО теста.
+    Сами же его три теста в общем прогоне падали по обратной причине: к моменту
+    вызова слот уже перезаписал test_replay_pure своей взрывной заглушкой
+    («side-effect path touched from replay»). Поодиночке всё проходило.
+
+    Подмена и возврат делаются и в `sys.modules`, и атрибутом у родителя —
+    по той же причине, что в install_stub.
+    """
+    saved = []
+    try:
+        for name, mod in stubs.items():
+            parent_name, _, child = name.rpartition(".")
+            parent = sys.modules.get(parent_name) if parent_name else None
+            prev_parent_attr = getattr(parent, child, _MISSING) if parent is not None else _MISSING
+            saved.append((name, sys.modules.get(name, _MISSING), parent, child, prev_parent_attr))
+            sys.modules[name] = mod
+            if parent is not None:
+                setattr(parent, child, mod)
+        yield
+    finally:
+        for name, prev, parent, child, prev_parent_attr in reversed(saved):
+            if prev is _MISSING:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = prev
+            if parent is not None:
+                if prev_parent_attr is _MISSING:
+                    try:
+                        delattr(parent, child)
+                    except AttributeError:
+                        pass
+                else:
+                    setattr(parent, child, prev_parent_attr)

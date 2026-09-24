@@ -33,23 +33,28 @@ _fb.get_next_seq = _poison
 _fb.save_alert_seq = _poison
 _fb.get_active_mutes = _poison
 _fb.get_relevance_playbook = lambda limit=20: ""
-# Заглушка остаётся в sys.modules до конца ВСЕГО прогона и достаётся каждому,
-# кто импортирует этот модуль позже. Значит она обязана нести все имена, что
-# есть у настоящего модуля, — иначе ломается не replay, а чужой тест, и
-# виноватым выглядит он. Так 11.08 упали четыре теста дайджеста: feedback_bot
-# импортирует record_feedback, которого здесь не было. Смысл заглушки при этом
-# цел: вызов по-прежнему взрывается, просто на вызове, а не на импорте.
 _fb.record_feedback = _poison
-sys.modules["crawler.core.feedback"] = _fb
 
 _db = types.ModuleType("crawler.core.db")
 _db._get_client = lambda: None
 _db.query_with_retry = _poison
 _db.update_relevance_fields = _poison
 _db.iter_rows = _poison
-sys.modules["crawler.core.db"] = _db
 
-from crawler.scripts.replay import ReplayVerdict, replay_tenders, row_to_raw_tender  # noqa: E402
+# Яд лежит в слотах ТОЛЬКО на время импорта replay и на время каждого прогона.
+# notifier берёт feedback и db ЛЕНИВО, внутри функций, — значит проверка
+# чистоты работает, только пока яд в слоте в момент вызова; отсюда обёртка
+# в _run. Раньше обе заглушки жили в sys.modules весь pytest-процесс и
+# доставались любому, кто импортировал модуль позже: 11.08 так упали четыре
+# теста дайджеста (feedback_bot ждал record_feedback), а 22-24.09 — три теста
+# test_coop_id_batches, которым в момент вызова вместо их заглушки db
+# достался этот яд.
+from crawler.tests._stubs import swapped_modules  # noqa: E402
+
+_POISON = {"crawler.core.feedback": _fb, "crawler.core.db": _db}
+
+with swapped_modules(_POISON):
+    from crawler.scripts.replay import ReplayVerdict, replay_tenders, row_to_raw_tender  # noqa: E402
 from crawler.core.models import RawTender  # noqa: E402
 
 KW = ["печать", "упаковка"]
@@ -70,7 +75,8 @@ def _run(tenders, **kw):
     kw.setdefault("keywords", KW)
     kw.setdefault("tnved_scope", [])
     kw.setdefault("as_of", "now")
-    return asyncio.run(replay_tenders(tenders, **kw))
+    with swapped_modules(_POISON):
+        return asyncio.run(replay_tenders(tenders, **kw))
 
 
 # ── purity ────────────────────────────────────────────────────────────────────
@@ -173,6 +179,38 @@ def test_row_to_raw_tender_survives_minimal_row():
     t = row_to_raw_tender({"title": "Только заголовок"})
     assert t.external_id and t.source == "" and t.message_type == "tender"
 
+
+
+# ── страж на стража ───────────────────────────────────────────────────────────
+
+def test_poison_is_live_during_run():
+    # Тесты чистоты доказывают «replay прошёл и ничего не взорвал». Но яд, которого
+    # нет в слоте, тоже ничего не взорвёт — такой тест зелен и слеп. notifier берёт
+    # feedback/db лениво, поэтому проверяем сам механизм: ленивый импорт ВНУТРИ
+    # _run обязан достать заглушку и взорваться.
+    global replay_tenders
+    real = replay_tenders
+
+    async def _touch(*_a, **_k):
+        from crawler.core.feedback import get_next_seq
+        get_next_seq()
+
+    replay_tenders = _touch
+    try:
+        _run([_mk()])
+    except AssertionError as exc:
+        assert "side-effect path touched from replay" in str(exc), exc
+    else:
+        raise AssertionError("яд не сработал: ленивый импорт внутри _run достал не заглушку")
+    finally:
+        replay_tenders = real
+
+
+def test_poison_does_not_leak_outside_run():
+    # Обратная сторона: вне _run слоты принадлежат не нам. Утечка яда 22-24.09
+    # уронила чужие тесты, 11.08 — тесты дайджеста.
+    assert sys.modules.get("crawler.core.feedback") is not _fb
+    assert sys.modules.get("crawler.core.db") is not _db
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
