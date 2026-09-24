@@ -193,6 +193,9 @@ sources:
       title: name
       organization: customer_name
       price: cost
+      # «Сум»/«Доллар»/«Юань», как у etender-deals. Без этого поля каждый лот
+      # записывался в UZS, а 24.09 среди 286 открытых были 1 USD и 1 CNY.
+      currency: currency_name
       deadline: end_date
       date_start: start_date
       date_end: end_date
