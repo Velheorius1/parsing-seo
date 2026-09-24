@@ -86,3 +86,23 @@ if __name__ == "__main__":
             fails += 1
     print("\n%d/%d passed" % (len(tests) - fails, len(tests)))
     sys.exit(1 if fails else 0)
+
+
+def _module_sources(name):
+    # Разбор исходника, а не импорт: recall_audit тянет настоящие settings.
+    import ast
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "scripts", name)
+    for node in ast.walk(ast.parse(open(path, encoding="utf-8").read())):
+        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "SOURCES":
+            return set(ast.literal_eval(node.value))
+    raise AssertionError("SOURCES не найден в %s — тест ослеп" % name)
+
+
+def test_shadow_scan_sees_every_etender_feed_the_recall_audit_trusts():
+    # 24.09: ВМК-69 подключили в recall_audit, а shadow-поиск новых слов его
+    # не видел — пропуски этого источника не находились бы никогда.
+    recall = {s for s in _module_sources("recall_audit.py") if s.startswith("ETender")}
+    shadow = _module_sources("shadow_search.py")
+    assert "ETender Отбор (ВМК-69)" in recall
+    assert recall <= shadow, sorted(recall - shadow)

@@ -47,7 +47,8 @@ WINDOW_DAYS = 14
 SOURCES = [
     "Cooperation.uz Лоты", "B2Biz.uz (Тендеры)", "Hayotbirja отбор",
     "Hayotbirja встречные аукционы", "Hayotbirja тендеры", "ETender UZEX",
-    "ETender Обсуждения", "Xarid Конкурсы", "Tender.mc.uz (Минстрой)",
+    "ETender Обсуждения", "ETender Отбор (ВМК-69)", "Xarid Конкурсы",
+    "Tender.mc.uz (Минстрой)",
     "UZEX Предквалификации", "UZEX Обратные аукционы", "XT-Xarid встречные аукционы",
     "XT-Xarid тендеры", "XT-Xarid запросы предложений",
 ]
