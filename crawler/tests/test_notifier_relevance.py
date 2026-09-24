@@ -11,6 +11,7 @@ Covers:
 import pytest
 
 from crawler.core.notifier import (
+    _RELEVANCE_PROMPT,
     RelevanceResult,
     _allow,
     _extract_json_object,
@@ -184,3 +185,30 @@ def test_allow_fallback_returns_relevant_with_no_score():
     assert r.score is None
     assert r.category is None
     assert r.reason is None
+
+
+# ── Офисная бумага (24.09) ────────────────────────────────────────
+
+
+def _prompt_section(title):
+    body = _RELEVANCE_PROMPT.split(title, 1)[1]
+    return body.split("\n\n", 1)[0]
+
+
+def test_office_paper_is_in_not_ours_with_print_products_carved_out():
+    # Правило стоит в «НЕ НАШЕ», а не в «МЫ ДЕЛАЕМ», и вместе с оговоркой:
+    # без неё модель начинала резать бланки и формуляры с «А4» в названии.
+    not_ours = _prompt_section("НЕ НАШЕ:")
+    assert "Офисная бумага как товар" in not_ours
+    assert "Формат и плотность дела не меняют" in not_ours
+    for keep in ("бланки", "формуляры", "конверты", "бумажные", "наклейки"):
+        assert keep in not_ours, keep
+    assert "Бумага и изделия из бумаги" in not_ours
+    assert "Офисная бумага" not in _prompt_section("МЫ ДЕЛАЕМ:")
+
+
+def test_relevance_prompt_still_formats():
+    # Фигурная скобка в правиле сломала бы .format() в каждом вызове гейта.
+    out = _RELEVANCE_PROMPT.format(title="t", organization="o", details="d",
+                                   playbook="", source_context="")
+    assert "Офисная бумага как товар" in out
