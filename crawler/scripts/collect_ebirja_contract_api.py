@@ -21,9 +21,12 @@ SOURCES = {
              "source": "Ebirja Договоры (Э-магазин)"},
     "auction": {"path": "/common/contract/external-auction", "params": {},
                 "source": "Ebirja Договоры (Аукцион)"},
-    "tender": {"path": "/common/contract/external-tender", "params": {"type": 1},
+    # `type` — массив, ровно как его шлёт вкладка сайта /uz/contracts/tender и
+    # /selection. Одиночное `type=1` API принимало до 22.09, к 24.09 перестало:
+    # 422 «Type is invalid.» на любом скалярном значении.
+    "tender": {"path": "/common/contract/external-tender", "params": {"type[]": [1, 3, 5]},
                "source": "Ebirja Договоры (Тендер)"},
-    "selection": {"path": "/common/contract/external-tender", "params": {"type": 2},
+    "selection": {"path": "/common/contract/external-tender", "params": {"type[]": [2, 4, 6]},
                   "source": "Ebirja Договоры (Отбор)"},
 }
 
