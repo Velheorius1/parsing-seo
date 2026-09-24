@@ -381,6 +381,7 @@ def test_only_detail_capable_sources_opt_in_in_config():
     opted_in = {s["name"] for s in sources if s.get("detail_persistence")}
     assert opted_in == {
         "ETender UZEX", "Xarid Конкурсы", "UZEX Предквалификации",
+        "ETender Отбор (ВМК-69)",
     }, opted_in
 
 

@@ -43,7 +43,7 @@ JSONL = os.path.join(REPO_ROOT, "logs", "recall_audit.jsonl")
 SOURCES = [
     "B2Biz.uz (Тендеры)", "B2Biz.uz (Планы закупок)",
     "Hayotbirja отбор", "Hayotbirja встречные аукционы", "Hayotbirja тендеры",
-    "ETender UZEX", "ETender Обсуждения",
+    "ETender UZEX", "ETender Обсуждения", "ETender Отбор (ВМК-69)",
     "Xarid Конкурсы", "Xarid Прямые закупки",
     "Tender.mc.uz (Минстрой)", "UZEX Предквалификации", "UZEX Обратные аукционы",
     "XT-Xarid встречные аукционы", "XT-Xarid тендеры", "XT-Xarid запросы предложений",

@@ -166,6 +166,60 @@ sources:
       source_url_template: "https://etender.uzex.uz/lot/{id}"
     keywords_fields: [name, seller_name, category_name]
 
+  # ВМК-69 (24.09.2026): «Eng yaxshi takliflarni tanlash (69-son VMQ)» — раздел
+  # etender «Гражданско-правовые договоры» (/civil-list): закупки военных частей,
+  # МЧС, МВД. В коде он считался «прямыми договорами» — неверно: у лота есть срок
+  # и адрес подачи оферты. Мы его не собирали вовсе, а за 17–24.09 типографии
+  # выиграли тут наш профиль примерно на 2.7 млрд сум (учебные пособия МЧС
+  # 2.05 млрд, «Армия журнали» 283 млн) — ни одного из этих лотов не было в базе.
+  # В list только название лота; состав закупки (js_products — СТРОКА с JSON)
+  # только в detail, как у ETender UZEX. external_id = display_id: results_tracker
+  # пишет исход того же лота как «result-<display_id>» — будет по чему сшивать.
+  - id: etender-civil
+    name: "ETender Отбор (ВМК-69)"
+    adapter: api
+    enabled: true
+    url: "https://apietender.uzex.uz/api/CivilContracts/GetList"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    # status_Id 3 = «Опубликован» (так зовёт сам сайт). Активных ~290, одной
+    # страницы хватает с запасом; ключи From/To с заглавной — иначе пустой ответ.
+    body: {"From": 1, "To": 1000, "status_Id": 3}
+    rate_limit: 2
+    timeout: 15
+    id_prefix: "etender-civil"
+    field_map:
+      title: name
+      organization: customer_name
+      price: cost
+      deadline: end_date
+      date_start: start_date
+      date_end: end_date
+      # Региона в ответе нет; адрес поставки говорит о нём больше, чем пусто.
+      region: delivery_address
+      external_id: display_id
+      source_url_template: "https://etender.uzex.uz/civil-detail/{id}"
+      extra_info:
+        "ИНН заказчика": "{customer_inn}"
+        # Оферта подаётся по адресу заказчика — без этого по алерту не понять,
+        # куда ехать.
+        "Оферту подавать": "{provision_address}"
+    keywords_fields: [name, customer_name, _detail_text]
+    detail_persistence: true
+    detail_fetch:
+      url_template: "https://apietender.uzex.uz/api/CivilContracts/Get/{id}"
+      state_key: "detail_state_etender_civil"
+      max_per_run: 150
+      timeout: 30
+      retries: 1
+      text_fields:
+        - "js_products.*.Product_Name"
+        - "js_products.*.Description"
+        - "js_products.*.Category_Name"
+        - "js_products.*.Product_Code"
+      json_string_fields: ["js_products"]
+
   - id: xarid-competitions
     name: "Xarid Конкурсы"
     adapter: api
