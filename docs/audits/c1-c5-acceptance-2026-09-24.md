@@ -7,7 +7,7 @@
 
 **Итог:** контур **восстановлен** (ворота A–C пройдены, восстановление и поздний
 detail проверены). Мониторинг **не принят**: ворота D ждут первого штатного
-еженедельного цикла 28.09 04:00, ворота E реализованы, но в расписании не стоят.
+еженедельного цикла 28.09 04:00. Ворота E закрыты 24.09 вечером — строгий скан в расписании.
 
 ## Ворота
 
@@ -17,7 +17,7 @@ detail проверены). Мониторинг **не принят**: воро
 | B | Лоты, потерявшие detail в окне сбоя, восстановлены | у каждого ID manifest — terminal outcome | manifest 70 ID (68 Xarid Конкурсы, 2 ETender UZEX): dry-run `would_update 70` → применено `updated 70` с backup → повторный проход `already_detail 70`, gaps 0 | `data/detail-recovery/20260922-exact-{dry-run,backup,applied}.json`, `20260922-two-pass-check.json` | **PASS** |
 | C | Отказ источника виден, а не тонет в «пусто» | ошибка в журнале обхода и в healthcheck | отказы прокси (402) с 24.09 08:00 записаны в `crawl_runs.error_sources` каждого обхода (`cooperation-plans-filtered`, `uzex-auctions`, `uzex-prequest`); healthcheck видит следствия (`freshness.full_api`, `token.cooperation`) | `crawl_runs` dd39dab2, de641ecf, 9b0df380, 46e314dc; `parsing-seo-healthcheck.log` 12:15–13:15 | **PASS** (причину-прокси healthcheck не называет — см. ограничения) |
 | D | Паспорт всех девяти бирж: свежо проверено или явный отказ | ни одна строка не молчит | ручной сбор 24.09 13:28: 6 строк рабочие или с известным пределом, 3 — явный `collector_error`. Ebirja tender/selection 422 «Type is invalid.» — API перестал принимать скалярный `type`; исправлено `6188f4d` (массив, как шлёт сайт), после выкладки — см. ниже. Cooperation — 402 прокси. Outbox пуст, state на 3 источника | `/root/comp-week-20260924-sources.json`; `data/competitor-award-monitor/{state,outbox}.json` | **ЧАСТИЧНО**: нет штатного weekly-цикла |
-| E | Строгий shadow >20 млн с валютой и unknown | режим есть, цифры воспроизводимы | `--strict-competitor` в `shadow_search.py` (`5dddba6`), граница 20 000 000 / 20 000 001 и unknown покрыты тестами. Еженедельный крон (`shadow_search --scan --judge-limit 4`, пн 03:40) запускается **без** флага; строгого боевого прогона не было | `crawler/tests/test_shadow_search.py`; crontab | **ЧАСТИЧНО** |
+| E | Строгий shadow >20 млн с валютой и unknown | режим есть, цифры воспроизводимы | `--strict-competitor` в `shadow_search.py` (`5dddba6`), граница 20 000 000 / 20 000 001 и unknown покрыты тестами. С 24.09 — в еженедельном кроне (пн 03:40) отдельным шагом **после** общего скана: `--scan --audit-candidates --strict-competitor --judge-limit 4` (последовательно — скан перезаписывает состояние целиком). Боевой прогон 24.09 14:40: 10 с, EXIT 0, окно 10 319 лотов; audit-jurnal 7 новых >20 млн (in-scope 4/4), audit-gazeta 4 (3/4), остальные три — 0. Общий production gate не тронут | `crawler/tests/test_shadow_search.py`; `/root/shadow-strict-20260924.log`; crontab, бэкап `/root/crontab-backup-20260924-shadow.txt` | **PASS** (первый штатный — пн 28.09) |
 
 ## Пункты Task 11
 
