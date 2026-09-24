@@ -130,6 +130,63 @@ def blocking_dirty(porcelain):
     return out
 
 
+# ── Баланс OpenRouter ─────────────────────────────────────────────
+#
+# Гейт релевантности при отказе модели ПРОПУСКАЕТ тендер (notifier._allow,
+# fail-open — чтобы не терять лиды на случайном сбое). На пустом счёте каждый
+# вызов получает 402, и гейт превращается в открытую дверь: всё, что прошло
+# префильтр, уходит в канал. В будни до гейта доходит 520-760 кандидатов в
+# сутки, отсеивает он ~93% — вот этот поток и пошёл бы.
+#
+# Инцидент 23-24.09.2026: счёт общий с SalesBot, его ночные прогоны (~$14)
+# выбрали остаток до -$0.06. Парсинг не пострадал только потому, что ночью нет
+# новых тендеров; утренняя волна пошла бы в открытый гейт. healthcheck тогда
+# показывал 25 OK / 0 FAIL — про баланс он не знал ничего.
+#
+# Пороги в долларах, а не в днях: расход парсинга мизерный (~$0.05/сутки на
+# ~600 вызовов), но счёт делится с SalesBot, у которого одна ночь прогонов
+# стоит ~$14. FAIL заранее, пока запас есть, а не когда гейт уже открылся.
+OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
+OPENROUTER_FAIL_USD = 5.0
+OPENROUTER_WARN_USD = 10.0
+
+
+def openrouter_balance_verdict(total_credits, total_usage,
+                               fail_below=None, warn_below=None):
+    # type: (float, float, Optional[float], Optional[float]) -> tuple
+    """(status, message) по остатку на счёте. Чистая функция — без сети."""
+    fail_below = OPENROUTER_FAIL_USD if fail_below is None else fail_below
+    warn_below = OPENROUTER_WARN_USD if warn_below is None else warn_below
+    left = float(total_credits) - float(total_usage)
+    if left <= 0:
+        return FAIL, ("счёт OpenRouter пуст ($%.2f): каждый вызов модели получает 402, "
+                      "гейт релевантности пропускает всё подряд. Счёт общий с SalesBot — "
+                      "пополнить." % left)
+    if left < fail_below:
+        return FAIL, ("на счёте OpenRouter $%.2f (порог $%.0f): при нуле гейт релевантности "
+                      "откроется и пропустит всё. Счёт общий с SalesBot, одна ночь его "
+                      "прогонов стоила ~$14 — пополнить заранее." % (left, fail_below))
+    if left < warn_below:
+        return WARN, ("на счёте OpenRouter $%.2f — скоро пополнять (тревога с $%.0f)"
+                      % (left, fail_below))
+    return OK, "на счёте OpenRouter $%.2f" % left
+
+
+def _openrouter_key():
+    # type: () -> Optional[str]
+    from crawler.config.settings import settings
+    return settings.openrouter_api_key
+
+
+def _read_openrouter_credits(key):
+    # type: (str) -> tuple
+    """(http_status, json|None). Ключ уходит только в заголовок, в лог — никогда."""
+    import httpx
+    r = httpx.get(OPENROUTER_CREDITS_URL,
+                  headers={"Authorization": "Bearer %s" % key}, timeout=20)
+    return r.status_code, (r.json() if r.status_code == 200 else None)
+
+
 class HealthCheck:
     """Run all health checks and collect results."""
 
@@ -627,6 +684,49 @@ class HealthCheck:
             self._add("geo_sources", WARN, "Could not check: %s" % str(exc)[:60])
 
     # ── Check 11b: тяжёлые источники ──
+
+    def check_openrouter_balance(self):
+        # type: () -> None
+        """FAIL, пока до пустого счёта OpenRouter ещё есть запас.
+
+        Почему FAIL, а не WARN уже на пороге: тревогу в Telegram шлёт только
+        FAIL (ежечасный прогон с --alert-on-fail), а пустой счёт открывает гейт
+        релевантности настежь — см. комментарий к OPENROUTER_FAIL_USD.
+        Не смогли прочитать баланс — WARN с прямым текстом про среду, а не OK.
+        Нет ключа или ключ отвергнут — FAIL: гейт в обоих случаях открыт.
+        """
+        comp = "openrouter.balance"
+        try:
+            key = _openrouter_key()
+        except Exception as exc:
+            # Имя исключения, не текст: ошибки валидации pydantic печатают
+            # входное значение, а в настройках лежит сам ключ.
+            self._add(comp, WARN, "не смог прочитать настройки (%s)" % type(exc).__name__)
+            return
+        if not key:
+            self._add(comp, FAIL, "нет ключа OpenRouter — гейт релевантности пропускает всё подряд")
+            return
+        try:
+            code, body = _read_openrouter_credits(key)
+        except Exception as exc:
+            self._add(comp, WARN, "не смог прочитать баланс OpenRouter (%s) — это про сеть, "
+                                  "не про деньги" % type(exc).__name__)
+            return
+        if code == 401:
+            self._add(comp, FAIL, "OpenRouter отверг ключ (401) — гейт релевантности пропускает всё подряд")
+            return
+        if code != 200 or not isinstance(body, dict):
+            self._add(comp, WARN, "не смог прочитать баланс OpenRouter: HTTP %s" % code)
+            return
+        data = body.get("data") or {}
+        try:
+            total_credits = float(data["total_credits"])
+            total_usage = float(data["total_usage"])
+        except (KeyError, TypeError, ValueError):
+            self._add(comp, WARN, "OpenRouter ответил без total_credits/total_usage")
+            return
+        status, msg = openrouter_balance_verdict(total_credits, total_usage)
+        self._add(comp, status, msg)
 
     def check_heavy_sources(self):
         # type: () -> None
@@ -1370,6 +1470,7 @@ def main():
     hc.check_zombie_processes()
     hc.check_geo_sources()
     hc.check_heavy_sources()
+    hc.check_openrouter_balance()
     hc.check_docker()
     hc.check_tokens()
     hc.check_eimzo_auth()
