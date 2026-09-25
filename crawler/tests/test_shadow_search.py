@@ -106,3 +106,24 @@ def test_shadow_scan_sees_every_etender_feed_the_recall_audit_trusts():
     shadow = _module_sources("shadow_search.py")
     assert "ETender Отбор (ВМК-69)" in recall
     assert recall <= shadow, sorted(recall - shadow)
+
+
+def test_keyword_promote_refuses_instead_of_writing_a_dead_setting(monkeypatch, capsys):
+    # 25.09: промоут писал слова в crawler_settings.alert_keywords, который фильтр
+    # не читает — «продвинутое» слово молча не включалось. Теперь отказ с
+    # подсказкой, без записи в базу и без отметки promoted.
+    import crawler.scripts.shadow_search as S
+    writes = []
+    state = {"candidates": [dict(_candidate("audit-jurnal"))], "results": {}}
+    store = types.SimpleNamespace(get_setting=lambda key: state,
+                                  set_setting=lambda key, value: writes.append(key))
+    monkeypatch.setitem(sys.modules, "crawler.auth.session_store",
+                        types.SimpleNamespace(session_store=store))
+
+    def _no_db():
+        raise AssertionError("keyword-промоут не должен трогать базу")
+    monkeypatch.setattr(S, "_client", _no_db)
+    assert S.promote("audit-jurnal") == 2
+    assert writes == []
+    assert "promoted" not in state["candidates"][0]
+    assert "settings.py" in capsys.readouterr().out

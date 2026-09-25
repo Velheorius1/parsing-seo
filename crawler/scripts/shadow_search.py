@@ -3,7 +3,7 @@
 Champion/challenger for the SEARCH filter. Candidate matchers (new keywords ru+uz,
 TNVED code prefixes) run in SHADOW over recent NON-alerted lots: they find what the
 production keyword filter MISSED, an AI judge estimates how many are actually
-in-scope, and a weekly report proposes «promote? [tap]». Nothing is ever sent from
+in-scope, and a weekly report proposes promotion. Nothing is ever sent from
 shadow — a candidate must PROVE its catch in the dark before it can go live, and a
 promoted keyword still passes the normal AI gate. If Daniyar later marks its catches
 «Не моё», the existing auto-mute rolls it back. This is how the system proposes its
@@ -12,7 +12,9 @@ own recall improvements safely — «tries to find more, like a real AI».
 Flow:
   --scan                nightly: score every active candidate over 14d of missed lots
   --report              weekly: print/TG per-candidate table (catches, in-scope%, samples)
-  --promote <cand_id>   graduate: keyword→settings.alert_keywords; tnved→settings.tnved_scope
+  --promote <cand_id>   graduate a tnved candidate → crawler_settings.tnved_scope;
+                        keyword candidates go live only by a commit to
+                        crawler/config/settings.py alert_keywords (the one live dictionary)
   --add-keyword W / --add-tnved P   register a new candidate to shadow-test
   --add-audit-candidates             register the 2026-09 competitor-audit terms
 
@@ -303,7 +305,7 @@ async def report(send_tg=False):
             worth.append(cid)
     if worth:
         lines.append("")
-        lines.append("Промоутить: `python3 -m crawler.scripts.shadow_search --promote <id>`")
+        lines.append("Промоут: ТНВЭД — `--promote <id>`; слова — коммитом в `settings.alert_keywords`")
         lines.append("Кандидаты к промоушену: " + ", ".join(worth))
     text = "\n".join(lines)
     print(text)
@@ -316,7 +318,7 @@ async def report(send_tg=False):
 
 
 def promote(cand_id):
-    """Graduate a candidate to the live filter (keyword → alert_keywords setting)."""
+    """Graduate a tnved candidate to the live filter (crawler_settings.tnved_scope)."""
     from crawler.auth.session_store import session_store
     st = _load_state(session_store)
     cand = next((c for c in st.get("candidates", []) if c["id"] == cand_id), None)
@@ -326,18 +328,18 @@ def promote(cand_id):
     if blocked:
         print("не промоутится %s: %s" % (cand_id, blocked))
         return 2
-    c = _client()
     if cand["type"] == "keyword":
-        row = (c.table("crawler_settings").select("value").eq("key", "alert_keywords")
-               .limit(1).execute().data or [{}])
-        cur = (row[0].get("value") or "") if row else ""
-        cur_set = {k.strip().lower() for k in cur.split(",") if k.strip()}
-        added = [w for w in cand["value"] if w.lower() not in cur_set]
-        newval = cur + ("," if cur and added else "") + ",".join(added)
-        c.table("crawler_settings").upsert({"key": "alert_keywords", "value": newval},
-                                           on_conflict="key").execute()
-        print("promoted keyword-candidate %s: +%d words -> alert_keywords" % (cand_id, len(added)))
-    elif cand["type"] == "tnved":
+        # Живой словарь один — alert_keywords в crawler/config/settings.py, его
+        # читает notifier._get_keywords. crawler_settings.alert_keywords не читает
+        # никто (там снимок от 15.03), а промоут писал именно туда: слово
+        # «продвигалось» и молча не включалось (найдено 25.09 перед первым
+        # строгим отчётом). Слово в фильтр — коммитом с тестом, как «варақаси».
+        print("keyword-кандидат %s не промоутится из скрипта: добавь %s в "
+              "alert_keywords (crawler/config/settings.py) коммитом"
+              % (cand_id, ", ".join(cand["value"])))
+        return 2
+    c = _client()
+    if cand["type"] == "tnved":
         row = (c.table("crawler_settings").select("value").eq("key", "tnved_scope")
                .limit(1).execute().data or [{}])
         cur = (row[0].get("value") or "") if row else ""
