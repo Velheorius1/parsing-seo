@@ -233,3 +233,28 @@ def test_multilot_clause_no_longer_calls_any_book_ours():
     multi = _RELEVANCE_PROMPT.split("ВАЖНО (мульти-лот)", 1)[1].split("ИСКЛЮЧЕНИЕ", 1)[0]
     assert "книги/издания," not in multi
     assert "печать книг/изданий на заказ" in multi
+
+
+# ── Баннеры и чековая лента (25.09) ───────────────────────────────
+
+
+def test_banners_are_not_ours_indoors_too_but_signs_and_stands_are():
+    # Раньше в «НЕ НАШЕ» стояли только НАРУЖНЫЕ баннеры «на фасадах», и
+    # «Баннер», «Реклама банери», «баннерлар 2026» проходили с 90.
+    not_ours = _prompt_section("НЕ НАШЕ:")
+    assert "Баннеры — наружные и в помещении" in not_ours
+    # Причина и примеры обязательны: без них модель читала «печать баннера» как
+    # типографию, и «Reklama Banneri» уходил с 0 на 90.
+    assert "это широкоформат, не наше" in not_ours
+    assert "«Реклама банери», «Рекламный баннер», «Bannerlarni chop etish» = НЕ наше" in not_ours
+    assert "информационные таблички, выставочные стенды, указатели — это НАШЕ" in not_ours
+    assert "ТОЛЬКО для наружной рекламы" not in _RELEVANCE_PROMPT
+
+
+def test_receipt_tape_is_not_ours_but_check_books_are():
+    # «Чеков» в словаре ловит и чековые книжки (бланки, лоты по 90–95), поэтому
+    # ленту режет гейт, а не словарь — и оговорка про книжки обязана стоять рядом.
+    not_ours = _prompt_section("НЕ НАШЕ:")
+    assert "Чековая лента" in not_ours
+    assert "печатанная" in not_ours
+    assert "чековые книжки и термоэтикетки — НАШЕ" in not_ours
