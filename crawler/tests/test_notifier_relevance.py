@@ -212,3 +212,24 @@ def test_relevance_prompt_still_formats():
     out = _RELEVANCE_PROMPT.format(title="t", organization="o", details="d",
                                    playbook="", source_context="")
     assert "Офисная бумага как товар" in out
+
+
+# ── Готовые книги (25.09) ─────────────────────────────────────────
+
+
+def test_ready_books_are_not_ours_but_printing_a_book_is():
+    not_ours = _prompt_section("НЕ НАШЕ:")
+    assert "Покупка изданных книг" in not_ours
+    for word in ("badiiy adabiyot", "darslik", "axborot-kutubxona", "kitoblar olish"):
+        assert word in not_ours, word
+    # Оговорка обязана стоять рядом: без неё модель режет печать книг на заказ.
+    for keep in ("chop etish", "nashriyot", "издательские и типографские услуги",
+                 "Книги и журналы"):
+        assert keep in not_ours, keep
+
+
+def test_multilot_clause_no_longer_calls_any_book_ours():
+    # Именно «книги/издания» в этом списке возвращали покупку учебников в «наше».
+    multi = _RELEVANCE_PROMPT.split("ВАЖНО (мульти-лот)", 1)[1].split("ИСКЛЮЧЕНИЕ", 1)[0]
+    assert "книги/издания," not in multi
+    assert "печать книг/изданий на заказ" in multi
