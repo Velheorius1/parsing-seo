@@ -33,6 +33,7 @@ import json
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
 from datetime import datetime, timezone, timedelta
@@ -644,21 +645,46 @@ class HealthCheck:
 
     # ── Check 10: Zombie Processes ──
 
+    # Зомби — только chromium старше часа (25.09). Раньше зомби считался ЛЮБОЙ
+    # chromium, а --fix делал `pkill -f chromium`. Ежедневный прогон в 06:00
+    # стартует в одну минуту с полным краулом и каждый день (FIXED с 18.09)
+    # убивал его живые браузеры: 25.09 в 06:00:11 «18 процессов» → FIXED, в
+    # 06:00:12 XT-Xarid, Hayotbirja, E-Birja — «browser has been closed».
+    # Полный краул идёт ~5 минут; браузер старше часа — утечка, а не работа.
+    _ZOMBIE_MIN_AGE_S = 3600
+
+    def _stale_chromium_pids(self):
+        # type: () -> List[int]
+        out = subprocess.run(
+            ["ps", "-eo", "pid=,etimes=,args="],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+        pids = []  # type: List[int]
+        for line in out.splitlines():
+            parts = line.split(None, 2)
+            if len(parts) < 3 or "chrom" not in parts[2].lower():
+                continue
+            try:
+                pid, age = int(parts[0]), int(parts[1])
+            except ValueError:
+                continue
+            if age >= self._ZOMBIE_MIN_AGE_S and pid != os.getpid():
+                pids.append(pid)
+        return pids
+
     def check_zombie_processes(self):
         # type: () -> None
-        """Check for zombie Chromium/Playwright processes."""
+        """Check for leaked Chromium/Playwright processes (older than an hour)."""
         try:
-            result = subprocess.run(
-                ["pgrep", "-af", "chromium"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.stdout.strip():
-                lines = result.stdout.strip().split('\n')
-                self._add("zombies", WARN, "%d chromium processes running" % len(lines))
-            else:
-                self._add("zombies", OK, "No zombie chromium processes")
+            stale = self._stale_chromium_pids()
         except Exception:
-            self._add("zombies", OK, "No chromium processes (pgrep not available)")
+            self._add("zombies", OK, "No chromium processes (ps not available)")
+            return
+        if stale:
+            self._add("zombies", WARN, "%d chromium processes older than %d min"
+                      % (len(stale), self._ZOMBIE_MIN_AGE_S // 60), details={"pids": stale})
+        else:
+            self._add("zombies", OK, "No zombie chromium processes")
 
     # ── Check 11: Geo Sources ──
 
@@ -1215,14 +1241,15 @@ class HealthCheck:
             comp = result["component"]
 
             if comp == "zombies":
-                try:
-                    subprocess.run(
-                        ["pkill", "-f", "chromium"],
-                        capture_output=True, timeout=5,
-                    )
-                    self._add("zombies", FIXED, "Killed zombie chromium processes")
-                except Exception:
-                    pass
+                killed = 0
+                for pid in (result.get("details") or {}).get("pids") or []:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                        killed += 1
+                    except Exception:
+                        pass
+                if killed:
+                    self._add("zombies", FIXED, "Killed %d zombie chromium processes" % killed)
 
     # ── Report ──
 
