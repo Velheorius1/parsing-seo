@@ -300,16 +300,16 @@ def test_count_alerted_counts_rows_in_the_window():
     """`crawl_runs.alerts_sent` считает только пуши основного прохода: дайджест
     и досылка recheck в него не попадают. Замер за неделю дал 90 против 357 по
     alert_seq — сторож мерил четверть собственной доставки."""
-    rows = [{"collected_at": "2026-08-01T10:00:00", "alert_seq": 1},
-            {"collected_at": "2026-08-05T10:00:00", "alert_seq": 2},
-            {"collected_at": "2026-08-09T10:00:00", "alert_seq": 3}]
+    rows = [{"created_at": "2026-08-01T10:00:00", "alert_seq": 1},
+            {"created_at": "2026-08-05T10:00:00", "alert_seq": 2},
+            {"created_at": "2026-08-09T10:00:00", "alert_seq": 3}]
     assert W.count_alerted(rows, "2026-08-01", "2026-08-08") == 2
     assert W.count_alerted(rows, "2026-08-08", "2026-08-20") == 1
     assert W.count_alerted([], "2026-08-01", "2026-08-20") == 0
 
 
 def test_count_alerted_survives_broken_timestamps():
-    rows = [{"collected_at": None}, {"alert_seq": 5}, {"collected_at": "мусор"}]
+    rows = [{"created_at": None}, {"alert_seq": 5}, {"created_at": "мусор"}]
     assert W.count_alerted(rows, "2026-08-01", "2026-08-20") == 0
 
 
@@ -318,9 +318,69 @@ def test_weekly_buckets_prefer_delivery_over_pushes():
     разные вещи и расходились."""
     end = W.datetime(2026, 8, 15, tzinfo=W.timezone.utc)
     runs = [{"started_at": "2026-08-10T00:00:00+00:00", "alerts_sent": 5}]
-    alerted = [{"collected_at": "2026-08-10T00:00:00+00:00", "alert_seq": i}
+    alerted = [{"created_at": "2026-08-10T00:00:00+00:00", "alert_seq": i}
                for i in range(20)]
     with_delivery = W.weekly_buckets(runs, end, 2, alerted)
     without = W.weekly_buckets(runs, end, 2)
     assert sum(b["alerts"] for b in with_delivery) == 20
     assert sum(b["alerts"] for b in without) == 5, "старое поведение без выборки"
+
+
+# --- дата алерта: первое появление, а не последний сбор (27.09) ----------------
+
+def test_recollected_old_lot_is_not_a_fresh_alert():
+    """`collected_at` перезаписывает каждый upsert. 27.09 из 219 строк «за
+    день» 216 были созданы раньше — самые старые в марте; новых было 3, а
+    сторож насчитал 70 в день вместо 46 и закрыл бы старыми строками любое
+    настоящее падение."""
+    rows = [
+        # мартовский лот, собранный заново в окне — не алерт окна
+        {"created_at": "2026-03-04T14:00:00+00:00",
+         "collected_at": "2026-08-05T10:00:00+00:00", "alert_seq": 1929},
+        # лот окна, собранный заново позже — остаётся алертом своего окна
+        {"created_at": "2026-08-03T10:00:00+00:00",
+         "collected_at": "2026-08-12T10:00:00+00:00", "alert_seq": 9001},
+    ]
+    assert W.count_alerted(rows, "2026-08-01", "2026-08-08") == 1
+    assert W.count_alerted(rows, "2026-08-08", "2026-08-20") == 0
+
+
+def test_source_axis_counts_by_first_seen_too():
+    """Ось источников на той же дате: иначе источник, умолкший неделю назад,
+    числится живым, пока его старые лоты собираются заново."""
+    alerted = [{"source": "Живой", "alert_seq": i,
+                "created_at": "2026-08-02T10:00:00+00:00"} for i in range(12)]
+    alerted += [{"source": "Живой", "alert_seq": 100 + i,
+                 "created_at": "2026-08-02T10:00:00+00:00",
+                 "collected_at": "2026-08-25T10:00:00+00:00"} for i in range(3)]
+    base, recent = W.split_by_source(alerted, "2026-08-01T00:00:00+00:00",
+                                     "2026-08-22T00:00:00+00:00",
+                                     "2026-08-29T00:00:00+00:00")
+    assert base == {"Живой": 15} and not recent, (base, recent)
+    out = silent_sources(base, recent, nopush=frozenset())
+    assert [s["source"] for s in out] == ["Живой"], out
+
+
+def test_fetch_filters_and_orders_by_the_same_column():
+    """Выборка обязана идти по той же колонке, что и подсчёт: тянуть по
+    collected_at, а считать по created_at — окно молча теряет строки."""
+    calls = []
+
+    def fake_iter_rows(table, select, filters=None, order_col="collected_at", **kw):
+        calls.append((select, [f[1][0] for f in filters], order_col))
+        return iter(())
+
+    saved = sys.modules.get("crawler.core.db")
+    sys.modules["crawler.core.db"] = types.SimpleNamespace(iter_rows=fake_iter_rows)
+    try:
+        W._fetch_alerted("2026-08-01T00:00:00+00:00", "2026-08-02T00:00:00+00:00")
+    finally:
+        if saved is None:
+            del sys.modules["crawler.core.db"]
+        else:
+            sys.modules["crawler.core.db"] = saved
+    assert calls, "выборка не вызвана"
+    for select, cols, order_col in calls:
+        assert "created_at" in select, select
+        assert cols == ["created_at", "created_at", "alert_seq"], cols
+        assert order_col == "created_at", order_col

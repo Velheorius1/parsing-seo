@@ -28,9 +28,19 @@
                неделю подряд — и на бэктесте звенит 12.07, за 17 дней до того,
                как просадку заметил человек.
 
-Дата алерта берётся по `collected_at`: отдельной метки времени отправки в схеме
-нет, а лот в норме алертится в том же цикле, в котором впервые собран. Для
-ретро-досылок (backfill/recheck) прокси врёт — это допущение, не факт.
+Дата алерта берётся по `created_at` — первому появлению лота у нас: отдельной
+метки времени отправки в схеме нет, а лот в норме алертится в том же цикле, в
+котором впервые собран. Для ретро-досылок (backfill/recheck) прокси врёт на
+несколько дней — это допущение, не факт.
+
+До 27.09 здесь стоял `collected_at`, а его перезаписывает КАЖДЫЙ upsert (см.
+миграцию 021): старый лот, собранный заново, выглядел свежим алертом. 27.09 из
+219 «доставленных за день» строк 216 были созданы раньше (самые старые — в
+марте), новых — 3. За неделю 20–27.09 сторож насчитал 489 (70/день), а номеров
+alert_seq за неделю выдано 336; по created_at выходит 320 — те же 95%, остаток —
+досылки recheck по старым лотам. Настоящее падение перебранные строки закрывали
+бы собой, а бэктесты по прошлым датам вообще теряли смысл: июльские алерты,
+собранные заново в сентябре, уезжали из своих недель.
 
 Осознанно снятые источники не должны звенеть: список берётся ИЗ КОДА
 (`_NO_PUSH_SOURCES`), а не копией, чтобы не разъезжался с продом.
@@ -83,7 +93,8 @@ DAYS_TREND = 56          # окно для недельных корзин
 TREND_WEEKS = 3          # столько шагов подряд вниз считаем сползанием
 TREND_DROP_PCT = 30      # и суммарное падение от начала серии
 
-FIELDS_ALERTED = "source,collected_at,alert_seq"
+ALERT_TS = "created_at"   # дата алерта; почему не collected_at — в шапке
+FIELDS_ALERTED = "source,%s,alert_seq" % ALERT_TS
 RUN_FIELDS = ("started_at,total_fetched,total_new,alerts_sent,ai_calls_count,dry_run")
 
 
@@ -149,13 +160,31 @@ def count_alerted(alerted, lo, hi):
     на такой базе означает не то, что написано.
     """
     return sum(1 for r in alerted
-               if lo <= str(r.get("collected_at") or "") < hi)
+               if lo <= str(r.get(ALERT_TS) or "") < hi)
+
+
+def split_by_source(alerted, base_start, recent_start, end):
+    # type: (List[Dict], str, str, str) -> Tuple[collections.Counter, collections.Counter]
+    """(алертов по источникам в базе, в свежем окне) — по той же дате, что объём.
+    Иначе источник, умолкший неделю назад, числился бы живым, пока его старые
+    лоты собираются заново."""
+    src_base = collections.Counter()
+    src_recent = collections.Counter()
+    for r in alerted:
+        ts = str(r.get(ALERT_TS) or "")
+        s = r.get("source") or "—"
+        if base_start <= ts < recent_start:
+            src_base[s] += 1
+        elif recent_start <= ts < end:
+            src_recent[s] += 1
+    return src_base, src_recent
 
 
 def _fetch_alerted(base_start, end):
     # type: (str, str) -> List[Dict]
     """Отправленные строки за окно. Окнами по суткам: сортированный OFFSET на
-    десятки тысяч строк стабильно ловит 57014."""
+    десятки тысяч строк стабильно ловит 57014. Сортировка по той же колонке,
+    что и фильтр, — под неё есть индекс (миграция 021)."""
     from crawler.core.db import iter_rows
     d0 = datetime.fromisoformat(base_start).date()
     d1 = datetime.fromisoformat(end).date()
@@ -166,9 +195,10 @@ def _fetch_alerted(base_start, end):
         # `alert_seq >= 1` вместо `IS NOT NULL`: iter_rows принимает только
         # одноуровневые методы билдера, а NULL не проходит числовое сравнение.
         for page in iter_rows("tenders", FIELDS_ALERTED,
-                              filters=[("gte", ("collected_at", day.isoformat())),
-                                       ("lt", ("collected_at", nxt.isoformat())),
+                              filters=[("gte", (ALERT_TS, day.isoformat())),
+                                       ("lt", (ALERT_TS, nxt.isoformat())),
                                        ("gte", ("alert_seq", 1))],
+                              order_col=ALERT_TS,
                               label="alerted %s" % day, max_pages=10):
             rows.extend(page)
         day = nxt
@@ -332,16 +362,8 @@ def analyze(as_of):
             "num_base": nb, "den_base": db_, "num_recent": nr, "den_recent": dr,
         })
 
-    # C. Источники — по прокси collected_at.
-    src_base = collections.Counter()
-    src_recent = collections.Counter()
-    for r in alerted:
-        ts = str(r.get("collected_at") or "")
-        s = r.get("source") or "—"
-        if base_start <= ts < recent_start:
-            src_base[s] += 1
-        elif recent_start <= ts < end:
-            src_recent[s] += 1
+    # C. Источники — по той же дате первого появления.
+    src_base, src_recent = split_by_source(alerted, base_start, recent_start, end)
     silent = silent_sources(src_base, src_recent)
 
     # D. Сползание — независимая от базы проверка формы кривой.
