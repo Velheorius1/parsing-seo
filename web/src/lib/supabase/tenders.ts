@@ -108,21 +108,28 @@ function rowToTender(row: TenderRow): Tender {
   };
 }
 
-// Получить тендер по ID (Supabase UUID или external_id)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Получить тендер по ID (Supabase UUID или external_id).
+// null — строки нет (→ 404). Сбой базы или конфига — исключение (→ 500):
+// раньше любая ошибка превращалась в null, и env, смотревший в обнулённое
+// облако, три недели (10.09–30.09) выглядел как «тендер не найден».
 export async function getTenderById(id: string): Promise<Tender | null> {
   const supabase = getSupabaseServer();
-  if (!supabase) return null;
+  if (!supabase) throw new Error('Supabase не настроен');
 
-  // Сначала ищем по Supabase UUID
-  const { data, error } = await supabase
-    .from('tenders')
-    .select('*')
-    .eq('id', id)
-    .limit(1)
-    .single();
+  // По UUID — только если id на него похож: иначе Postgres ответит 22P02,
+  // а это не сбой, а другой вид id (external_id площадки).
+  if (UUID_RE.test(id)) {
+    const { data, error } = await supabase
+      .from('tenders')
+      .select('*')
+      .eq('id', id)
+      .limit(1)
+      .maybeSingle();
 
-  if (!error && data) {
-    return rowToTender(data as TenderRow);
+    if (error) throw new Error(`Supabase: ${error.message}`);
+    if (data) return rowToTender(data as TenderRow);
   }
 
   // Если не нашли — ищем по external_id (может быть несколько с разных площадок)
@@ -131,13 +138,10 @@ export async function getTenderById(id: string): Promise<Tender | null> {
     .select('*')
     .eq('external_id', id)
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (!extError && extData) {
-    return rowToTender(extData as TenderRow);
-  }
-
-  return null;
+  if (extError) throw new Error(`Supabase: ${extError.message}`);
+  return extData ? rowToTender(extData as TenderRow) : null;
 }
 
 // Получить тендер по prefixed ID (e.g. "xtx-red-6899401")

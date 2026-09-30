@@ -105,8 +105,12 @@ export default function TenderDetailPage() {
     if (!id) return;
 
     fetch(`/api/tenders/${id}`)
-      .then((res) => {
-        if (!res.ok) throw new Error('Тендер не найден');
+      .then(async (res) => {
+        if (res.status === 404) throw new Error('Тендер не найден');
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(`Архив недоступен (HTTP ${res.status}): ${body?.error || 'нет ответа'}`);
+        }
         return res.json();
       })
       .then((data) => setTender(data.tender))
