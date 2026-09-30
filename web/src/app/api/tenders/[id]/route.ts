@@ -17,7 +17,18 @@ export async function GET(
     return NextResponse.json({ error: 'ID required' }, { status: 400 });
   }
 
-  const tender = await getTenderById(id);
+  let tender;
+  try {
+    tender = await getTenderById(id);
+  } catch (err) {
+    // Сбой базы — это не «не найдено»: отдаём 500 с причиной, чтобы поломка была видна.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('Ошибка загрузки тендера:', message);
+    return NextResponse.json(
+      { error: `Ошибка загрузки тендера: ${message}` },
+      { status: 500 },
+    );
+  }
 
   if (!tender) {
     return NextResponse.json({ error: 'Tender not found' }, { status: 404 });
