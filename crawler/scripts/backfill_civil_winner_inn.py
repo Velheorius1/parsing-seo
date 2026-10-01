@@ -27,6 +27,7 @@ import httpx
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from crawler.core import results_tracker as RT  # noqa: E402
+from crawler.core import competitor_wins as CW  # noqa: E402
 from crawler.core.competitor_wins import winner_inn  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
@@ -38,9 +39,12 @@ PAGE = 500
 SOURCE = RT._RESULTS_SOURCE
 
 
+civil_key = CW.civil_norm_key   # сшивка через смену формата id 24.09 — см. её докстринг
+
+
 def fetch_api(max_pages, post=None, pause=1.0):
     # type: (int, Any, float) -> Tuple[Dict[str, str], int, int]
-    """(external_id → winner, строк получено, total_count по версии API).
+    """(civil_key → winner, строк получено, total_count по версии API).
 
     Дубль id — последний. Полнота — забота вызывающего: получено < total_count
     значит часть итогов не видна, и --apply в таком случае отказывает.
@@ -70,7 +74,7 @@ def fetch_api(max_pages, post=None, pause=1.0):
             for item in rows:
                 row = RT._build_result_row(item)
                 if row and row.get("winner"):
-                    out[row["external_id"]] = row["winner"]
+                    out[civil_key(row["external_id"])] = row["winner"]
             logger.info("API: страница %d → %d строк, накоплено %d", page + 1, len(rows), len(out))
             time.sleep(pause)
     finally:
@@ -100,14 +104,14 @@ def fetch_db():
 
 def plan(db_rows, api):
     # type: (List[Dict[str, Any]], Dict[str, str]) -> List[Dict[str, Any]]
-    """Что менять: строка в базе, которой API даёт другого победителя.
+    """Что менять: строка в базе, которой API даёт другого победителя (api — по civil_key).
 
     Не затираем ИНН: если в базе он уже есть, а в ответе API его нет (имя без
     ИНН, один адрес), строку оставляем — старого значения потом не вернуть.
     """
     todo = []
     for r in db_rows:
-        new = api.get(r.get("external_id") or "")
+        new = api.get(civil_key(r.get("external_id")))
         old = r.get("winner") or ""
         if not new or new == old:
             continue
@@ -129,7 +133,7 @@ def main():
     logger.info("API отдало %d из %d итогов%s", raw, total, "" if complete else " — ВЫБОРКА НЕПОЛНА")
     db_rows = fetch_db()
     todo = plan(db_rows, api)
-    in_api = sum(1 for r in db_rows if r.get("external_id") in api)
+    in_api = sum(1 for r in db_rows if civil_key(r.get("external_id")) in api)
     logger.info("в базе %d строк источника; API знает победителя у %d из них; к правке %d",
                 len(db_rows), in_api, len(todo))
     for t in todo[:8]:

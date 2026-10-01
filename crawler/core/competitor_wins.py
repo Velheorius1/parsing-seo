@@ -31,6 +31,14 @@ search_text, и «оформление сцены» (511179) проходило 
 теплица и видеонаблюдение ушли алертом с AI-баллом 0. Профиль алерта:
 клик человека > сохранённый вердикт гейта > (нет вердикта) сегодняшний AI.
 
+РИТМ И ФИДЫ (01.10.2026, второй выпуск). Разбор идёт раз в 3 дня (крон ежедневно,
+`--due` решает, пора ли), а не раз в неделю: цель — быстро понимать, как
+выигрывают конкуренты, и ловить лоты, которые гейт не узнал. Победителей даёт не
+один фид, а два: сделки etender («ETender Сделки (победители)») и итоги отбора
+ВМК-69 («UZEX Результаты», с 01.10 победитель записан как «Имя (ИНН 123)»). Над
+ними — список ~30 конкурентов (`config/competitor_registry.json`): по нему
+сводка показывает отдельный блок, даже когда в профиль их победа не попала.
+
 Обучение по кликам в v1 сознательно НЕ пишется: alert_feedback читают few-shot
 лидов Telegram, оценка источников, refine_patterns — непоказанный лот с меткой
 отравил бы их (ревью плана 01.10). Модуль чистый: ни БД, ни сети; ввод-вывод —
@@ -59,16 +67,28 @@ LOT_SOURCES = (
     "ETender Несостоявшиеся (лиды)",
 )
 
+# Итоги отбора ВМК-69: победитель с ИНН пишет results_tracker. Свои лоты раздела
+# собираются под источником «ETender Отбор (ВМК-69)», external_id = display_id, а
+# у итога он же с префиксом «result-» — по нему и сшиваем (ссылки у них разные).
+CIVIL_SOURCE = "UZEX Результаты"
+CIVIL_LOT_SOURCES = ("ETender Отбор (ВМК-69)",)
+CIVIL_ID_PREFIX = "result-"
+FEED_DEALS = "deals"
+FEED_CIVIL = "civil"
+
 CURSOR_KEY = "competitor_wins_cursor_v1"
 FIRST_WINDOW_DAYS = 7
 MAX_WINDOW_DAYS = 21
 # Окно кончается с запасом: created_at = начало транзакции upsert идущего
 # краула, строка, закоммиченная после чтения, иначе выпала бы навсегда.
 SAFETY_LAG = timedelta(minutes=30)
-# Повтор раньше трёх дней — почти наверняка дубль (крон дважды, ручной
-# перезапуск); неделю не берём, иначе ручная отправка в четверг съедала бы
-# штатный понедельник.
-MIN_REPEAT = timedelta(days=3)
+# Ритм — раз в 3 дня. Крон стучится каждый день, `--due` отвечает «пора». Допуск
+# нужен: доставка в 05:00:05, а следующий запуск в 05:00:01 — без него разбор
+# уехал бы на четвёртый день. Повтор раньше этого порога — почти наверняка дубль
+# (крон дважды, ручной перезапуск).
+CADENCE = timedelta(days=3)
+DUE_SLACK = timedelta(hours=2)
+MIN_REPEAT = CADENCE - DUE_SLACK
 RETRY_CAP = 200
 
 STATUS_ALERTED = "alerted"
@@ -162,6 +182,7 @@ def parse_win(row):
         return None
     start_price, start_currency = parse_start_price(extra)
     return {
+        "feed": FEED_DEALS,
         "deal_id": row.get("id"),
         "lot_key": lot_key_from_url(row.get("source_url")),
         "source_url": row.get("source_url") or "",
@@ -188,6 +209,118 @@ def clean_deal_row(row):
         x for x in ((row.get("title") or "").strip(), (row.get("organization") or "").strip()) if x)
     out["extra_info"] = {}
     return out
+
+
+def civil_lot_key(external_id):
+    # type: (Optional[str]) -> Optional[str]
+    """'result-26120500017591' → '26120500017591' (display_id ВМК-69)."""
+    ext = str(external_id or "").strip()
+    if ext.startswith(CIVIL_ID_PREFIX):
+        ext = ext[len(CIVIL_ID_PREFIX):]
+    return ext if ext.isdigit() else None
+
+
+def civil_norm_key(external_id):
+    # type: (Any) -> str
+    """Ключ итога без разряда формата: 'result-26120000010069' и 'result-26120500010069'
+    — один итог.
+
+    24.09.2026 в 10:04 API сменил display_id с «2612 00 <id>» на «2612 05 <id>», и
+    results_tracker записал 454 уже известных итога вторым разом под новым id
+    (в базе 3593 строки старого вида против 607 нового). Совпадают префикс и
+    8-значный номер — по ним сшиваем и убираем дубли. Нестандартный id остаётся как есть.
+    """
+    ext = str(external_id or "")
+    if ext.startswith(CIVIL_ID_PREFIX):
+        ext = ext[len(CIVIL_ID_PREFIX):]
+    if len(ext) == 14 and ext.isdigit():
+        return ext[:4] + ext[6:]
+    return ext
+
+
+def dedupe_civil(rows):
+    # type: (Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]
+    """Один итог — одна строка (первая по порядку входа): см. civil_norm_key."""
+    seen, out = set(), []
+    for r in rows:
+        key = civil_norm_key(r.get("external_id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+
+def civil_detail_url(display_id):
+    # type: (Optional[str]) -> Optional[str]
+    """display_id '2612'+'05'+8-значный id → https://etender.uzex.uz/civil-detail/<id>.
+
+    Так построены наши собственные лоты раздела (26120500018060 ↔ /civil-detail/18060).
+    Ссылка, которую пишет results_tracker (/lot/<display_id>), для ВМК-69 не открывается.
+    """
+    key = civil_lot_key(display_id)
+    if not key or len(key) != 14 or not key.startswith("2612"):
+        return None
+    return "https://etender.uzex.uz/civil-detail/%d" % int(key[6:])
+
+
+def parse_civil_win(row):
+    # type: (Dict[str, Any]) -> Optional[Dict[str, Any]]
+    """Строка «UZEX Результаты» (итог ВМК-69) → победа той же формы, что у сделки.
+
+    Победитель — колонка `winner` («Имя (ИНН 123)», у старых строк «ИНН: 123»,
+    у части только имя). Пусто — скрыт: это не «никто не выиграл». Участников в
+    итоге нет, старт — `price`, итог — `winning_price`.
+    """
+    winner = (row.get("winner") or "").strip()
+    bare = winner.replace("(", " ").replace(")", " ").replace("ИНН", " ").replace(":", " ")
+    if not winner or not bare.split() or all(w.lower() == "none" for w in bare.split()):
+        return None
+    key = civil_lot_key(row.get("external_id"))
+    start = row.get("price")
+    return {
+        "feed": FEED_CIVIL,
+        "deal_id": row.get("id"),
+        "lot_key": key,
+        "source_url": civil_detail_url(key) or row.get("source_url") or "",
+        "title": (row.get("title") or "").strip(),
+        "customer": (row.get("organization") or "").strip(),
+        "won_price": row.get("winning_price"),
+        "currency": row.get("currency") or "",
+        "start_price": start if start else None,
+        "start_currency": row.get("currency") or None,
+        "participants": None,
+        "winner": winner,
+        "winner_inn": winner_inn(winner),
+        "deal_date": str(row.get("result_date") or "")[:10] or None,
+        "created_at": row.get("created_at"),
+        "ours": is_our_win(winner),
+    }
+
+
+def clean_civil_row(row):
+    # type: (Dict[str, Any]) -> Dict[str, Any]
+    """Итог ВМК-69 для гейта: предмет + заказчик, как наш лот этого раздела.
+
+    Источник и тип подменяются: у итога source «UZEX Результаты» и message_type
+    «result», гейт отсёк бы его на первом же шаге, а нам нужен ответ на вопрос
+    «прошёл бы такой ЛОТ».
+    """
+    out = dict(row)
+    out["source"] = CIVIL_LOT_SOURCES[0]
+    out["message_type"] = "tender"
+    out["status"] = "active"
+    out["deadline"] = None
+    out["winner"] = None
+    out["extra_info"] = {}
+    out["search_text"] = " ".join(
+        x for x in ((row.get("title") or "").strip(), (row.get("organization") or "").strip()) if x)
+    return out
+
+
+def clean_row(feed, row):
+    # type: (str, Dict[str, Any]) -> Dict[str, Any]
+    return clean_civil_row(row) if feed == FEED_CIVIL else clean_deal_row(row)
 
 
 def discount_pct(start_price, won_price):
@@ -357,6 +490,12 @@ def repeat_blocked(state, now):
     return None
 
 
+def is_due(state, now):
+    # type: (Optional[Dict[str, Any]], datetime) -> bool
+    """Пора ли слать: прошло не меньше ритма (с допуском) с последней доставки."""
+    return repeat_blocked(state, now) is None
+
+
 def keyset_filter(last_created_at, last_id):
     # type: (str, str) -> str
     """PostgREST or-фильтр «строго после (created_at, id)».
@@ -490,7 +629,7 @@ def _item_lines(n, item, registry_inns):
 # влезают (так и было в первом прогоне за 30 дней: 24 строки, пропусков не видно).
 SECTIONS = (
     (STATUS_MISSED, "🕳 Наш профиль, но алерта не было", None),
-    (PRINTER, "🔎 Выиграли типографии — гейт не узнал", 6),
+    (PRINTER, "🔎 Спрятанные: выиграли конкуренты — гейт не узнал", 6),
     (STATUS_NOT_COLLECTED, "📭 Лот не собирали", None),
     (STATUS_ALERTED, "👀 Алертили — забрали другие", 10),
 )
@@ -514,12 +653,14 @@ def _by_price(items):
     return sorted(items, key=lambda it: -float(it["win"].get("won_price") or 0))
 
 
-def build_message(report, registry_inns=()):
-    # type: (Dict[str, Any], Iterable[str]) -> str
-    """Текст (HTML) недельного разбора. Чистая функция.
+def build_message(report, registry_inns=(), watch=None, monitor=None):
+    # type: (Dict[str, Any], Iterable[str], Optional[Dict[str, str]], Optional[Dict[str, Any]]) -> str
+    """Текст (HTML) разбора побед. Чистая функция.
 
     report: {start, end, clamped, items, printers, ours, coverage}. Собирается
     ВСЕГДА — и при нуле побед: молчание неотличимо от поломки.
+    watch — {ИНН: имя} списка конкурентов (блок «Список»); monitor — итог монитора
+    площадок (`summarize_monitor` или {"error": …}); без них строки не выводятся.
     """
     registry_inns = tuple(registry_inns or ())
     items = report.get("items") or []
@@ -531,6 +672,9 @@ def build_message(report, registry_inns=()):
     if cov.get("feed_dropped"):
         lines.append("⚠️ сделок в фиде %d при обычных ~%d — фид сделок, похоже, сломан; "
                      "«побед мало» ниже может быть ложью" % (cov.get("deals", 0), cov.get("deals_median") or 0))
+    if cov.get("civil_dropped"):
+        lines.append("⚠️ итогов ВМК-69 в фиде %d при обычных ~%d — фид, похоже, сломан; "
+                     "«побед мало» ниже может быть ложью" % (cov.get("civil", 0), cov.get("civil_median") or 0))
     if items:
         head = "Лотов нашего профиля: <b>%d</b> на %s млн сум" % (len(items), _mln(_sum_uzs(items)))
         foreign = sum(1 for it in items if not is_uzs(it["win"].get("currency")))
@@ -541,6 +685,8 @@ def build_message(report, registry_inns=()):
         lines.append("Побед чужих по нашему профилю за окно нет.")
     for win in report.get("ours") or []:
         lines.append("🏆 Мы выиграли: %s · %s" % (html.escape(_short(win.get("title"), 60)), _money_part(win)))
+    if watch:
+        lines.extend(_watch_lines(report, watch))
 
     groups = {PRINTER: list(printers)}
     for status in (STATUS_MISSED, STATUS_NOT_COLLECTED, STATUS_ALERTED):
@@ -552,9 +698,98 @@ def build_message(report, registry_inns=()):
     sections = [(title, groups[st] if st == PRINTER else _by_price(groups[st]), cap)
                 for st, title, cap in SECTIONS if groups[st]]
 
-    tail = _tail_lines(report, items, registry_inns)
+    tail = _tail_lines(report, items, registry_inns, monitor)
     budget = _TEXT_BUDGET - len("\n".join(lines)) - len("\n".join(tail)) - 2
     return "\n".join(lines + _render(sections, budget, registry_inns) + tail)
+
+
+WATCH_ROWS_CAP = 8
+
+
+def watch_map(registry):
+    # type: (Dict[str, Any]) -> Dict[str, str]
+    """{ИНН: имя} активных конкурентов из реестра (раздел `entities`)."""
+    return {str(e["inn"]): str(e.get("name") or e["inn"])
+            for e in (registry.get("entities") or []) if e.get("inn")}
+
+
+def watch_rows(report, watch):
+    # type: (Dict[str, Any], Dict[str, str]) -> List[Dict[str, Any]]
+    """Победы фирм списка за окно: и профильные, и «спрятанные» (гейт не узнал).
+
+    Мелкие и непечатные победы фирмы сюда не попадают сами собой: «спрятанные»
+    уже отфильтрованы порогом цены и печатным признаком победителя.
+    """
+    by = {}  # type: Dict[str, Dict[str, Any]]
+    for it in list(report.get("items") or []) + list(report.get("printers") or []):
+        win = it["win"]
+        inn = win.get("winner_inn")
+        if inn not in watch:
+            continue
+        a = by.setdefault(inn, {"inn": inn, "name": watch[inn], "n": 0, "sum": 0.0,
+                                "disc": [], "customers": [], "hidden": 0})
+        a["n"] += 1
+        if is_uzs(win.get("currency")) and win.get("won_price"):
+            a["sum"] += float(win["won_price"])
+            d = discount_pct(win.get("start_price"), win.get("won_price"))
+            if d is not None:
+                a["disc"].append(d)
+        cust = _short(win.get("customer"), 22)
+        if cust and cust not in a["customers"]:
+            a["customers"].append(cust)
+        if it.get("status") == PRINTER:
+            a["hidden"] += 1
+    return sorted(by.values(), key=lambda a: (-a["n"], -a["sum"], a["name"]))
+
+
+def _watch_lines(report, watch):
+    # type: (Dict[str, Any], Dict[str, str]) -> List[str]
+    rows = watch_rows(report, watch)
+    out = ["\n<b>👁 Список конкурентов (%d)</b>: выиграли %d, молчат %d" % (
+        len(watch), len(rows), len(watch) - len(rows))]
+    for a in rows[:WATCH_ROWS_CAP]:
+        parts = ["×%d" % a["n"], "%s млн" % _mln(a["sum"])]
+        if a["disc"]:
+            parts.append("скидка ~%g%%" % round(_median(a["disc"])))
+        if a["hidden"]:
+            parts.append("гейт не узнал: %d" % a["hidden"])
+        out.append("  • %s · %s · %s" % (html.escape(_short(a["name"], 28)), " · ".join(parts),
+                                         html.escape(", ".join(a["customers"][:2]))))
+    if len(rows) > WATCH_ROWS_CAP:
+        rest = rows[WATCH_ROWS_CAP:]
+        out.append("  …и ещё %d фирм на %s млн" % (len(rest), _mln(sum(a["sum"] for a in rest))))
+    return out
+
+
+# Статусы источников монитора, при которых «нет новых договоров» ничего не значит.
+_MONITOR_FAIL = ("collector_error", "incomplete", "incomplete_currency_unobservable", "not_collected")
+
+
+def summarize_monitor(delta):
+    # type: (Dict[str, Any]) -> Dict[str, Any]
+    """Квитанция монитора площадок → то, что нужно сводке."""
+    problems = ["%s: %s" % (s.get("label") or s.get("source_id"), s.get("status"))
+                for s in (delta.get("sources") or []) if s.get("status") in _MONITOR_FAIL]
+    return {"new": len(delta.get("new_awards") or []), "changed": len(delta.get("changed_awards") or []),
+            "bootstrap": bool(delta.get("bootstrap")), "problems": problems,
+            "generated_at": delta.get("generated_at")}
+
+
+def _monitor_line(monitor):
+    # type: (Dict[str, Any]) -> str
+    if monitor.get("error"):
+        return "⚠️ Монитор площадок не отработал: %s" % html.escape(str(monitor["error"]))
+    if monitor.get("bootstrap"):
+        line = "Монитор площадок: первый запуск, база договоров зафиксирована"
+    else:
+        line = "Монитор площадок (прямые договоры UZEX, ebirja-магазин): новых договоров %d" % monitor.get("new", 0)
+        if monitor.get("changed"):
+            line += ", изменений %d" % monitor["changed"]
+        if monitor.get("new") or monitor.get("changed"):
+            line += " — пришли отдельным сообщением"
+    if monitor.get("problems"):
+        line += "\n⚠️ не отработали: %s" % html.escape("; ".join(monitor["problems"]))
+    return line
 
 
 def _render(sections, budget, registry_inns):
@@ -589,8 +824,8 @@ def _render(sections, budget, registry_inns):
     return out
 
 
-def _tail_lines(report, items, registry_inns):
-    # type: (Dict[str, Any], List[Dict[str, Any]], Iterable[str]) -> List[str]
+def _tail_lines(report, items, registry_inns, monitor=None):
+    # type: (Dict[str, Any], List[Dict[str, Any]], Iterable[str], Optional[Dict[str, Any]]) -> List[str]
     tail = []
     registry = set(registry_inns)
     counts = {}  # type: Dict[str, List[Any]]
@@ -615,6 +850,10 @@ def _tail_lines(report, items, registry_inns):
     line = "Покрытие: сделок %d" % cov.get("deals", 0)
     if cov.get("deals_median"):
         line += " (обычно ~%d)" % cov["deals_median"]
+    if "civil" in cov:
+        line += " · итогов ВМК-69 %d" % cov["civil"]
+        if cov.get("civil_median"):
+            line += " (обычно ~%d)" % cov["civil_median"]
     line += " · победитель скрыт %d" % cov.get("hidden_winner", 0)
     if cov.get("unlinked"):
         line += " · без ссылки на лот %d" % cov["unlinked"]
@@ -628,11 +867,13 @@ def _tail_lines(report, items, registry_inns):
     if cov.get("undecided"):
         line += " · не решено %d — перенесено на следующий разбор" % cov["undecided"]
     tail.append(line)
-    tail.append("★ — из реестра конкурентов. Только etender: у ВМК-69 нет ИНН, "
-                "XT-Xarid и Hayotbirja победителя не публикуют.")
+    if monitor is not None:
+        tail.append(_monitor_line(monitor))
+    tail.append("★ — из списка конкурентов. Победителя видим в сделках etender и итогах ВМК-69; "
+                "XT-Xarid и Hayotbirja его не публикуют, Cooperation даёт имя без ИНН.")
     if any(it.get("stage") == "no_keyword" for it in (report.get("printers") or [])):
         tail.append("«нет ключевого слова» — кандидат в словарь; проверяется через shadow "
-                    "(shadow_search --add-keyword), в бой — по итогам недели.")
+                    "(shadow_search --add-keyword), в бой — по отчёту shadow в понедельник.")
     return tail
 
 

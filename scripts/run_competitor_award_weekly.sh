@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Weekly all-exchange competitor award monitor. Collection is read-only, then
-# confirmed new/changed awards are delivered to Telegram and state is advanced.
+# All-exchange competitor award monitor (called by run_competitor_digest.sh every
+# 3 days). Collection is read-only, then confirmed new/changed awards are delivered
+# to Telegram and state is advanced. ETender winners are NOT collected here: the
+# digest (competitor_wins_weekly) reports them for every winner, so reporting them
+# again would send one win as two messages.
 set -euo pipefail
 cd /opt/parsing-seo
 data_dir=/opt/parsing-seo/data/competitor-award-monitor
@@ -15,6 +18,7 @@ if [ -n "$proxy_assignment" ]; then
 fi
 .venv/bin/python3 -m crawler.scripts.run_all_exchange_competitor_monitor \
   --date-from "$date_from" --page-size 100 --page-cap 50 --max-details 25 \
+  --etender-covered-by-digest \
   --output "$data_dir/receipts/$run_at-sources.json"
 .venv/bin/python3 -m crawler.scripts.monitor_competitor_awards \
   --source-runs "$data_dir/receipts/$run_at-sources.json" \

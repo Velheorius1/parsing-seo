@@ -294,6 +294,58 @@ def test_main_persists_first_batch_before_second_batch_network_exception():
     assert receipt["telegram_delivery"]["error"] == "ConnectTimeout"
 
 
+# ── etender отдан сводке по всем победителям профиля (01.10.2026) ────────────
+
+def test_etender_covered_by_digest_counts_as_reported_and_keeps_its_state():
+    old_key = "etender_deals:308044785:174627"
+    prior = {"sources": {"etender_deals": {"award_keys": [old_key], "content_hashes": {old_key: "h"}}}}
+    result = multi_source_delta({"etender_deals": {"status": "covered_by_digest"}}, prior)
+    row = next(r for r in result["sources"] if r["source_id"] == "etender_deals")
+    assert row["status"] == "covered_by_digest"
+    assert result["new_awards"] == [] and result["changed_awards"] == []
+    assert result["state_candidate"]["sources"]["etender_deals"] == prior["sources"]["etender_deals"], \
+        "прежние ключи etender не должны пропасть: иначе при возврате к сбору всё станет «новым»"
+
+
+def test_all_sources_reported_when_only_etender_is_covered_by_digest():
+    ok = {"status": "complete", "awards": []}
+    runs = {"etender_deals": {"status": "covered_by_digest"}, "uzex_direct": ok, "ebirja_shop": ok,
+            "ebirja_auction": {"status": "complete_name_only"}, "ebirja_tender": {"status": "complete_name_only"},
+            "ebirja_selection": {"status": "complete_name_only"},
+            "cooperation_contracts": {"status": "currency_unobservable"},
+            "xt_xarid": {"status": "winner_unobservable"}, "hayotbirja": {"status": "mirror"}}
+    assert multi_source_delta(runs, {"sources": {}})["all_sources_reported"] is True
+
+
+def test_build_runs_skips_etender_collection_when_covered_by_digest():
+    from crawler.scripts import run_all_exchange_competitor_monitor as runner
+    from datetime import date
+    asked = []
+
+    def fake_collect(key, *a, **kw):
+        asked.append(key)
+        return {"awards": [], "complete": True, "completion": "date_boundary", "captured_at": "t"}
+    with patch.object(runner, "collect_uzex", fake_collect), \
+            patch.object(runner, "enrich_awards", lambda source_id, awards, get, max_details=0: (awards, {})), \
+            patch.object(runner, "_ebirja_run", lambda *a, **kw: {"status": "complete", "captured_at": "t"}), \
+            patch.object(runner, "collect_cooperation", lambda *a, **kw: {"complete": True, "completion": "x"}), \
+            patch.object(runner, "_public_rpc_runs", lambda post=None: {}):
+        runs = runner.build_runs(date(2026, 9, 1), 100, 1, 1, etender_covered_by_digest=True)
+        assert asked == ["direct"], asked
+        assert runs["etender_deals"]["status"] == "covered_by_digest"
+        asked.clear()
+        runs = runner.build_runs(date(2026, 9, 1), 100, 1, 1)
+        assert asked == ["deals", "direct"], "без флага сбор etender прежний"
+        assert runs["etender_deals"]["status"] == "complete"
+
+
+def test_digest_header_is_no_longer_called_weekly():
+    report = {"new_awards": [{"winner_name": "PRINTUZ", "winner_inn": "304788646", "amount": "25000001",
+                              "currency": "UZS", "title": "t"}], "changed_awards": []}
+    text = build_digest(report)
+    assert "за неделю" not in text and "из списка" in text, text
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failures = 0

@@ -17,7 +17,14 @@
   • усечённый список помечен «…и ещё N», пропуски стоят раньше «алертили»;
   • окно кончается за 30 минут до «сейчас» (идущий краул), курсор после
     доставки уносит нерешённые в retry, повторная отправка за неделю — отказ;
-  • «фид сделок просел» виден в заголовке, а не выглядит как «побед мало».
+  • «фид сделок просел» виден в заголовке, а не выглядит как «побед мало»;
+второй выпуск (раз в 3 дня, два фида, список конкурентов):
+  • итог ВМК-69 читается как сделка: победитель с ИНН, ссылка /civil-detail/<id>,
+    а для гейта — лот раздела (source и тип подменены, победитель вырезан);
+  • смена формата id 24.09 не удваивает итоги: 00-вариант и 05-вариант — один итог;
+  • ритм 3 дня с допуском: запуск на 3 секунды раньше доставки не уезжает на 4-й день;
+  • блок «Список» показывает и профильные, и «спрятанные» победы фирм списка,
+    молчащих считает, не перечисляя; строка монитора — всегда, и об отказе тоже.
 
 Run: python3 -m crawler.tests.test_competitor_wins   (exit 1 on any failure)
 """
@@ -344,7 +351,7 @@ def test_printer_section_names_todays_stage_and_the_shadow_hint():
     p = _item(CW.STATUS_MISSED, won=691e6, title="Poligrafiya mahsulotalrini ishlab chiqarish")
     p.update(status=CW.PRINTER, lot_status=CW.STATUS_MISSED, stage="no_keyword", ai_then=None)
     text = CW.build_message(_report(printers=[p]))
-    assert "Выиграли типографии — гейт не узнал — 1" in text, text
+    assert "Спрятанные: выиграли конкуренты — гейт не узнал — 1" in text, text
     assert "гейт сегодня: нет ключевого слова · до AI тогда не дошёл" in text, text
     assert "shadow_search --add-keyword" in text
     assert "Лотов нашего профиля" not in text, "догадка не считается профилем"
@@ -398,6 +405,184 @@ def test_non_uzs_deal_is_shown_but_not_summed():
     text = CW.build_message(_report([it]))
     assert "1.8 млн Доллар" in text, text
     assert "на 0 млн сум (+1 в другой валюте, в сумму не вошли)" in text, text
+
+
+# ── итоги ВМК-69 ─────────────────────────────────────────────────────────────
+
+def _civil(**over):
+    row = {
+        "id": UUID_A, "external_id": "result-26120500017591", "source": "UZEX Результаты",
+        "source_url": "https://etender.uzex.uz/lot/26120500017591",
+        "title": "Armiya jurnali 2026 yil 3-soni", "organization": "MUDOFAA VAZIRLIGI",
+        "price": 283000000.0, "winning_price": 241000000.0, "currency": "UZS",
+        "winner": "OLTIN-NASHR MCHJ (ИНН 306514938)", "status": "completed",
+        "result_date": "2026-09-30T00:00:00", "message_type": "result",
+        "created_at": "2026-09-30T12:03:34.963104+00:00",
+    }
+    row.update(over)
+    return row
+
+
+def test_parse_civil_win_reads_winner_prices_and_builds_the_working_link():
+    w = CW.parse_civil_win(_civil())
+    assert w["feed"] == CW.FEED_CIVIL and w["winner_inn"] == "306514938", w
+    assert w["lot_key"] == "26120500017591", w
+    assert w["source_url"] == "https://etender.uzex.uz/civil-detail/17591", w["source_url"]
+    assert (w["start_price"], w["won_price"]) == (283000000.0, 241000000.0), w
+    assert w["participants"] is None and w["deal_date"] == "2026-09-30", w
+    assert CW.discount_pct(w["start_price"], w["won_price"]) == 14.8
+
+
+def test_parse_civil_win_reads_the_legacy_inn_only_winner():
+    w = CW.parse_civil_win(_civil(winner="ИНН: 204247640"))
+    assert w["winner_inn"] == "204247640", w
+    assert CW.winner_name(w["winner"]) == "ИНН 204247640"
+
+
+def test_civil_hidden_winner_is_not_a_win():
+    assert CW.parse_civil_win(_civil(winner=None)) is None
+    assert CW.parse_civil_win(_civil(winner="  ")) is None
+    assert CW.parse_civil_win(_civil(winner="(ИНН )")) is None
+    assert CW.parse_civil_win(_civil(winner="None (ИНН None)")) is None
+
+
+def test_civil_our_win_is_flagged():
+    assert CW.parse_civil_win(_civil(winner="WINCH MCHJ (ИНН 123456789)"))["ours"] is True
+
+
+def test_civil_gate_row_looks_like_our_vmk69_lot_not_like_a_result():
+    row = _civil(search_text="Armiya jurnali OLTIN-NASHR", extra_info={"x": "y"})
+    clean = CW.clean_row(CW.FEED_CIVIL, row)
+    assert clean["source"] == "ETender Отбор (ВМК-69)" and clean["message_type"] == "tender", clean
+    assert clean["winner"] is None and clean["extra_info"] == {} and clean["deadline"] is None
+    assert "OLTIN" not in clean["search_text"], "имя победителя не судит профиль"
+    assert clean["search_text"] == "Armiya jurnali 2026 yil 3-soni MUDOFAA VAZIRLIGI"
+    assert row["message_type"] == "result", "исходная строка не должна меняться"
+    assert CW.clean_row(CW.FEED_DEALS, _deal())["extra_info"] == {}
+
+
+def test_civil_url_only_for_the_known_shape():
+    assert CW.civil_detail_url("result-26120500018060") == "https://etender.uzex.uz/civil-detail/18060"
+    assert CW.civil_detail_url("26120000010069") == "https://etender.uzex.uz/civil-detail/10069"
+    assert CW.civil_detail_url("12345") is None
+    assert CW.civil_detail_url("26110000010386") is None, "2611 — не ВМК-69: ссылки по формуле нет"
+
+
+def test_format_switch_of_24_sep_does_not_double_a_result():
+    old, new = "result-26120000010069", "result-26120500010069"
+    assert CW.civil_norm_key(old) == CW.civil_norm_key(new)
+    assert CW.civil_norm_key(old) != CW.civil_norm_key("result-26110000010069")
+    rows = [{"external_id": old, "id": "a"}, {"external_id": new, "id": "b"},
+            {"external_id": "result-26120500010070", "id": "c"}]
+    assert [r["id"] for r in CW.dedupe_civil(rows)] == ["a", "c"]
+
+
+# ── ритм раз в 3 дня ─────────────────────────────────────────────────────────
+
+def test_cadence_survives_a_cron_that_fires_seconds_before_the_last_delivery_time():
+    delivered = datetime(2026, 10, 2, 5, 0, 5, tzinfo=timezone.utc)
+    state = {"delivered_at": delivered.isoformat()}
+    three_days_early = delivered + timedelta(days=3) - timedelta(seconds=4)    # 05:00:01 на 3-й день
+    assert CW.is_due(state, three_days_early) is True, "без допуска разбор уехал бы на 4-й день"
+    assert CW.is_due(state, delivered + timedelta(days=1)) is False
+    assert CW.is_due(state, delivered + timedelta(days=2, hours=1)) is False
+    assert CW.is_due(state, delivered + timedelta(days=2, hours=23)) is True
+    assert CW.is_due(None, NOW) is True
+
+
+def test_cadence_constants_agree():
+    assert CW.CADENCE == timedelta(days=3) and CW.MIN_REPEAT == CW.CADENCE - CW.DUE_SLACK
+
+
+# ── блок «Список» и строка монитора ──────────────────────────────────────────
+
+WATCH = {"306514938": "OLTIN-NASHR", "308044785": "PECHATNIK VOSTOKA", "203864183": "MATRIX"}
+
+
+def _watch_item(status, inn, name, won, customer="Заказчик", **extra):
+    it = _item(status, won=won, winner="%s MCHJ (ИНН %s)" % (name, inn), winner_inn=inn,
+               start_price=won * 1.3, start_currency="Сум", customer=customer)
+    it.update(extra)
+    return it
+
+
+def test_watch_block_counts_active_and_silent_firms_without_listing_the_silent():
+    items = [_watch_item(CW.STATUS_ALERTED, "306514938", "OLTIN-NASHR", 620e6),
+             _watch_item(CW.STATUS_ALERTED, "306514938", "OLTIN-NASHR", 100e6, customer="Другой")]
+    text = CW.build_message(_report(items), watch=WATCH)
+    assert "Список конкурентов (3)</b>: выиграли 1, молчат 2" in text, text
+    assert "OLTIN-NASHR" in text and "×2" in text and "720 млн" in text, text
+    assert "MATRIX" not in text, "молчащих не перечисляем"
+
+
+def test_watch_block_includes_hidden_wins_of_the_list():
+    hidden = _watch_item(CW.PRINTER, "308044785", "PECHATNIK VOSTOKA", 400e6, lot_status=CW.STATUS_MISSED)
+    text = CW.build_message(_report(printers=[hidden]), watch=WATCH)
+    assert "выиграли 1, молчат 2" in text and "гейт не узнал: 1" in text, text
+
+
+def test_watch_block_ignores_firms_outside_the_list_and_missing_inn():
+    other = _watch_item(CW.STATUS_ALERTED, "111111111", "STRANGER", 50e6)
+    noinn = _watch_item(CW.STATUS_ALERTED, None, "NOINN", 50e6)
+    text = CW.build_message(_report([other, noinn]), watch=WATCH)
+    assert "выиграли 0, молчат 3" in text and "STRANGER" not in text.split("Лотов")[0]
+
+
+def test_watch_block_is_capped_and_says_how_many_are_left():
+    wide = {str(300000000 + i): "FIRM%d" % i for i in range(12)}
+    items = [_watch_item(CW.STATUS_ALERTED, inn, name, 50e6) for inn, name in wide.items()]
+    text = CW.build_message(_report(items), watch=wide)
+    assert "выиграли 12, молчат 0" in text and "…и ещё 4 фирм" in text, text
+
+
+def test_message_without_watch_is_unchanged():
+    assert "Список конкурентов" not in CW.build_message(_report([_item(CW.STATUS_ALERTED)]))
+
+
+def test_watch_map_takes_only_active_entities():
+    reg = {"entities": [{"name": "A", "inn": "111111111"}, {"name": "NOINN"}],
+           "separate_candidates": [{"name": "C", "inn": "222222222"}], "retired": [{"name": "R", "inn": "3"}]}
+    assert CW.watch_map(reg) == {"111111111": "A"}
+
+
+def test_monitor_line_for_every_outcome():
+    ok = CW.summarize_monitor({"new_awards": [{"key": "k"}], "changed_awards": [], "bootstrap": False,
+                               "sources": [{"source_id": "uzex_direct", "status": "complete"},
+                                           {"source_id": "etender_deals", "status": "covered_by_digest"}]})
+    assert ok["problems"] == [] and ok["new"] == 1
+    assert "новых договоров 1 — пришли отдельным сообщением" in CW.build_message(_report(), monitor=ok)
+    bad = CW.summarize_monitor({"sources": [{"label": "Cooperation contracts", "source_id": "c",
+                                             "status": "collector_error"},
+                                            {"label": "X", "source_id": "x", "status": "winner_unobservable"}]})
+    assert bad["problems"] == ["Cooperation contracts: collector_error"], bad
+    text = CW.build_message(_report(), monitor=bad)
+    assert "новых договоров 0" in text and "не отработали: Cooperation contracts: collector_error" in text
+    assert "⚠️ Монитор площадок не отработал: квитанции нет" in CW.build_message(
+        _report(), monitor={"error": "квитанции нет"})
+    assert "Монитор площадок" not in CW.build_message(_report()), "без параметра строки нет"
+
+
+def test_bootstrap_monitor_says_baseline_not_zero_new():
+    boot = CW.summarize_monitor({"bootstrap": True, "sources": []})
+    assert "первый запуск" in CW.build_message(_report(), monitor=boot)
+
+
+def test_civil_feed_collapse_is_announced_and_counted():
+    rep = _report()
+    rep["coverage"].update(civil=12, civil_median=70, civil_dropped=True)
+    text = CW.build_message(rep)
+    assert "итогов ВМК-69 в фиде 12 при обычных ~70" in text, text
+    assert "итогов ВМК-69 12 (обычно ~70)" in text, text
+
+
+def test_long_watch_block_still_fits_telegram():
+    wide = {str(300000000 + i): "FIRM-WITH-A-LONG-NAME-%d" % i for i in range(30)}
+    items = [_watch_item(CW.STATUS_ALERTED, inn, name, 500e6 - i * 1e6, customer="Очень длинное название заказчика %d" % i)
+             for i, (inn, name) in enumerate(wide.items())]
+    items += [_item(CW.STATUS_MISSED, won=900e6 - i) for i in range(30)]
+    text = CW.build_message(_report(items), watch=wide, monitor={"error": "x" * 200})
+    assert len(text) <= CW.TELEGRAM_LIMIT, len(text)
+    assert "Список конкурентов (30)" in text
 
 
 if __name__ == "__main__":
