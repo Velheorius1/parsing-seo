@@ -93,6 +93,71 @@ def test_backfill_plan_changes_only_what_api_disagrees_with():
     assert got[0]["new"] == "A (ИНН 111111111)"
 
 
+def test_garbage_inn_is_not_written():
+    assert rt.format_winner({"provider_name": "X MCHJ", "provider_inn": "00450"}) == "X MCHJ"
+    assert rt.format_winner({"provider_name": "X MCHJ", "provider_inn": "0"}) == "X MCHJ"
+    assert rt.format_winner({"provider_name": "", "provider_inn": "000000000"}) is None
+    assert rt.format_winner({"provider_name": "X", "provider_inn": "12ab56789"}) == "X"
+
+
+def test_legacy_colon_format_is_still_read():
+    assert winner_inn("ИНН: 204247640") == "204247640"
+    assert winner_name("ИНН: 204247640") == "ИНН 204247640"   # не пустая строка в сводке
+
+
+def test_backfill_does_not_erase_an_existing_inn():
+    from crawler.scripts.backfill_civil_winner_inn import plan
+    api = {"result-1": "Карши шахри"}                          # API теперь без ИНН
+    db = [{"id": "u1", "external_id": "result-1", "winner": "ИНН: 204247640"}]
+    assert plan(db, api) == []
+
+
+class _Resp(object):
+    def __init__(self, rows):
+        self._rows = rows
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._rows
+
+
+def _api_row(n, total):
+    return {"display_id": "2612%010d" % n, "civil_name": "Т%d" % n, "total_count": str(total),
+            "provider_name": "P%d" % n, "provider_inn": "3%08d" % n, "status_name": "Сделка совершена"}
+
+
+def test_fetch_api_pages_until_empty_and_reports_completeness():
+    from crawler.scripts import backfill_civil_winner_inn as B
+    pages = {0: [_api_row(i, 3) for i in range(2)], B.PAGE: [_api_row(2, 3)]}
+    calls = []
+
+    def post(url, json=None, headers=None):
+        calls.append((json["from"], json["to"]))
+        return _Resp(pages.get(json["from"], []))
+    api, raw, total = B.fetch_api(10, post=post, pause=0)
+    assert (raw, total, len(api)) == (3, 3, 3), (raw, total, len(api))
+    assert calls == [(0, B.PAGE - 1), (B.PAGE, 2 * B.PAGE - 1), (2 * B.PAGE, 3 * B.PAGE - 1)], calls
+    assert api["result-2612%010d" % 1] == "P1 (ИНН 300000001)", api
+
+
+def test_fetch_api_flags_incomplete_when_page_cap_hits_first():
+    from crawler.scripts import backfill_civil_winner_inn as B
+    api, raw, total = B.fetch_api(1, pause=0, post=lambda url, json=None, headers=None: _Resp(
+        [_api_row(i, 9292) for i in range(3)]))
+    assert raw == 3 and total == 9292 and raw < total
+
+
+def test_fetch_api_rejects_non_list_payload():
+    from crawler.scripts import backfill_civil_winner_inn as B
+    try:
+        B.fetch_api(1, pause=0, post=lambda url, json=None, headers=None: _Resp({"error": "x"}))
+    except RuntimeError:
+        return
+    raise AssertionError("не-список должен падать, а не считаться пустым ответом")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

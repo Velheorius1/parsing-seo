@@ -85,7 +85,9 @@ UZS_LABELS = ("UZS", "Сум")          # инвариант проекта: о�
 TELEGRAM_LIMIT = 4096
 _TEXT_BUDGET = 3900
 
-_INN_RE = re.compile(r"ИНН\s*(\d{9,14})")
+# «ИНН: 123» — старый формат итогов ВМК-69 (до 01.10.2026), строки старше окна API
+# бэкфилл не перепишет.
+_INN_RE = re.compile(r"ИНН:?\s*(\d{9,14})")
 _START_PRICE_RE = re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*(.*)$")
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -117,7 +119,11 @@ def winner_inn(winner):
 def winner_name(winner):
     # type: (Optional[str]) -> str
     """Имя без хвоста «(ИНН …)» — для показа."""
-    return _INN_RE.sub("", str(winner or "")).replace("()", "").strip(" ,")
+    name = _INN_RE.sub("", str(winner or "")).replace("()", "").strip(" ,")
+    if not name:
+        inn = winner_inn(winner)
+        return "ИНН %s" % inn if inn else ""    # без имени показываем хотя бы ИНН
+    return name
 
 
 def is_uzs(currency):

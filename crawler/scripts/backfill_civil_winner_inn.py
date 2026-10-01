@@ -20,13 +20,14 @@ import logging
 import os
 import sys
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import httpx
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from crawler.core import results_tracker as RT  # noqa: E402
+from crawler.core.competitor_wins import winner_inn  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                     datefmt="%H:%M:%S")
@@ -37,28 +38,45 @@ PAGE = 500
 SOURCE = RT._RESULTS_SOURCE
 
 
-def fetch_api(max_pages):
-    # type: (int) -> Dict[str, str]
-    """{external_id: winner} по всем доступным страницам. Дубль id — последний."""
+def fetch_api(max_pages, post=None, pause=1.0):
+    # type: (int, Any, float) -> Tuple[Dict[str, str], int, int]
+    """(external_id → winner, строк получено, total_count по версии API).
+
+    Дубль id — последний. Полнота — забота вызывающего: получено < total_count
+    значит часть итогов не видна, и --apply в таком случае отказывает.
+    """
     out = {}  # type: Dict[str, str]
-    with httpx.Client(timeout=40) as client:
+    raw, total = 0, 0
+    own = None
+    if post is None:
+        own = httpx.Client(timeout=40)
+        post = own.post
+    try:
         for page in range(max_pages):
             start = page * PAGE
-            resp = client.post(RT._UZEX_RESULTS_URL, json={"from": start, "to": start + PAGE - 1},
-                               headers={"Content-Type": "application/json"})
+            resp = post(RT._UZEX_RESULTS_URL, json={"from": start, "to": start + PAGE - 1},
+                        headers={"Content-Type": "application/json"})
             resp.raise_for_status()
             rows = resp.json()
             if not isinstance(rows, list):
                 raise RuntimeError("GetResulted: ждали список, пришло %s" % type(rows).__name__)
             if not rows:
                 break
+            raw += len(rows)
+            try:
+                total = max(total, int(rows[0].get("total_count") or 0))
+            except (TypeError, ValueError):
+                pass
             for item in rows:
                 row = RT._build_result_row(item)
                 if row and row.get("winner"):
                     out[row["external_id"]] = row["winner"]
             logger.info("API: страница %d → %d строк, накоплено %d", page + 1, len(rows), len(out))
-            time.sleep(1)
-    return out
+            time.sleep(pause)
+    finally:
+        if own is not None:
+            own.close()
+    return out, raw, total
 
 
 def fetch_db():
@@ -82,12 +100,20 @@ def fetch_db():
 
 def plan(db_rows, api):
     # type: (List[Dict[str, Any]], Dict[str, str]) -> List[Dict[str, Any]]
-    """Что менять: строка в базе, которой API даёт другого победителя."""
+    """Что менять: строка в базе, которой API даёт другого победителя.
+
+    Не затираем ИНН: если в базе он уже есть, а в ответе API его нет (имя без
+    ИНН, один адрес), строку оставляем — старого значения потом не вернуть.
+    """
     todo = []
     for r in db_rows:
         new = api.get(r.get("external_id") or "")
-        if new and new != (r.get("winner") or ""):
-            todo.append({"id": r["id"], "old": r.get("winner"), "new": new})
+        old = r.get("winner") or ""
+        if not new or new == old:
+            continue
+        if winner_inn(old) and not winner_inn(new):
+            continue
+        todo.append({"id": r["id"], "old": r.get("winner"), "new": new})
     return todo
 
 
@@ -98,7 +124,9 @@ def main():
     ap.add_argument("--max-pages", type=int, default=25)
     args = ap.parse_args()
 
-    api = fetch_api(args.max_pages)
+    api, raw, total = fetch_api(args.max_pages)
+    complete = bool(total) and raw >= total
+    logger.info("API отдало %d из %d итогов%s", raw, total, "" if complete else " — ВЫБОРКА НЕПОЛНА")
     db_rows = fetch_db()
     todo = plan(db_rows, api)
     in_api = sum(1 for r in db_rows if r.get("external_id") in api)
@@ -109,6 +137,10 @@ def main():
     if not args.apply:
         logger.info("dry-run: ничего не записано")
         return 0
+    if not complete:
+        logger.error("--apply отказано: API отдало не все итоги (%d из %d, потолок страниц %d) — "
+                     "часть строк осталась бы в старом формате без пометки", raw, total, args.max_pages)
+        return 2
 
     from crawler.core.db import _get_client, query_with_retry
     c = _get_client()
