@@ -85,6 +85,29 @@ def _calc_discount(start_price, final_price):
     return round(discount, 1)
 
 
+def format_winner(item):
+    # type: (dict) -> Optional[str]
+    """Победитель в том же виде, что у фида сделок etender: «Имя (ИНН 123)».
+
+    Раньше при наличии имени ИНН выбрасывался, а при отсутствии писался как
+    «ИНН: 123» — и разбор побед конкурентов, ищущий «ИНН <цифры>», не мог ни
+    сгруппировать фирму, ни сверить её со списком. API отдаёт оба поля. Нет
+    ни имени, ни годного ИНН (9–14 цифр, не нули) — адрес поставщика, как и раньше.
+    """
+    name = str(item.get("provider_name") or "").strip()
+    inn = str(item.get("provider_inn") or "").strip()
+    if not (inn.isdigit() and 9 <= len(inn) <= 14 and set(inn) != {"0"}):
+        inn = ""     # '00450', '0' встречаются в API: это не ИНН, а мусор
+    if name and inn:
+        return "%s (ИНН %s)" % (name, inn)
+    if name:
+        return name
+    if inn:
+        return "ИНН %s" % inn
+    addr = str(item.get("provider_address") or "").strip()
+    return addr or None
+
+
 def _build_result_row(item):
     # type: (dict) -> Optional[dict]
     """Build a tenders table row from a CivilContracts result item."""
@@ -97,18 +120,7 @@ def _build_result_row(item):
     if not title:
         return None
 
-    # Winner: provider_name or fallback to provider_inn
-    winner = item.get("provider_name")
-    if not winner:
-        inn = item.get("provider_inn")
-        if inn:
-            winner = "ИНН: %s" % inn
-        else:
-            addr = item.get("provider_address")
-            if addr:
-                winner = str(addr).strip()
-    if winner:
-        winner = str(winner).strip()
+    winner = format_winner(item)
 
     # Prices
     start_price = None
