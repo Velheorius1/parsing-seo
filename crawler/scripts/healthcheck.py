@@ -36,6 +36,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -70,7 +71,10 @@ OK = "ok"
 WARN = "warn"
 FAIL = "fail"
 FIXED = "fixed"
-UNKNOWN = "unknown"  # cascade-suppressed dependent checks (see _format_alert_body)
+# Dependent check that cannot judge because its environment is down: Supabase
+# cascade (see _format_alert_body) or the ebirja platform (eimzo_token_verdict).
+# Never part of the alert signature — the root-cause check alerts instead.
+UNKNOWN = "unknown"
 
 # ── Alert dedup / cascade suppression config (RISK-6 mitigation) ──
 # ALERT_STATE_KEY lives in crawler.auth.constants (cross-module key — see
@@ -171,6 +175,54 @@ def openrouter_balance_verdict(total_credits, total_usage,
         return WARN, ("на счёте OpenRouter $%.2f — скоро пополнять (тревога с $%.0f)"
                       % (left, fail_below))
     return OK, "на счёте OpenRouter $%.2f" % left
+
+
+# ── Площадка ebirja: API и токен E-IMZO ───────────────────────────
+#
+# 01.10.2026 с 22:00 UTC xarid-api.ebirja.uz не отвечал никому — ни VPS, ни
+# Маку из Ташкента, — а api.ebirja.uz отвечал за 10,4 с. Проверка ждала 10 с и
+# числила упавшим и живой, но медленный сервер, а про токен писала «VPS cron
+# stuck» четыре часа подряд. Пока площадка лежит, токен не обновить, и по его
+# возрасту о кроне судить нельзя: проверка должна назвать причину в среде, а не
+# обвинять крон.
+API_TIMEOUT_S = 30.0
+API_SLOW_S = 10.0
+EIMZO_AUTH_LOG = "/var/log/eimzo-auth.log"
+
+
+def api_probe_verdict(status_code, took_s):
+    # type: (int, float) -> tuple
+    """(status, message) по ответу API. Чистая функция — без сети."""
+    if status_code != 200:
+        return WARN, "HTTP %d" % status_code
+    if took_s > API_SLOW_S:
+        return WARN, "HTTP 200, но медленно: %.0f с" % took_s
+    return OK, "HTTP 200"
+
+
+def eimzo_token_verdict(age_h, source, api_checked, api_down):
+    # type: (float, str, bool, List[str]) -> tuple
+    """(status, message) по возрасту токена ebirja и её API в этом прогоне.
+
+    ``api_checked`` — были ли в прогоне проверки api.ebirja-*, ``api_down`` —
+    какие из них упали. Пока площадка лежит, старый токен — UNKNOWN с причиной
+    в среде: тревогу поднимают сами api.ebirja-*, ложную причину в алерт не
+    добавляем. Чистая функция — без сети.
+    """
+    if age_h > 5 and api_down:
+        return UNKNOWN, ("Ebirja token %.1fh old — ebirja недоступна (%s), токен не "
+                         "обновить; о кроне по нему судить нельзя"
+                         % (age_h, ", ".join(api_down)))
+    if age_h > 8:
+        api_up = "хотя API ebirja отвечает, " if api_checked else ""
+        return FAIL, ("Ebirja token %.1fh old — %sтокен не обновился. Крон "
+                      "/opt/eimzo/run_auth.sh (раз в 4 ч), лог %s"
+                      % (age_h, api_up, EIMZO_AUTH_LOG))
+    if age_h > 5:
+        return WARN, "Ebirja token %.1fh old — past 5h refresh interval" % age_h
+    if source != "auto-vps-eimzo":
+        return WARN, "Ebirja token source=%s (expected auto-vps-eimzo)" % source
+    return OK, "Ebirja JWT refreshed %.1fh ago via VPS cron" % age_h
 
 
 def _openrouter_key():
@@ -598,16 +650,17 @@ class HealthCheck:
         ]
 
         for name, url in endpoints:
+            started = time.monotonic()
             try:
-                r = httpx.get(url, timeout=10, headers={
+                r = httpx.get(url, timeout=httpx.Timeout(API_TIMEOUT_S, connect=10.0), headers={
                     "User-Agent": "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
                 })
-                if r.status_code == 200:
-                    self._add("api.%s" % name, OK, "HTTP %d" % r.status_code)
-                else:
-                    self._add("api.%s" % name, WARN, "HTTP %d" % r.status_code)
             except Exception as exc:
-                self._add("api.%s" % name, FAIL, "Unreachable: %s" % str(exc)[:60])
+                self._add("api.%s" % name, FAIL, "Unreachable (ждали %.0f с): %s"
+                          % (time.monotonic() - started, str(exc)[:60]))
+                continue
+            status, message = api_probe_verdict(r.status_code, time.monotonic() - started)
+            self._add("api.%s" % name, status, message)
 
     # ── Check 8: Playwright ──
 
@@ -1106,9 +1159,12 @@ class HealthCheck:
         ``/opt/eimzo/auth.py`` (cron every 4h) with ``source=auto-vps-eimzo``.
         Mac daemon is deprecated as of 2026-04-19.
 
-        Reports:
+        Reports (verdict: ``eimzo_token_verdict``):
         - FAIL if token missing
-        - FAIL if obtained_at >8h old (cron not running)
+        - UNKNOWN if obtained_at >5h old while api.ebirja-* FAILed in this run
+          (the platform is down — the token cannot be refreshed, the cron is
+          not to blame; check_api_endpoints runs earlier and alerts instead)
+        - FAIL if obtained_at >8h old (token not refreshed — see cron log)
         - WARN if obtained_at >5h old (close to expiry)
         - WARN if source != auto-vps-eimzo (legacy mac source still writing)
         - OK otherwise
@@ -1156,22 +1212,10 @@ class HealthCheck:
         age_h = (datetime.now(timezone.utc) - obt_dt).total_seconds() / 3600
         details = {"source": source, "obtained_at": obtained_at, "age_h": round(age_h, 2)}
 
-        if age_h > 8:
-            self._add("eimzo_auth", FAIL,
-                      "Ebirja token %.1fh old — VPS cron stuck" % age_h,
-                      details=details)
-        elif age_h > 5:
-            self._add("eimzo_auth", WARN,
-                      "Ebirja token %.1fh old — past 5h refresh interval" % age_h,
-                      details=details)
-        elif source != "auto-vps-eimzo":
-            self._add("eimzo_auth", WARN,
-                      "Ebirja token source=%s (expected auto-vps-eimzo)" % source,
-                      details=details)
-        else:
-            self._add("eimzo_auth", OK,
-                      "Ebirja JWT refreshed %.1fh ago via VPS cron" % age_h,
-                      details=details)
+        api = [r for r in self.results if r["component"].startswith("api.ebirja")]
+        api_down = [r["component"] for r in api if r["status"] == FAIL]
+        status, message = eimzo_token_verdict(age_h, source, bool(api), api_down)
+        self._add("eimzo_auth", status, message, details=details)
 
     # ── Auto-fix ──
 
@@ -1262,9 +1306,13 @@ class HealthCheck:
         warn_count = sum(1 for r in self.results if r["status"] == WARN)
         fail_count = sum(1 for r in self.results if r["status"] == FAIL)
         fixed_count = sum(1 for r in self.results if r["status"] == FIXED)
+        unknown_count = sum(1 for r in self.results if r["status"] == UNKNOWN)
 
-        lines.append("Summary: %d OK, %d WARN, %d FAIL, %d FIXED" % (
-            ok_count, warn_count, fail_count, fixed_count))
+        summary_line = "Summary: %d OK, %d WARN, %d FAIL, %d FIXED" % (
+            ok_count, warn_count, fail_count, fixed_count)
+        if unknown_count:
+            summary_line += ", %d UNKNOWN" % unknown_count
+        lines.append(summary_line)
         lines.append("")
 
         for r in self.results:
