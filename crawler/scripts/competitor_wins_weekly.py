@@ -36,7 +36,7 @@ import json  # noqa: E402
 import logging  # noqa: E402
 import sys  # noqa: E402
 from datetime import datetime, timedelta, timezone  # noqa: E402
-from typing import Any, Callable, Dict, List, Optional, Tuple  # noqa: E402
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple  # noqa: E402
 
 import httpx  # noqa: E402
 
@@ -338,6 +338,19 @@ def _after_deadline(alert_row):
     return bool(seen and deadline and seen > deadline)
 
 
+def excluded_inns():
+    # type: () -> Set[str]
+    """ИНН из `excluded_from_watchlist` реестра — проверенные «не типографии».
+    Печатное слово в имени есть, а выигрывают непечатное (OFSET-FAYZ — FPV-очки и связь)
+    или готовые книги (правило 25.09). Без этого `printer_like` по имени тащил их
+    в «спрятанные» каждой сводкой (02.10: «алоқа воситалари» у OFSET-FAYZ)."""
+    from crawler.core.competitor_audit import normalize_inn, registry_path
+    with open(registry_path(), encoding="utf-8") as fh:
+        raw = json.load(fh)
+    return {inn for inn in (normalize_inn(e.get("inn")) for e in raw.get("excluded_from_watchlist") or [])
+            if inn}
+
+
 async def build_report(start, end, clamped, retry_ids=(), use_ai=True):
     # type: (datetime, datetime, bool, Any, bool) -> Tuple[Dict[str, Any], List[str], List[str]]
     """(отчёт, ИНН реестра, id нерешённых сделок для retry)."""
@@ -443,10 +456,12 @@ async def build_report(start, end, clamped, retry_ids=(), use_ai=True):
     registry = [str(x) for x in registry_inns(load_registry())]
     printer_inns = set(registry) | {it["win"]["winner_inn"] for it in items if it["win"].get("winner_inn")}
     hit = keyword_hit_fn()
+    not_printers = excluded_inns()
     printers = []
     for e in rejected:
         w = e["win"]
         if (CW.is_uzs(w.get("currency")) and float(w.get("won_price") or 0) >= MIN_PRICE
+                and w.get("winner_inn") not in not_printers
                 and CW.printer_like(w, printer_inns, hit)):
             item = {k: e.get(k) for k in keep}
             item["lot_status"], item["status"] = e["status"], CW.PRINTER
