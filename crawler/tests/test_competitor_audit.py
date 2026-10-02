@@ -1,6 +1,9 @@
 """Чистые правила аудита конкурентов: идентичность и денежный порог."""
 from decimal import Decimal
+import json
+import os
 import sys
+import tempfile
 
 from crawler.core.competitor_audit import (
     above_threshold,
@@ -11,8 +14,31 @@ from crawler.core.competitor_audit import (
 )
 
 
+# Правила идентичности проверяются на своём фикстурном реестре: с 02.10.2026 живой
+# список — это ~30 фирм по победам, и эти фирмы в нём уже не обязаны быть.
+_FIXTURE = {
+    "entities": [
+        {"name": "CENTRIS", "inn": "307491912"},
+        {"name": "KOLORPAK", "inn": "205353003"},
+        {"name": "STANDARD POLIGRAF BOOKS", "inn": "305970088"},
+        {"name": "STANDARD POLIGRAF SERVICE", "inn": "207063624"},
+    ],
+    "separate_candidates": [{"name": "CENTRIS-PRINT", "inn": "308717019"}],
+}
+
+
+def _fixture_registry():
+    fd, path = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(_FIXTURE, fh)
+        return load_registry(path)
+    finally:
+        os.unlink(path)
+
+
 def test_same_name_different_inn_stays_separate():
-    registry = load_registry()
+    registry = _fixture_registry()
     centris = entity_for_inn(registry, "307491912")
     centris_print = entity_for_inn(registry, "308717019")
 
@@ -22,7 +48,7 @@ def test_same_name_different_inn_stays_separate():
 
 
 def test_exact_inn_does_not_depend_on_company_name_spelling():
-    registry = load_registry()
+    registry = _fixture_registry()
 
     entity = entity_for_inn(registry, " 205353003 ")
 
@@ -31,7 +57,7 @@ def test_exact_inn_does_not_depend_on_company_name_spelling():
 
 
 def test_books_has_its_own_exact_inn_and_never_inherits_service_inn():
-    registry = load_registry()
+    registry = _fixture_registry()
     books = next(item for item in registry["entities"] if item["name"] == "STANDARD POLIGRAF BOOKS")
 
     assert books["inn"] == "305970088"
@@ -41,7 +67,7 @@ def test_books_has_its_own_exact_inn_and_never_inherits_service_inn():
 
 
 def test_invalid_or_zero_inn_is_unresolved():
-    registry = load_registry()
+    registry = _fixture_registry()
 
     assert normalize_inn("0") is None
     assert normalize_inn("000000000") is None
