@@ -461,11 +461,24 @@ def test_civil_gate_row_looks_like_our_vmk69_lot_not_like_a_result():
     assert CW.clean_row(CW.FEED_DEALS, _deal())["extra_info"] == {}
 
 
+def test_civil_winner_equal_to_customer_is_a_hidden_winner():
+    """02.10: API отдаёт заказчика в provider_* у ~7% итогов — это не победа заказчика."""
+    for org, winner in (('"5-SON JAZONI IJRO ETISH KOLONIYASI"', '"5-SON JAZONI IJRO ETISH KOLONIYASI" (ИНН 200016360)'),
+                        ("GULISTON1", "GULISTON1"), ("GULISTON1", "Guliston 1 (ИНН 200322915)")):
+        row = {"external_id": "result-26120500017421", "winner": winner, "organization": org,
+               "price": 56e6, "winning_price": 53e6, "currency": "Сом"}
+        assert CW.parse_civil_win(row) is None, winner
+    real = {"external_id": "result-26120500017421", "winner": "OLTIN NASHR (ИНН 123456789)",
+            "organization": "GULISTON1", "price": 1e6, "winning_price": 9e5, "currency": "Сом"}
+    assert CW.parse_civil_win(real)["winner_inn"] == "123456789"
+
+
 def test_civil_url_only_for_the_known_shape():
     assert CW.civil_detail_url("result-26120500018060") == "https://etender.uzex.uz/civil-detail/18060"
     assert CW.civil_detail_url("26120000010069") == "https://etender.uzex.uz/civil-detail/10069"
     assert CW.civil_detail_url("12345") is None
-    assert CW.civil_detail_url("26110000010386") is None, "2611 — не ВМК-69: ссылки по формуле нет"
+    assert CW.civil_detail_url("result-26110000017697") == "https://etender.uzex.uz/civil-detail/17697", \
+        "серия 2611 — тоже ВМК-69 (наш лот 26110000017697 лежит на /civil-detail/17697)"
 
 
 def test_format_switch_of_24_sep_does_not_double_a_result():
@@ -545,15 +558,21 @@ def test_watch_map_takes_only_active_entities():
     assert CW.watch_map(reg) == {"111111111": "A"}
 
 
+_MON_OK = ("complete", "winner_unobservable", "covered_by_digest")
+
+
 def test_monitor_line_for_every_outcome():
     ok = CW.summarize_monitor({"new_awards": [{"key": "k"}], "changed_awards": [], "bootstrap": False,
+                               "telegram_delivered": True,
                                "sources": [{"source_id": "uzex_direct", "status": "complete"},
-                                           {"source_id": "etender_deals", "status": "covered_by_digest"}]})
+                                           {"source_id": "etender_deals", "status": "covered_by_digest"}]},
+                              _MON_OK)
     assert ok["problems"] == [] and ok["new"] == 1
     assert "новых договоров 1 — пришли отдельным сообщением" in CW.build_message(_report(), monitor=ok)
     bad = CW.summarize_monitor({"sources": [{"label": "Cooperation contracts", "source_id": "c",
                                              "status": "collector_error"},
-                                            {"label": "X", "source_id": "x", "status": "winner_unobservable"}]})
+                                            {"label": "X", "source_id": "x", "status": "winner_unobservable"}]},
+                               _MON_OK)
     assert bad["problems"] == ["Cooperation contracts: collector_error"], bad
     text = CW.build_message(_report(), monitor=bad)
     assert "новых договоров 0" in text and "не отработали: Cooperation contracts: collector_error" in text
@@ -562,8 +581,28 @@ def test_monitor_line_for_every_outcome():
     assert "Монитор площадок" not in CW.build_message(_report()), "без параметра строки нет"
 
 
+def test_monitor_line_does_not_claim_delivery_the_monitor_did_not_confirm():
+    """Ревью #54: договоры нашлись, а Telegram у монитора упал — «пришли отдельным
+    сообщением» было бы ложью, хуже молчания."""
+    for delivered in (False, None):
+        m = CW.summarize_monitor({"new_awards": [{"key": "k"}, {"key": "j"}], "telegram_delivered": delivered,
+                                  "sources": []}, _MON_OK)
+        text = CW.build_message(_report(), monitor=m)
+        assert "пришли отдельным сообщением" not in text, (delivered, text)
+        assert "новых договоров 2" in text and "отправить их не удалось" in text, text
+
+
+def test_unknown_or_partial_monitor_status_is_a_problem_not_silence():
+    """Ревью #54: успех — только то, что сам монитор считает отчитавшимся; partial_identity
+    и любой новый статус — в «не отработали», а не в тихий ноль."""
+    m = CW.summarize_monitor({"sources": [{"label": "Cooperation contracts", "status": "partial_identity"},
+                                          {"label": "Y", "status": "brand_new_status"},
+                                          {"label": "Z", "status": "complete"}]}, _MON_OK)
+    assert m["problems"] == ["Cooperation contracts: partial_identity", "Y: brand_new_status"], m
+
+
 def test_bootstrap_monitor_says_baseline_not_zero_new():
-    boot = CW.summarize_monitor({"bootstrap": True, "sources": []})
+    boot = CW.summarize_monitor({"bootstrap": True, "sources": []}, _MON_OK)
     assert "первый запуск" in CW.build_message(_report(), monitor=boot)
 
 

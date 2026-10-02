@@ -158,17 +158,45 @@ def fetch_lot_rows(c, urls):
 
 def fetch_civil_lot_rows(c, keys):
     # type: (Any, List[str]) -> Dict[str, List[Dict[str, Any]]]
-    """Наши строки лотов ВМК-69 по display_id (external_id лота = display_id итога)."""
+    """Наши строки лотов ВМК-69 по display_id (external_id лота = display_id итога).
+
+    Ищем все написания номера и раскладываем по civil_norm_key: лот, собранный до
+    смены формата id, и итог после неё — одна процедура.
+    """
+    ids = sorted({v for k in keys for v in CW.civil_id_variants(k)})
     by_key = {}  # type: Dict[str, List[Dict[str, Any]]]
-    for i in range(0, len(keys), CIVIL_KEY_BATCH):
-        batch = keys[i:i + CIVIL_KEY_BATCH]
+    for i in range(0, len(ids), CIVIL_KEY_BATCH):
+        batch = ids[i:i + CIVIL_KEY_BATCH]
 
         def build(batch=batch):
             return (c.table("tenders").select(_LOT_FIELDS)
                     .in_("source", list(CW.CIVIL_LOT_SOURCES)).in_("external_id", batch).execute())
         for r in _rows(build, "cw-civil-lots"):
-            by_key.setdefault(r.get("external_id") or "", []).append(r)
+            by_key.setdefault(CW.civil_norm_key(r.get("external_id")), []).append(r)
     return by_key
+
+
+def civil_seen_before(c, rows, start):
+    # type: (Any, List[Dict[str, Any]], datetime) -> set
+    """civil_norm_key итогов окна, которые база уже знала ДО окна под другим написанием id.
+
+    Так выглядит смена формата: 24.09 API переписал display_id, и results_tracker
+    вставил 454 старых итога новыми строками с сегодняшним created_at. Без этой
+    проверки сводка показала бы их как свежие победы.
+    """
+    pairs = [(CW.civil_norm_key(r.get("external_id")),
+              [CW.CIVIL_ID_PREFIX + v for v in CW.civil_id_variants(r.get("external_id"))
+               if CW.CIVIL_ID_PREFIX + v != r.get("external_id")]) for r in rows]
+    ids = sorted({x for _, alts in pairs for x in alts})
+    known = set()  # type: set
+    for i in range(0, len(ids), CIVIL_KEY_BATCH):
+        batch = ids[i:i + CIVIL_KEY_BATCH]
+
+        def build(batch=batch):
+            return (c.table("tenders").select("external_id").eq("source", CW.CIVIL_SOURCE)
+                    .in_("external_id", batch).lt("created_at", start.isoformat()).execute())
+        known |= {CW.civil_norm_key(r.get("external_id")) for r in _rows(build, "cw-civil-seen")}
+    return known
 
 
 def fetch_human_labels(c, seqs):
@@ -318,9 +346,13 @@ async def build_report(start, end, clamped, retry_ids=(), use_ai=True):
 
     c = _client()
     deals = fetch_deals(c, start, end)
-    civil = CW.dedupe_civil(fetch_civil(c, start, end))
-    window_count, civil_count = len(deals), len(civil)
-    seen_ids = {d["id"] for d in deals} | {d["id"] for d in civil}
+    civil_raw = fetch_civil(c, start, end)
+    # Здоровье фида считаем по сырым строкам — так же, как count_deals в прошлых окнах.
+    window_count, civil_count = len(deals), len(civil_raw)
+    civil = CW.dedupe_civil(civil_raw)
+    known = civil_seen_before(c, civil, start)
+    civil = [r for r in civil if CW.civil_norm_key(r.get("external_id")) not in known]
+    seen_ids = {d["id"] for d in deals} | {d["id"] for d in civil_raw}
     retry = [x for x in retry_ids if x and x not in seen_ids]
     retried = fetch_deals_by_id(c, retry) if retry else []
     span = end - start
@@ -332,7 +364,8 @@ async def build_report(start, end, clamped, retry_ids=(), use_ai=True):
     cov = {"deals": window_count, "deals_median": int(round(median)) if median else None,
            "feed_dropped": dropped, "civil": civil_count,
            "civil_median": int(round(civil_median)) if civil_median else None,
-           "civil_dropped": civil_dropped, "hidden_winner": 0, "unlinked": 0, "not_profile": 0,
+           "civil_dropped": civil_dropped, "civil_repeats": civil_count - len(civil),
+           "hidden_winner": 0, "unlinked": 0, "not_profile": 0,
            "human_rejected": 0, "ai_used": 0, "ai_cap": AI_CAP if use_ai else 0,
            "ai_errors": 0, "undecided": 0, "retried": len(retry)}
 
@@ -358,7 +391,7 @@ async def build_report(start, end, clamped, retry_ids=(), use_ai=True):
 
     def lots_of(w):
         if w["feed"] == CW.FEED_CIVIL:
-            return civil_lots.get(w["lot_key"], [])
+            return civil_lots.get(CW.civil_norm_key(w["lot_key"]), [])
         return lots_by_url.get(w["source_url"], [])
 
     seqs = sorted({int(r["alert_seq"]) for w, _ in wins for r in lots_of(w)
@@ -467,9 +500,10 @@ def read_monitor(directory, now):
     age_h = (now.timestamp() - os.path.getmtime(path)) / 3600.0
     if age_h > MONITOR_MAX_AGE_H:
         return {"error": "последняя квитанция %s старше %d ч" % (os.path.basename(path), MONITOR_MAX_AGE_H)}
+    from crawler.scripts.monitor_competitor_awards import _REPORTED_STATUSES
     try:
         with open(path, encoding="utf-8") as fh:
-            return CW.summarize_monitor(json.load(fh))
+            return CW.summarize_monitor(json.load(fh), _REPORTED_STATUSES)
     except Exception as exc:
         return {"error": "квитанция %s не читается: %s" % (os.path.basename(path), str(exc)[:80])}
 
@@ -479,9 +513,8 @@ async def run(args):
     now = datetime.now(timezone.utc)
     state = read_state(_client())
     if args.due:
-        reason = CW.repeat_blocked(state, now)
-        if reason:
-            logger.info("рано: %s", reason)
+        if not CW.is_due(state, now):
+            logger.info("рано: %s", CW.repeat_blocked(state, now))
             return EXIT_NOT_DUE
         logger.info("пора: последняя доставка %s", (state or {}).get("delivered_at") or "—")
         return 0

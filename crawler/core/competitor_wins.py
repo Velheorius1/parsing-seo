@@ -238,6 +238,23 @@ def civil_norm_key(external_id):
     return ext
 
 
+# Разряды формата display_id, которые API уже показывал: «00» до 24.09, «05» после
+# (серия 2611 на 29.09 ещё писала «00»). Новый разряд — дописать сюда.
+CIVIL_ID_FORMATS = ("00", "05")
+
+
+def civil_id_variants(display_id):
+    # type: (Optional[str]) -> List[str]
+    """Все известные написания одного display_id: '26120500010069' → ['26120000010069',
+    '26120500010069']. Нужны там, где база ищет по точному external_id: наш лот, собранный
+    до смены формата, и итог после неё — одна и та же процедура."""
+    key = civil_lot_key(display_id)
+    if not key or len(key) != 14:
+        return [key] if key else []
+    out = [key[:4] + f + key[6:] for f in CIVIL_ID_FORMATS]
+    return out if key in out else [key] + out
+
+
 def dedupe_civil(rows):
     # type: (Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]
     """Один итог — одна строка (первая по порядку входа): см. civil_norm_key."""
@@ -253,15 +270,25 @@ def dedupe_civil(rows):
 
 def civil_detail_url(display_id):
     # type: (Optional[str]) -> Optional[str]
-    """display_id '2612'+'05'+8-значный id → https://etender.uzex.uz/civil-detail/<id>.
+    """display_id (4 цифры серии + 2 формата + 8-значный id) → https://etender.uzex.uz/civil-detail/<id>.
 
-    Так построены наши собственные лоты раздела (26120500018060 ↔ /civil-detail/18060).
-    Ссылка, которую пишет results_tracker (/lot/<display_id>), для ВМК-69 не открывается.
+    Так построены наши собственные лоты раздела: 26120500018060 ↔ /civil-detail/18060,
+    и серии 2611 тоже — 26110000017697 ↔ /civil-detail/17697 (проверено в браузере
+    02.10; номера серий не пересекаются). Ссылка, которую пишет results_tracker
+    (/lot/<display_id>), для ВМК-69 не открывается.
     """
     key = civil_lot_key(display_id)
-    if not key or len(key) != 14 or not key.startswith("2612"):
+    if not key or len(key) != 14:
         return None
     return "https://etender.uzex.uz/civil-detail/%d" % int(key[6:])
+
+
+def _same_party(a, b):
+    # type: (Any, Any) -> bool
+    """Одно и то же название без учёта регистра, кавычек и пробелов."""
+    na = "".join(ch for ch in str(a or "").casefold() if ch.isalnum())
+    nb = "".join(ch for ch in str(b or "").casefold() if ch.isalnum())
+    return bool(na) and na == nb
 
 
 def parse_civil_win(row):
@@ -271,10 +298,17 @@ def parse_civil_win(row):
     Победитель — колонка `winner` («Имя (ИНН 123)», у старых строк «ИНН: 123»,
     у части только имя). Пусто — скрыт: это не «никто не выиграл». Участников в
     итоге нет, старт — `price`, итог — `winning_price`.
+
+    Победитель = заказчик — тоже скрыт. Так отдаёт сам API: у ~7% итогов
+    provider_inn == customer_inn и provider_name == customer_name (проверено 02.10
+    по 500 свежим: колония «выиграла» свой же лот лекарств, GULISTON1 — свои бланки).
+    Иначе заказчики попадали бы в «спрятанные» и в список конкурентов.
     """
     winner = (row.get("winner") or "").strip()
     bare = winner.replace("(", " ").replace(")", " ").replace("ИНН", " ").replace(":", " ")
     if not winner or not bare.split() or all(w.lower() == "none" for w in bare.split()):
+        return None
+    if _same_party(winner_name(winner), row.get("organization")):
         return None
     key = civil_lot_key(row.get("external_id"))
     start = row.get("price")
@@ -761,18 +795,21 @@ def _watch_lines(report, watch):
     return out
 
 
-# Статусы источников монитора, при которых «нет новых договоров» ничего не значит.
-_MONITOR_FAIL = ("collector_error", "incomplete", "incomplete_currency_unobservable", "not_collected")
+def summarize_monitor(delta, reported_statuses):
+    # type: (Dict[str, Any], Iterable[str]) -> Dict[str, Any]
+    """Квитанция монитора площадок → то, что нужно сводке.
 
-
-def summarize_monitor(delta):
-    # type: (Dict[str, Any]) -> Dict[str, Any]
-    """Квитанция монитора площадок → то, что нужно сводке."""
+    reported_statuses — те статусы источника, которые сам монитор считает
+    отчитавшимся (`monitor_competitor_awards._REPORTED_STATUSES`). Всё прочее —
+    сбой, неполный снимок или неизвестный статус: «новых 0» там ничего не значит.
+    delivered — подтвердил ли монитор отправку своих договоров (None — не отправлял).
+    """
+    ok = frozenset(reported_statuses)
     problems = ["%s: %s" % (s.get("label") or s.get("source_id"), s.get("status"))
-                for s in (delta.get("sources") or []) if s.get("status") in _MONITOR_FAIL]
+                for s in (delta.get("sources") or []) if s.get("status") not in ok]
     return {"new": len(delta.get("new_awards") or []), "changed": len(delta.get("changed_awards") or []),
             "bootstrap": bool(delta.get("bootstrap")), "problems": problems,
-            "generated_at": delta.get("generated_at")}
+            "delivered": delta.get("telegram_delivered"), "generated_at": delta.get("generated_at")}
 
 
 def _monitor_line(monitor):
@@ -786,7 +823,11 @@ def _monitor_line(monitor):
         if monitor.get("changed"):
             line += ", изменений %d" % monitor["changed"]
         if monitor.get("new") or monitor.get("changed"):
-            line += " — пришли отдельным сообщением"
+            if monitor.get("delivered") is True:
+                line += " — пришли отдельным сообщением"
+            else:
+                # Монитор держит недоставленное в outbox и повторит в следующий запуск.
+                line += "\n⚠️ отправить их не удалось — монитор повторит в следующий запуск"
     if monitor.get("problems"):
         line += "\n⚠️ не отработали: %s" % html.escape("; ".join(monitor["problems"]))
     return line
@@ -854,6 +895,8 @@ def _tail_lines(report, items, registry_inns, monitor=None):
         line += " · итогов ВМК-69 %d" % cov["civil"]
         if cov.get("civil_median"):
             line += " (обычно ~%d)" % cov["civil_median"]
+        if cov.get("civil_repeats"):
+            line += ", из них повторов %d (смена формата id)" % cov["civil_repeats"]
     line += " · победитель скрыт %d" % cov.get("hidden_winner", 0)
     if cov.get("unlinked"):
         line += " · без ссылки на лот %d" % cov["unlinked"]
@@ -869,8 +912,9 @@ def _tail_lines(report, items, registry_inns, monitor=None):
     tail.append(line)
     if monitor is not None:
         tail.append(_monitor_line(monitor))
-    tail.append("★ — из списка конкурентов. Победителя видим в сделках etender и итогах ВМК-69; "
-                "XT-Xarid и Hayotbirja его не публикуют, Cooperation даёт имя без ИНН.")
+    tail.append("★ — из реестра конкурентов (список и отдельные кандидаты). Победителя видим "
+                "в сделках etender и итогах ВМК-69; XT-Xarid и Hayotbirja его не публикуют, "
+                "Cooperation даёт имя без ИНН.")
     if any(it.get("stage") == "no_keyword" for it in (report.get("printers") or [])):
         tail.append("«нет ключевого слова» — кандидат в словарь; проверяется через shadow "
                     "(shadow_search --add-keyword), в бой — по отчёту shadow в понедельник.")

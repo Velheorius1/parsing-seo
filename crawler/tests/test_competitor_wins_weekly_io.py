@@ -25,6 +25,7 @@ if "crawler.config.settings" not in sys.modules:
     )
     sys.modules["crawler.config.settings"] = _m
 
+from crawler.core import competitor_wins as CW  # noqa: E402
 from crawler.scripts import competitor_wins_weekly as W  # noqa: E402
 
 NOW = datetime(2026, 10, 5, 5, 0, 1, tzinfo=timezone.utc)
@@ -58,6 +59,21 @@ def test_fresh_receipt_is_summarised_with_its_failed_sources():
         got = W.read_monitor(d, NOW)
     assert got["new"] == 2 and got["problems"] == ["Cooperation contracts: collector_error"], got
     assert "error" not in got
+
+
+def test_receipt_is_judged_by_the_monitors_own_reported_statuses():
+    """Ревью #54: covered_by_digest и complete_name_only — отчитались; partial_identity
+    монитор сам не считает полным — значит, и сводка не молчит."""
+    delta = {"new_awards": [], "telegram_delivered": True,
+             "sources": [{"source_id": "etender_deals", "status": "covered_by_digest"},
+                         {"source_id": "ebirja_auction", "status": "complete_name_only"},
+                         {"source_id": "cooperation_contracts", "label": "Cooperation contracts",
+                          "status": "partial_identity"}]}
+    with tempfile.TemporaryDirectory() as d:
+        _write(d, "20261005T040000Z-delta.json", delta, age_h=1)
+        got = W.read_monitor(d, NOW)
+    assert got["problems"] == ["Cooperation contracts: partial_identity"], got
+    assert got["delivered"] is True
 
 
 def test_stale_receipt_is_not_todays_zero():
@@ -112,6 +128,114 @@ def test_due_is_a_separate_mode():
         raise AssertionError("--due с --tg должен отказывать")
     finally:
         sys.argv = saved
+
+
+# ── build_report: два фида, повторы смены формата, retry, сшивка лотов ─────────
+
+class _Q(object):
+    """Минимальный PostgREST-запрос: eq / in_ / lt по строкам таблицы в памяти."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def select(self, *a, **k):
+        return self
+
+    def eq(self, col, val):
+        return _Q([r for r in self.rows if r.get(col) == val])
+
+    def in_(self, col, vals):
+        return _Q([r for r in self.rows if r.get(col) in set(vals)])
+
+    def lt(self, col, val):
+        return _Q([r for r in self.rows if r.get(col) < val])
+
+    def execute(self):
+        return types.SimpleNamespace(data=list(self.rows), count=len(self.rows))
+
+
+class _Client(object):
+    def __init__(self, rows):
+        self.rows = rows
+
+    def table(self, name):
+        return _Q(self.rows)
+
+
+def _civil(ext, created, inn="123456789", rid=None):
+    return {"id": rid or ext, "source": "UZEX Результаты", "external_id": ext, "created_at": created,
+            "title": "Jurnal chop etish", "organization": "MUDOFAA VAZIRLIGI", "price": 60e6,
+            "winning_price": 50e6, "currency": "UZS", "winner": "OLTIN NASHR (ИНН %s)" % inn,
+            "result_date": "2026-10-03", "message_type": "result", "status": "completed"}
+
+
+def test_seen_before_catches_a_result_rewritten_under_a_new_id_format():
+    start = datetime(2026, 10, 2, tzinfo=timezone.utc)
+    db = [_civil("result-26120000010070", "2026-08-20T00:00:00+00:00")]
+    rows = [_civil("result-26120500010070", "2026-10-03T00:00:00+00:00"),
+            _civil("result-26120500010071", "2026-10-03T00:00:00+00:00")]
+    assert W.civil_seen_before(_Client(db), rows, start) == {CW.civil_norm_key("result-26120500010070")}
+    late = [_civil("result-26120000010071", "2026-10-03T00:00:00+00:00")]
+    assert W.civil_seen_before(_Client(late), rows, start) == set(), "двойник внутри окна — это не «знали раньше»"
+
+
+def test_our_lot_from_before_the_switch_matches_a_result_after_it():
+    lot = {"id": "L", "source": "ETender Отбор (ВМК-69)", "external_id": "26110000017697", "alert_seq": 5}
+    got = W.fetch_civil_lot_rows(_Client([lot]), ["26110500017697"])
+    assert got.get(CW.civil_norm_key("26110500017697")) == [lot], got
+
+
+def test_build_report_merges_both_feeds_and_drops_repeats():
+    import asyncio
+    start = datetime(2026, 10, 2, tzinfo=timezone.utc)
+    end = start + timedelta(days=3)
+    window = [_civil("result-26120500010069", "2026-10-03T00:00:00+00:00"),
+              _civil("result-26120000010069", "2026-10-03T01:00:00+00:00"),   # двойник в том же окне
+              _civil("result-26120500010070", "2026-10-03T02:00:00+00:00")]   # старый итог под новым id
+    retried = _civil("result-26120500010080", "2026-09-29T00:00:00+00:00", inn="987654321", rid="retry-1")
+
+    async def fake_judge(entries, use_ai, budget):
+        for e in entries:
+            if e.get("profile") is None:
+                e["profile"] = True
+
+    names = ("_client", "fetch_deals", "fetch_civil", "civil_seen_before", "fetch_deals_by_id", "count_deals",
+             "fetch_lot_rows", "fetch_civil_lot_rows", "fetch_human_labels", "fetch_our_actions", "judge",
+             "keyword_hit_fn")
+    saved = {n: getattr(W, n) for n in names}
+    W._client = lambda: None
+    W.fetch_deals = lambda c, s, e: []
+    W.fetch_civil = lambda c, s, e: [dict(r) for r in window]
+    W.civil_seen_before = lambda c, rows, s: {CW.civil_norm_key("result-26120500010070")}
+    W.fetch_deals_by_id = lambda c, ids: [retried] if ids == ["retry-1"] else []
+    W.count_deals = lambda c, s, e, source=None: 3
+    W.fetch_lot_rows = lambda c, urls: {}
+    # наш лот собран до смены формата: «00», итог пришёл с «05»
+    our_lot = {"id": "L", "source": "ETender Отбор (ВМК-69)", "external_id": "26120000010069", "alert_seq": 7,
+               "created_at": "2026-09-20T00:00:00+00:00", "deadline": "2026-09-27T00:00:00+00:00",
+               "title": "Jurnal chop etish"}
+    W.fetch_civil_lot_rows = lambda c, keys: {CW.civil_norm_key("26120000010069"): [our_lot]}
+    W.fetch_human_labels = lambda c, seqs: {}
+    W.fetch_our_actions = lambda c, seqs: {}
+    W.judge = fake_judge
+    W.keyword_hit_fn = lambda: (lambda text: False)
+    try:
+        report, _registry, undecided = asyncio.run(W.build_report(start, end, False, ["retry-1"], use_ai=False))
+    finally:
+        for n, v in saved.items():
+            setattr(W, n, v)
+    keys = sorted(it["win"]["lot_key"] for it in report["items"])
+    assert keys == ["26120500010069", "26120500010080"], keys
+    assert all(it["win"]["feed"] == CW.FEED_CIVIL for it in report["items"])
+    assert {it["win"]["winner_inn"] for it in report["items"]} == {"123456789", "987654321"}, \
+        "retry-строка ВМК-69 должна разбираться как итог, а не как сделка"
+    cov = report["coverage"]
+    assert cov["civil"] == 3 and cov["civil_repeats"] == 2 and cov["retried"] == 1, cov
+    assert report["items"][0]["win"]["source_url"].startswith("https://etender.uzex.uz/civil-detail/")
+    assert undecided == []
+    status = {it["win"]["lot_key"]: it["status"] for it in report["items"]}
+    assert status["26120500010069"] == CW.STATUS_ALERTED, "лот «00» и итог «05» — одна процедура: %r" % status
+    assert status["26120500010080"] == CW.STATUS_NOT_COLLECTED, status
 
 
 if __name__ == "__main__":
