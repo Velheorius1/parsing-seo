@@ -185,45 +185,53 @@ def test_our_lot_from_before_the_switch_matches_a_result_after_it():
     assert got.get(CW.civil_norm_key("26110500017697")) == [lot], got
 
 
-def test_build_report_merges_both_feeds_and_drops_repeats():
+async def _all_profile(entries, use_ai, budget):
+    for e in entries:
+        if e.get("profile") is None:
+            e["profile"] = True
+
+
+def _build(window, retry_ids=(), **stubs):
+    """build_report без базы и сети: фиды и суд — стабы, реестр — настоящий файл."""
     import asyncio
     start = datetime(2026, 10, 2, tzinfo=timezone.utc)
-    end = start + timedelta(days=3)
+    base = {"_client": lambda: None,
+            "fetch_deals": lambda c, s, e: [],
+            "fetch_civil": lambda c, s, e: [dict(r) for r in window],
+            "civil_seen_before": lambda c, rows, s: set(),
+            "fetch_deals_by_id": lambda c, ids: [],
+            "count_deals": lambda c, s, e, source=None: 3,
+            "fetch_lot_rows": lambda c, urls: {},
+            "fetch_civil_lot_rows": lambda c, keys: {},
+            "fetch_human_labels": lambda c, seqs: {},
+            "fetch_our_actions": lambda c, seqs: {},
+            "judge": _all_profile,
+            "keyword_hit_fn": lambda: (lambda text: False)}
+    base.update(stubs)
+    saved = {n: getattr(W, n) for n in base}
+    for n, v in base.items():
+        setattr(W, n, v)
+    try:
+        return asyncio.run(W.build_report(start, start + timedelta(days=3), False, list(retry_ids), use_ai=False))
+    finally:
+        for n, v in saved.items():
+            setattr(W, n, v)
+
+
+def test_build_report_merges_both_feeds_and_drops_repeats():
     window = [_civil("result-26120500010069", "2026-10-03T00:00:00+00:00"),
               _civil("result-26120000010069", "2026-10-03T01:00:00+00:00"),   # двойник в том же окне
               _civil("result-26120500010070", "2026-10-03T02:00:00+00:00")]   # старый итог под новым id
     retried = _civil("result-26120500010080", "2026-09-29T00:00:00+00:00", inn="987654321", rid="retry-1")
-
-    async def fake_judge(entries, use_ai, budget):
-        for e in entries:
-            if e.get("profile") is None:
-                e["profile"] = True
-
-    names = ("_client", "fetch_deals", "fetch_civil", "civil_seen_before", "fetch_deals_by_id", "count_deals",
-             "fetch_lot_rows", "fetch_civil_lot_rows", "fetch_human_labels", "fetch_our_actions", "judge",
-             "keyword_hit_fn")
-    saved = {n: getattr(W, n) for n in names}
-    W._client = lambda: None
-    W.fetch_deals = lambda c, s, e: []
-    W.fetch_civil = lambda c, s, e: [dict(r) for r in window]
-    W.civil_seen_before = lambda c, rows, s: {CW.civil_norm_key("result-26120500010070")}
-    W.fetch_deals_by_id = lambda c, ids: [retried] if ids == ["retry-1"] else []
-    W.count_deals = lambda c, s, e, source=None: 3
-    W.fetch_lot_rows = lambda c, urls: {}
     # наш лот собран до смены формата: «00», итог пришёл с «05»
     our_lot = {"id": "L", "source": "ETender Отбор (ВМК-69)", "external_id": "26120000010069", "alert_seq": 7,
                "created_at": "2026-09-20T00:00:00+00:00", "deadline": "2026-09-27T00:00:00+00:00",
                "title": "Jurnal chop etish"}
-    W.fetch_civil_lot_rows = lambda c, keys: {CW.civil_norm_key("26120000010069"): [our_lot]}
-    W.fetch_human_labels = lambda c, seqs: {}
-    W.fetch_our_actions = lambda c, seqs: {}
-    W.judge = fake_judge
-    W.keyword_hit_fn = lambda: (lambda text: False)
-    try:
-        report, _registry, undecided = asyncio.run(W.build_report(start, end, False, ["retry-1"], use_ai=False))
-    finally:
-        for n, v in saved.items():
-            setattr(W, n, v)
+    report, _registry, undecided = _build(
+        window, ["retry-1"],
+        civil_seen_before=lambda c, rows, s: {CW.civil_norm_key("result-26120500010070")},
+        fetch_deals_by_id=lambda c, ids: [retried] if ids == ["retry-1"] else [],
+        fetch_civil_lot_rows=lambda c, keys: {CW.civil_norm_key("26120000010069"): [our_lot]})
     keys = sorted(it["win"]["lot_key"] for it in report["items"])
     assert keys == ["26120500010069", "26120500010080"], keys
     assert all(it["win"]["feed"] == CW.FEED_CIVIL for it in report["items"])
@@ -236,6 +244,33 @@ def test_build_report_merges_both_feeds_and_drops_repeats():
     status = {it["win"]["lot_key"]: it["status"] for it in report["items"]}
     assert status["26120500010069"] == CW.STATUS_ALERTED, "лот «00» и итог «05» — одна процедура: %r" % status
     assert status["26120500010080"] == CW.STATUS_NOT_COLLECTED, status
+
+
+OFSET_FAYZ, OFSET_SURXON = "205888800", "300579386"
+
+
+def test_excluded_firms_are_not_hidden_printers():
+    """02.10: OFSET-FAYZ (FPV-очки, связь) шёл в «спрятанные» по слову OFSET в имени,
+    хотя в реестре записан как «не типография»."""
+    window = [dict(_civil("result-26120500010090", "2026-10-03T00:00:00+00:00"),
+                   winner="OFSET-FAYZ МЧЖ (ИНН %s)" % OFSET_FAYZ, title="алоқа воситалари"),
+              dict(_civil("result-26120500010091", "2026-10-03T00:00:00+00:00"),
+                   winner="OFSET-SURXON (ИНН %s)" % OFSET_SURXON, title="Poligrafiya mahsulotlari")]
+
+    async def none_ours(entries, use_ai, budget):
+        for e in entries:
+            e["profile"] = False
+
+    report, _registry, _undecided = _build(window, judge=none_ours,
+                                           keyword_hit_fn=lambda: (lambda text: "ofset" in text.lower()))
+    assert [it["win"]["winner_inn"] for it in report["printers"]] == [OFSET_SURXON], report["printers"]
+
+
+def test_excluded_inns_come_from_the_registry_and_stay_off_the_list():
+    from crawler.core.competitor_audit import load_registry, registry_inns
+    excluded = W.excluded_inns()
+    assert OFSET_FAYZ in excluded and len(excluded) >= 10, excluded
+    assert not excluded & set(registry_inns(load_registry())), "фирма и в списке, и в исключённых"
 
 
 if __name__ == "__main__":
