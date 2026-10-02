@@ -21,6 +21,9 @@ _UZEX_RESULTS_URL = "https://apietender.uzex.uz/api/CivilContracts/GetResulted"
 # Source name for upserted results
 _RESULTS_SOURCE = "UZEX Результаты"
 
+# external_id итога = префикс + display_id (лот раздела хранит тот же display_id без префикса)
+_RESULT_ID_PREFIX = "result-"
+
 # crawler_settings key for niche results dedup state.
 # Value shape: {"alerted_ids": ["result-123", ...]}  (list, kept sorted by recency).
 _NICHE_ALERTED_STATE_KEY = "niche_results_alerted_state"
@@ -158,7 +161,7 @@ def _build_result_row(item):
         currency = currency_name
 
     row = {
-        "external_id": "result-%s" % ext_id,
+        "external_id": _RESULT_ID_PREFIX + ext_id,
         "title": title,
         "organization": customer,
         "price": start_price,

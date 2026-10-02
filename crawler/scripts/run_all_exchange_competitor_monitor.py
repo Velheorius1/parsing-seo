@@ -141,13 +141,27 @@ def _ebirja_run(source_key: str, date_from: date, page_size: int, page_cap: int,
             "receipt": result}
 
 
+COVERED_BY_DIGEST = "covered_by_digest"
+
+
 def build_runs(date_from: date, page_size: int, page_cap: int, max_details: int = 25,
-               rpc_post=None) -> Dict[str, Dict[str, Any]]:
-    """Collect every public source once, retaining limitations explicitly."""
+               rpc_post=None, etender_covered_by_digest: bool = False) -> Dict[str, Dict[str, Any]]:
+    """Collect every public source once, retaining limitations explicitly.
+
+    ``etender_covered_by_digest``: победы etender уже идут в сводку по ВСЕМ победителям
+    профиля (competitor_wins_weekly) — собирать их здесь второй раз значило бы слать
+    одну победу двумя сообщениями. Статус остаётся «отчитавшимся», прежнее
+    состояние источника сохраняется (см. multi_source_delta).
+    """
     captured = datetime.now(timezone.utc).isoformat()
     runs = {}  # type: Dict[str, Dict[str, Any]]
     with httpx.Client(timeout=20) as detail_client:
         for key, source_id in (("deals", "etender_deals"), ("direct", "uzex_direct")):
+            if source_id == "etender_deals" and etender_covered_by_digest:
+                runs[source_id] = {"status": COVERED_BY_DIGEST, "captured_at": captured,
+                                   "detail": "victories at etender are reported by the digest "
+                                             "(competitor_wins_weekly) for every winner, not only the list"}
+                continue
             try:
                 result = collect_uzex(key, date_from, page_size, page_cap)
                 awards, detail_enrichment = enrich_awards(source_id, result["awards"], detail_client.get,
@@ -183,13 +197,16 @@ def main() -> int:
     parser.add_argument("--page-size", type=int, default=100)
     parser.add_argument("--page-cap", type=int, default=3, help="bounded per source; defaults to 3")
     parser.add_argument("--max-details", type=int, default=25, help="bounded Ebirja Shop detail cards")
+    parser.add_argument("--etender-covered-by-digest", action="store_true",
+                        help="не собирать etender_deals: их показывает сводка competitor_wins_weekly")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     if args.page_size < 1 or args.page_cap < 1:
         parser.error("page size and page cap must be positive")
     lower = date.fromisoformat(args.date_from) if args.date_from else date.today() - timedelta(days=14)
     result = {"mode": "public_read_only_all_exchange_run", "captured_at": datetime.now(timezone.utc).isoformat(),
-              "date_from": lower.isoformat(), "sources": build_runs(lower, args.page_size, args.page_cap, args.max_details)}
+              "date_from": lower.isoformat(), "sources": build_runs(lower, args.page_size, args.page_cap, args.max_details,
+                                    etender_covered_by_digest=args.etender_covered_by_digest)}
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result["sources"], ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")

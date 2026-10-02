@@ -39,6 +39,8 @@ SOURCE_PASSPORT = (
 _REPORTED_STATUSES = frozenset((
     "complete", "complete_name_only", "currency_unobservable",
     "winner_unobservable", "mirror",
+    # etender отдан сводке по всем победителям профиля (competitor_wins_weekly)
+    "covered_by_digest",
 ))
 _TELEGRAM_SAFE_CHARS = 3500
 
@@ -65,7 +67,7 @@ def _award_block(row: Dict[str, Any]) -> str:
 
 def digest_batches(report: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Bound the digest while retaining the exact award keys in each message."""
-    batches, lines, keys, has_entries = [], ["🏆 Победы конкурентов за неделю"], [], False
+    batches, lines, keys, has_entries = [], ["🏆 Новые договоры конкурентов из списка"], [], False
     for label, rows in (("Новые", report.get("new_awards") or []),
                         ("Изменения", report.get("changed_awards") or [])):
         for row in rows:
@@ -73,7 +75,7 @@ def digest_batches(report: Dict[str, Any]) -> List[Dict[str, Any]]:
             entry = "%s:\n%s" % (label, _award_block(row))
             if has_entries and len("\n\n".join(lines + [entry])) > _TELEGRAM_SAFE_CHARS:
                 batches.append({"text": "\n\n".join(lines), "award_keys": keys})
-                lines, keys, has_entries = ["🏆 Победы конкурентов за неделю (продолжение)"], [], False
+                lines, keys, has_entries = ["🏆 Новые договоры конкурентов из списка (продолжение)"], [], False
             # Every field is bounded above; keep the final guard for unusual Unicode.
             lines.append(entry[:_TELEGRAM_SAFE_CHARS - 100])
             has_entries = True

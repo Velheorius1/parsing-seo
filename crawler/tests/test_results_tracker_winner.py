@@ -81,7 +81,7 @@ def test_search_text_carries_the_inn_too():
 
 def test_backfill_plan_changes_only_what_api_disagrees_with():
     from crawler.scripts.backfill_civil_winner_inn import plan
-    api = {"result-1": "A (ИНН 111111111)", "result-2": "B (ИНН 222222222)"}
+    api = {"1": "A (ИНН 111111111)", "2": "B (ИНН 222222222)"}     # ключи — civil_key
     db = [
         {"id": "u1", "external_id": "result-1", "winner": "A"},                  # имя без ИНН → правим
         {"id": "u2", "external_id": "result-2", "winner": "B (ИНН 222222222)"},  # уже верно
@@ -112,6 +112,23 @@ def test_backfill_does_not_erase_an_existing_inn():
     assert plan(db, api) == []
 
 
+def test_civil_key_ignores_the_format_switch_of_24_sep():
+    from crawler.scripts.backfill_civil_winner_inn import civil_key
+    old, new = "result-26120000010069", "result-26120500010069"
+    assert civil_key(old) == civil_key(new) == "261200010069", (civil_key(old), civil_key(new))
+    assert civil_key(old) != civil_key("result-26110000010069"), "префикс 2611 — другой раздел"
+    assert civil_key("result-12345") == "12345", "нестандартный id остаётся как есть"
+
+
+def test_backfill_reaches_old_format_rows_through_the_new_id():
+    from crawler.scripts.backfill_civil_winner_inn import civil_key, plan
+    api = {civil_key("result-26120500010069"): "A (ИНН 111111111)"}      # API теперь отдаёт «05»
+    db = [{"id": "old", "external_id": "result-26120000010069", "winner": "ИНН: 111111111"},
+          {"id": "new", "external_id": "result-26120500010069", "winner": "A"}]
+    got = plan(db, api)
+    assert [t["id"] for t in got] == ["old", "new"], got
+
+
 class _Resp(object):
     def __init__(self, rows):
         self._rows = rows
@@ -139,7 +156,8 @@ def test_fetch_api_pages_until_empty_and_reports_completeness():
     api, raw, total = B.fetch_api(10, post=post, pause=0)
     assert (raw, total, len(api)) == (3, 3, 3), (raw, total, len(api))
     assert calls == [(0, B.PAGE - 1), (B.PAGE, 2 * B.PAGE - 1), (2 * B.PAGE, 3 * B.PAGE - 1)], calls
-    assert api["result-2612%010d" % 1] == "P1 (ИНН 300000001)", api
+    from crawler.scripts.backfill_civil_winner_inn import civil_key
+    assert api[civil_key("result-2612%010d" % 1)] == "P1 (ИНН 300000001)", api
 
 
 def test_fetch_api_flags_incomplete_when_page_cap_hits_first():
