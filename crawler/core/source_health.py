@@ -141,6 +141,9 @@ def excused_source_ids(config_path):
 
 HEAVY_SHARE_PCT = 5.0     # источник считается тяжёлым от этой доли алертов
 HEAVY_STALE_HOURS = 24    # два пропущенных прогона подряд — это уже поломка
+# Источник со своим скриптом (`collected_by` в sources.yaml) идёт дважды в сутки:
+# три пропущенных прогона подряд — поломка. Тот же порог у healthcheck sources.scripted.
+SCRIPTED_STALE_HOURS = 36
 
 
 def _sources_we_never_push():
@@ -319,10 +322,15 @@ def build_registry(config_path, days=30, now=None):
             except (ValueError, TypeError):
                 silent_h = None
         st = tracker.get(sid) or {}
+        # `enabled: false` + `collected_by` = runner не обходит, но собирает свой
+        # скрипт: это не «молчит по решению». 21.09–05.10 так простояли две недели
+        # четыре «Ebirja Договоры» — реестр считал их выключенными.
+        scripted = cfg.get("collected_by") or None
         rec = {
             "id": sid,
             "name": name,
-            "enabled": bool(cfg.get("enabled", True)),
+            "enabled": bool(cfg.get("enabled", True)) or bool(scripted),
+            "collected_by": scripted,
             "external": False,
             "excused": name in excused_names,
             "excuse": silence_excuse(name),
@@ -345,6 +353,9 @@ def build_registry(config_path, days=30, now=None):
             if ordered:
                 rec["rhythm_hours"] = ordered[len(ordered) // 2]
             rec["threshold_hours"] = silence_threshold_hours(st)
+        if scripted:
+            # ритм скрипта знает крон, а не трекер runner'а (он их не видит)
+            rec["threshold_hours"] = SCRIPTED_STALE_HOURS
         rec["verdict"] = _verdict(rec)
         out.append(rec)
 
