@@ -91,11 +91,14 @@ ALERT_DEDUP_SECONDS = 4 * 3600  # same FAIL signature within 4h → skip send
 #
 # Теперь интервал растёт, а текст несёт возраст поломки: «держится 3 дня».
 ALERT_MAX_BACKOFF_SECONDS = 24 * 3600
+# Источник со своим скриптом (`collected_by` в sources.yaml) идёт дважды в сутки:
+# три пропущенных прогона подряд — поломка (см. check_scripted_sources).
+SCRIPTED_STALE_HOURS = 36
 # Supabase FAIL collapses the alert body; these components are treated as
 # UNKNOWN (not FAIL) in the rendered body so the alert signature stays stable.
 SUPABASE_DEPENDENT_COMPONENTS = (
-    "freshness", "freshness.full_api", "sources", "sources.low", "sources.heavy", "telegram",
-    "token.", "geo.", "geo_sources", "eimzo_auth",
+    "freshness", "freshness.full_api", "sources", "sources.low", "sources.heavy", "sources.scripted",
+    "telegram", "token.", "geo.", "geo_sources", "eimzo_auth",
 )
 
 STATUS_ICONS = {
@@ -871,6 +874,62 @@ class HealthCheck:
         except Exception as exc:
             self._add("sources.heavy", WARN, "Не удалось посчитать: %s" % str(exc)[:80])
 
+    def check_scripted_sources(self, config_path=None):
+        # type: (Optional[str]) -> None
+        """FAIL, если молчит источник, который пишет не runner, а свой скрипт.
+
+        Такие источники стоят в sources.yaml с `enabled: false` (runner их не
+        обходит) и `collected_by: <скрипт>`. Для реестра «выключен» значило
+        «молчит по решению» — и 21.09–05.10 четыре источника «Ebirja Договоры»
+        простояли две недели: скрипт каждый прогон писал «Fetched: 63,
+        Upserted: 0» (PGRST204 на лишней колонке), а сторожа видели «выключен».
+        Отбор, которого в конфиге не было, реестр пометил «silent» — но реестр
+        витрина без звука, и тревоги не было тоже.
+
+        Порог SCRIPTED_STALE_HOURS: скрипт идёт дважды в сутки, три пропуска
+        подряд — это поломка, а не тихий день (строки обновляются каждым
+        прогоном, collected_at двигается даже без новых договоров).
+        """
+        comp = "sources.scripted"
+        try:
+            path = config_path or os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), "config", "sources.yaml")
+            with open(path, "r", encoding="utf-8") as fh:
+                raw = yaml.safe_load(fh) or {}
+            scripted = [(s.get("name") or s["id"], s["collected_by"])
+                        for s in (raw.get("sources") or [])
+                        if s.get("id") and s.get("collected_by")]
+            if not scripted:
+                self._add(comp, OK, "источников со своим скриптом нет")
+                return
+            client = self._get_client()
+            now = datetime.now(timezone.utc)
+            stale = []
+            for name, script in scripted:
+                res = client.table("tenders").select("collected_at").eq(
+                    "source", name).order("collected_at", desc=True).limit(1).execute()
+                last_raw = res.data[0]["collected_at"] if res.data else None
+                hours = None
+                if last_raw:
+                    try:
+                        last = datetime.fromisoformat(str(last_raw).replace("Z", "+00:00"))
+                        hours = (now - last).total_seconds() / 3600.0
+                    except (ValueError, TypeError):
+                        hours = None
+                if hours is None or hours > SCRIPTED_STALE_HOURS:
+                    stale.append((name, script, hours))
+            if not stale:
+                self._add(comp, OK, "%d источников со своим скриптом свежие (<%dч)"
+                          % (len(scripted), SCRIPTED_STALE_HOURS))
+                return
+            parts = ["%s молчит %s — пишет %s" % (
+                name, ("%dч" % hours) if hours is not None else "всегда", script)
+                for name, script, hours in stale]
+            self._add(comp, FAIL, "; ".join(parts),
+                      details={"stale": [{"source": n, "script": s, "hours": h} for n, s, h in stale]})
+        except Exception as exc:
+            self._add(comp, WARN, "Не удалось посчитать: %s" % str(exc)[:80])
+
     # ── Check 12: Docker ──
 
     def check_docker(self):
@@ -1545,6 +1604,7 @@ def main():
     hc.check_zombie_processes()
     hc.check_geo_sources()
     hc.check_heavy_sources()
+    hc.check_scripted_sources()
     hc.check_openrouter_balance()
     hc.check_docker()
     hc.check_tokens()
