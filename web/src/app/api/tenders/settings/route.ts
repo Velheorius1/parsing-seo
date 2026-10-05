@@ -1,8 +1,21 @@
+import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
-import { getAllSettings, upsertSetting, getSourceStats } from '@/lib/supabase/settings';
+import {
+  getWebSettings,
+  upsertSetting,
+  getSourceStats,
+  isWebSettingKey,
+} from '@/lib/supabase/settings';
 
-// GET — read all settings + source stats
+// Сравнение токена без утечки по времени
+function tokenMatches(given: string, expected: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+// GET — настройки сайта (только WEB_SETTING_KEYS, без токенов) + статистика источников
 export async function GET() {
   try {
     if (!isSupabaseConfigured()) {
@@ -13,7 +26,7 @@ export async function GET() {
     }
 
     const [settingsResult, statsResult] = await Promise.all([
-      getAllSettings(),
+      getWebSettings(),
       getSourceStats(),
     ]);
 
@@ -41,13 +54,18 @@ export async function GET() {
 // Using POST instead of PUT — Vercel returns 405 for PUT on some route configs
 export async function POST(request: NextRequest) {
   try {
-    // Auth check: require admin token (if configured)
+    // Fail-closed: без ADMIN_SECRET_TOKEN запись выключена совсем. Раньше пустой
+    // env пропускал любого — так было на проде до 05.10.2026 (ревью 02.10, R01).
     const expectedToken = process.env.ADMIN_SECRET_TOKEN;
-    if (expectedToken) {
-      const adminToken = request.headers.get('x-admin-token');
-      if (adminToken !== expectedToken) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-      }
+    if (!expectedToken) {
+      return NextResponse.json(
+        { error: 'Запись настроек через сайт выключена: не задан ADMIN_SECRET_TOKEN' },
+        { status: 503 },
+      );
+    }
+    const adminToken = request.headers.get('x-admin-token') || '';
+    if (!tokenMatches(adminToken, expectedToken)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     if (!isSupabaseConfigured()) {
@@ -76,6 +94,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Невалидный key' },
         { status: 400 },
+      );
+    }
+
+    if (!isWebSettingKey(key)) {
+      return NextResponse.json(
+        { error: 'Ключ не редактируется через сайт' },
+        { status: 403 },
       );
     }
 

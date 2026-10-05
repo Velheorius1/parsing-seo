@@ -21,8 +21,24 @@ function rowToSetting(row: SettingRow): CrawlerSetting {
   };
 }
 
-// Получить все настройки
-export async function getAllSettings(): Promise<{ settings: CrawlerSetting[]; error?: string }> {
+// Ключи, которые сайт показывает и даёт менять. Всё остальное в crawler_settings —
+// токены площадок (auth_token:*), курсоры и состояние сторожей краулера: наружу не
+// отдаётся и через сайт не пишется. До 05.10.2026 GET отдавал всю таблицу без
+// авторизации, включая токены Cooperation и ebirja (ревью 02.10, R01).
+export const WEB_SETTING_KEYS = [
+  'alert_keywords',
+  'min_price',
+  'ai_filter_enabled',
+  'lead_gen_enabled',
+  'deadline_reminders_enabled',
+] as const;
+
+export function isWebSettingKey(key: string): boolean {
+  return (WEB_SETTING_KEYS as readonly string[]).includes(key);
+}
+
+// Получить настройки, которые показывает сайт (только WEB_SETTING_KEYS)
+export async function getWebSettings(): Promise<{ settings: CrawlerSetting[]; error?: string }> {
   const supabase = getSupabaseServer();
   if (!supabase) {
     return { settings: [], error: 'Supabase не настроен' };
@@ -30,7 +46,8 @@ export async function getAllSettings(): Promise<{ settings: CrawlerSetting[]; er
 
   const { data, error } = await supabase
     .from('crawler_settings')
-    .select('*')
+    .select('key, value, updated_at')
+    .in('key', [...WEB_SETTING_KEYS])
     .order('key');
 
   if (error) {
@@ -41,8 +58,11 @@ export async function getAllSettings(): Promise<{ settings: CrawlerSetting[]; er
   return { settings: (data as SettingRow[]).map(rowToSetting) };
 }
 
-// Обновить настройку по ключу (upsert)
+// Обновить настройку по ключу (upsert); только WEB_SETTING_KEYS
 export async function upsertSetting(key: string, value: string): Promise<{ error?: string }> {
+  if (!isWebSettingKey(key)) {
+    return { error: 'Ключ не редактируется через сайт' };
+  }
   const supabase = getSupabaseServer();
   if (!supabase) {
     return { error: 'Supabase не настроен' };
