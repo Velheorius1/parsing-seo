@@ -2,7 +2,7 @@
 import sys
 
 from crawler.scripts.collect_ebirja_contracts import _contract_date, _is_complete
-from crawler.scripts.fetch_ebirja_contracts import _parse_contract_text
+from crawler.scripts.fetch_ebirja_contracts import _parse_contract_text, db_row
 
 
 def test_parser_keeps_winner_as_a_structured_field():
@@ -21,6 +21,22 @@ PRINTUZ MCHJ
     assert row["price"] == 14545353748.8
     assert row["source_url"].endswith("/32763")
 
+
+
+def test_audit_only_winner_name_never_reaches_the_tenders_upsert():
+    """21.09–05.10: winner_name уходил в upsert, колонки нет → PGRST204, 0 записей."""
+    row = _parse_contract_text("""№ 26521006031792
+18.09.2026
+Договор № XT26030386
+Заказчик:
+Mikrokreditbank Qashqadaryo BXO
+Исполнитель:
+PRINTUZ MCHJ""", "https://ebirja.uz/ru/contracts/tender/32763", "tender")
+    assert row["winner_name"] == "PRINTUZ MCHJ", "аудиту поле по-прежнему нужно"
+    stored = db_row(row)
+    assert "winner_name" not in stored
+    assert {k: v for k, v in row.items() if k != "winner_name"} == stored
+    assert "PRINTUZ MCHJ" in stored["search_text"], "победитель в архиве остаётся в search_text"
 
 def test_contract_date_uses_public_card_day_month_year_format():
     assert str(_contract_date({"deadline": "18.09.2026"})) == "2026-09-18"
