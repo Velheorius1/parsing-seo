@@ -331,6 +331,18 @@ def _parse_contract_text(text, link, contract_type):
     }
 
 
+# Поля разбора, которых нет в таблице tenders: их читает только аудиторский
+# сборщик (collect_ebirja_contracts). 21.09 (5ef854d) winner_name ушёл в боевой
+# upsert — PGRST204 на каждом прогоне, «Upserted: 0» до 05.10, и ни одной тревоги.
+_AUDIT_ONLY_FIELDS = ('winner_name',)
+
+
+def db_row(row):
+    # type: (Dict[str, Any]) -> Dict[str, Any]
+    """Строка ровно в колонки tenders — без полей только для аудита."""
+    return {k: v for k, v in row.items() if k not in _AUDIT_ONLY_FIELDS}
+
+
 def upsert_to_supabase(rows, dry_run=False):
     # type: (List[Dict[str, Any]], bool) -> int
     """Upsert rows to Supabase tenders table."""
@@ -388,7 +400,7 @@ def upsert_to_supabase(rows, dry_run=False):
     batch_size = 500
     total = 0
     for i in range(0, len(rows), batch_size):
-        batch = rows[i:i + batch_size]
+        batch = [db_row(r) for r in rows[i:i + batch_size]]
         # Retry upsert up to 3 times with exponential backoff
         for attempt in range(1, 4):
             try:
@@ -510,6 +522,14 @@ async def main_async(args):
     if len(all_rows) == 0:
         _send_telegram_alert(
             '<b>Ebirja Contracts ALERT</b>\n0 contracts fetched. Types: %s' % ', '.join(types_to_fetch)
+        )
+        sys.exit(1)
+    # Скачали, но не записали — тоже поломка, а не «тихий» прогон: 21.09–05.10
+    # каждый запуск писал «Fetched: 63, Upserted: 0» и тревоги не было.
+    if upserted < len(all_rows):
+        _send_telegram_alert(
+            '<b>Ebirja Contracts ALERT</b>\nЗаписано в базу %d из %d договоров — см. /var/log/parsing-seo.log'
+            % (upserted, len(all_rows))
         )
         sys.exit(1)
 
