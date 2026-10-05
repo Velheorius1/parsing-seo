@@ -171,6 +171,33 @@ def test_sources_collected_outside_the_config_are_included(tmp_path):
     assert "Древний источник" not in by_name, "мусор из старых эпох попал в реестр"
 
 
+
+def test_script_collected_source_is_watched_not_excused(tmp_path):
+    """`enabled: false` + `collected_by`: runner не обходит, но собирает скрипт —
+    молчание это поломка. 21.09–05.10 четыре «Ebirja Договоры» так простояли две
+    недели: реестр считал их «выключенными, молчат по решению»."""
+    now = datetime.now(timezone.utc)
+    cfg = ("sources:\n"
+           "  - id: shop\n    name: Магазин\n    enabled: false\n    collected_by: fetch_x\n"
+           "  - id: auction\n    name: Аукцион\n    enabled: false\n    collected_by: fetch_x\n"
+           "  - id: manual_off\n    name: Выключен\n    enabled: false\n")
+    reg = _build(str(tmp_path), cfg,
+                 [{"source": "Магазин", "cnt": 4800, "last_collected": (now - timedelta(days=14)).isoformat()},
+                  {"source": "Аукцион", "cnt": 200, "last_collected": (now - timedelta(hours=12)).isoformat()},
+                  {"source": "Выключен", "cnt": 9, "last_collected": (now - timedelta(days=90)).isoformat()}],
+                 {}, {})
+    by_id = {r["id"]: r for r in reg["sources"]}
+    assert by_id["shop"]["verdict"] == SH.VERDICT_SILENT, by_id["shop"]
+    assert by_id["shop"]["collected_by"] == "fetch_x"
+    assert by_id["shop"]["threshold_hours"] == SH.SCRIPTED_STALE_HOURS
+    assert by_id["auction"]["verdict"] == SH.VERDICT_OK, "12 ч — обычный разрыв между прогонами скрипта"
+    assert by_id["manual_off"]["verdict"] == SH.VERDICT_SILENT_EXPECTED, "просто выключенный — по-прежнему решение"
+
+
+def test_registry_and_healthcheck_share_the_scripted_threshold():
+    import crawler.scripts.healthcheck as H
+    assert H.SCRIPTED_STALE_HOURS == SH.SCRIPTED_STALE_HOURS
+
 def test_registry_is_sorted_by_weight(tmp_path):
     reg = _build(
         str(tmp_path),

@@ -854,7 +854,8 @@ def _monitor_line(monitor):
     if monitor.get("bootstrap"):
         line = "Монитор площадок: первый запуск, база договоров зафиксирована"
     else:
-        line = "Монитор площадок (прямые договоры UZEX, ebirja-магазин): новых договоров %d" % monitor.get("new", 0)
+        line = ("Монитор площадок (прямые договоры UZEX; ebirja — магазин, аукцион, тендер, отбор): "
+                "новых договоров %d" % monitor.get("new", 0))
         if monitor.get("changed"):
             line += ", изменений %d" % monitor["changed"]
         if monitor.get("new") or monitor.get("changed"):
