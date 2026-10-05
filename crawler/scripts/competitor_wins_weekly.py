@@ -332,6 +332,56 @@ async def judge(entries, use_ai, budget):
 
 # ── сборка отчёта ────────────────────────────────────────────────────────────
 
+async def _subject_relevance(row):
+    # type: (Dict[str, Any]) -> Optional[bool]
+    """Наш ли предмет лота — тот же AI, что у алертов, но мимо ключевого гейта.
+    None — AI не ответил (сбой или нет ключа): решать за него нельзя."""
+    from crawler.core.notifier import _ai_check_relevance
+    from crawler.core.tender_rows import row_to_raw_tender
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            r = await _ai_check_relevance(row_to_raw_tender(row), client)
+    except Exception:
+        return None
+    return None if r.score is None else bool(r.is_relevant)
+
+
+async def screen_hidden(cands, use_ai, budget, ask=None):
+    # type: (List[Dict[str, Any]], bool, _Budget, Any) -> Tuple[List[Dict[str, Any]], int, int]
+    """«Спрятанные» без чужих предметов: (оставленные, убрано AI, не проверено).
+
+    В «спрятанные» попадает любая победа фирмы, похожей на типографию, — фирма
+    печатная, а предмет какой угодно: 02.10 связь у OFSET-FAYZ, 05.10 кондиционеры
+    на 808 млн у GIFT MASTER 2018 (0 из 2 по делу). Исключать такие фирмы по одной
+    бесконечно, поэтому предмет судит AI алертов. «Не наше» — убираем; сбой AI или
+    кончился бюджет — оставляем, как было до фильтра, и считаем «не проверено».
+    """
+    ask = ask or _subject_relevance
+    if not use_ai:
+        return list(cands), 0, 0
+    kept, dropped, unchecked = [], 0, 0
+    order = sorted(range(len(cands)), key=lambda i: -float(cands[i]["win"].get("won_price") or 0))
+    verdict = {}  # type: Dict[int, Optional[bool]]
+    for i in order:                       # дорогие первыми, как в judge
+        e = cands[i]
+        if budget.used >= budget.cap:
+            verdict[i] = None
+            continue
+        budget.used += 1
+        row = e.get("gate_row") or e.get("lot_row") or CW.clean_row(e["win"].get("feed"), e["deal_row"])
+        verdict[i] = await ask(row)
+        if verdict[i] is None:
+            budget.errors += 1
+    for i, e in enumerate(cands):         # порядок вывода — прежний
+        if verdict.get(i) is False:
+            dropped += 1
+            continue
+        if verdict.get(i) is None:
+            unchecked += 1
+        kept.append(e)
+    return kept, dropped, unchecked
+
+
 def _after_deadline(alert_row):
     # type: (Dict[str, Any]) -> bool
     seen, deadline = CW.parse_ts(alert_row.get("created_at")), CW.parse_ts(alert_row.get("deadline"))
@@ -436,7 +486,6 @@ async def build_report(start, end, clamped, retry_ids=(), use_ai=True):
 
     budget = _Budget(AI_CAP if use_ai else 0)
     await judge(entries, use_ai, budget)
-    cov["ai_used"], cov["ai_errors"] = budget.used, budget.errors
 
     keep = ("win", "status", "stage", "reason", "ai_then", "first_alert", "our_action",
             "alert_after_deadline")
@@ -457,15 +506,17 @@ async def build_report(start, end, clamped, retry_ids=(), use_ai=True):
     printer_inns = set(registry) | {it["win"]["winner_inn"] for it in items if it["win"].get("winner_inn")}
     hit = keyword_hit_fn()
     not_printers = excluded_inns()
+    cands = [e for e in rejected
+             if (CW.is_uzs(e["win"].get("currency")) and float(e["win"].get("won_price") or 0) >= MIN_PRICE
+                 and e["win"].get("winner_inn") not in not_printers
+                 and CW.printer_like(e["win"], printer_inns, hit))]
+    cands, cov["hidden_ai_dropped"], cov["hidden_unchecked"] = await screen_hidden(cands, use_ai, budget)
+    cov["ai_used"], cov["ai_errors"] = budget.used, budget.errors
     printers = []
-    for e in rejected:
-        w = e["win"]
-        if (CW.is_uzs(w.get("currency")) and float(w.get("won_price") or 0) >= MIN_PRICE
-                and w.get("winner_inn") not in not_printers
-                and CW.printer_like(w, printer_inns, hit)):
-            item = {k: e.get(k) for k in keep}
-            item["lot_status"], item["status"] = e["status"], CW.PRINTER
-            printers.append(item)
+    for e in cands:
+        item = {k: e.get(k) for k in keep}
+        item["lot_status"], item["status"] = e["status"], CW.PRINTER
+        printers.append(item)
 
     report = {"start": start, "end": end, "clamped": clamped, "items": items,
               "printers": printers, "ours": ours, "coverage": cov}

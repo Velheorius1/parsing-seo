@@ -273,6 +273,51 @@ def test_excluded_inns_come_from_the_registry_and_stay_off_the_list():
     assert not excluded & set(registry_inns(load_registry())), "фирма и в списке, и в исключённых"
 
 
+
+# ── «спрятанные»: предмет судит AI (05.10) ────────────────────────────────────
+
+def _hidden(price, title):
+    return {"win": {"won_price": price, "feed": CW.FEED_DEALS}, "deal_row": {},
+            "lot_row": {"title": title}, "status": CW.STATUS_NOT_COLLECTED}
+
+
+def _screen(cands, verdicts, cap=60, use_ai=True):
+    import asyncio
+    asked = []
+
+    async def ask(row):
+        asked.append(row["title"])
+        return verdicts[row["title"]]
+    budget = W._Budget(cap)
+    kept, dropped, unchecked = asyncio.run(W.screen_hidden(cands, use_ai, budget, ask=ask))
+    return [e["lot_row"]["title"] for e in kept], dropped, unchecked, asked, budget
+
+
+def test_hidden_with_foreign_subject_is_dropped_ours_and_ai_failures_stay():
+    cands = [_hidden(60e6, "стенд"), _hidden(808e6, "кондиционер"), _hidden(70e6, "связь")]
+    kept, dropped, unchecked, asked, budget = _screen(
+        cands, {"стенд": True, "кондиционер": False, "связь": None})
+    assert kept == ["стенд", "связь"], "порядок вывода прежний, сбой AI не прячет лот"
+    assert (dropped, unchecked) == (1, 1)
+    assert asked[0] == "кондиционер", "дорогие первыми — бюджет съедает мелочь"
+    assert budget.used == 3 and budget.errors == 1
+
+
+def test_hidden_without_budget_or_without_ai_is_kept_unchecked():
+    cands = [_hidden(60e6, "a"), _hidden(70e6, "b")]
+    kept, dropped, unchecked, asked, _ = _screen(cands, {"a": False, "b": False}, cap=1)
+    assert kept == ["a"] and dropped == 1 and unchecked == 1 and asked == ["b"]
+    kept, dropped, unchecked, asked, _ = _screen(cands, {"a": False, "b": False}, use_ai=False)
+    assert kept == ["a", "b"] and (dropped, unchecked) == (0, 0) and asked == []
+
+
+def test_coverage_line_names_what_the_hidden_filter_did():
+    cov = {"deals": 1, "hidden_ai_dropped": 2, "hidden_unchecked": 1}
+    text = CW.build_message({"items": [], "printers": [], "coverage": cov,
+                             "start": NOW - timedelta(days=3), "end": NOW})
+    assert "из «спрятанных» AI убрал чужой предмет 2" in text, text
+    assert "«спрятанных» без проверки AI 1" in text, text
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fails = 0
