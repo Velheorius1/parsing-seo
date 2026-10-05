@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""Fetch ebirja contracts (winners, prices) via Playwright and upsert to Supabase.
+"""Fetch ebirja contracts (winners, prices) and upsert to Supabase.
 
-Parses xarid.ebirja.uz/ru/contracts/{type} pages with Playwright.
-Extracts: lot number, buyer, winner (executor), winner price, contract date.
+List: the public API behind xarid.ebirja.uz/ru/contracts/{type}
+(collect_ebirja_contract_api), walked down to a date boundary. Until 05.10.2026
+the list was the Playwright page and its pager never moved past page 1: 20
+contracts per type per run, the e-shop landed at ~19% (209 of 1080 for
+14–20.09). Rows from the API are built in exactly the card format — checked
+field by field on 310 contracts already in the DB.
+
+--detail still opens the public card in Playwright (start price, discount),
+only for contracts the DB has not enriched yet.
 
 Usage:
-    python3 -m crawler.scripts.fetch_ebirja_contracts              # all types
-    python3 -m crawler.scripts.fetch_ebirja_contracts --type shop   # e-shop only
-    python3 -m crawler.scripts.fetch_ebirja_contracts --dry-run     # no DB writes
-    python3 -m crawler.scripts.fetch_ebirja_contracts --pages 5     # fetch 5 pages
-    python3 -m crawler.scripts.fetch_ebirja_contracts --detail       # fetch detail pages (slow)
+    python3 -m crawler.scripts.fetch_ebirja_contracts                 # all types, last 3 days
+    python3 -m crawler.scripts.fetch_ebirja_contracts --type shop     # e-shop only
+    python3 -m crawler.scripts.fetch_ebirja_contracts --dry-run       # no DB writes
+    python3 -m crawler.scripts.fetch_ebirja_contracts --since 2026-01-01   # history
+    python3 -m crawler.scripts.fetch_ebirja_contracts --detail        # + card pages (slow)
 
-Requires: playwright, supabase, python-dotenv
+Requires: httpx, supabase, python-dotenv; playwright only for --detail
 """
 
 import argparse
@@ -20,8 +27,8 @@ import logging
 import re
 import sys
 import time
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,6 +72,89 @@ CONTRACT_TYPES = {
     'tender': {'url': 'https://xarid.ebirja.uz/ru/contracts/tender', 'name': 'Ebirja Договоры (Тендер)'},
     'selection': {'url': 'https://xarid.ebirja.uz/ru/contracts/selection', 'name': 'Ebirja Договоры (Отбор)'},
 }
+
+
+# Код валюты в API → подпись карточки. Сумы приходят как "000".
+_API_CURRENCY = {'000': 'UZS', '840': 'USD', '978': 'EUR', '643': 'RUB'}
+CARD_URL = 'https://ebirja.uz/ru/contracts/%s/%s'
+API_PAGE_SIZE = 100
+API_PAGE_CAP = 500  # 50 000 договоров на тип: граница по дате наступает раньше
+HEARTBEAT_ROWS = 20  # столько же, сколько давала первая страница сайта
+
+
+def _ws(value):
+    # type: (Any,) -> str
+    """Пробелы схлопнуты, как в innerText карточки."""
+    return ' '.join(str(value or '').split())
+
+
+def api_row(contract_type, item):
+    # type: (str, Dict[str, Any]) -> Optional[Dict[str, Any]]
+    """Строка tenders из записи API (normalize) — та же, что давал разбор карточки.
+
+    None — валюта, которой нет в _API_CURRENCY, или запись без номера и даты.
+    """
+    currency = _API_CURRENCY.get(str((item.get('raw') or {}).get('currency') or ''))
+    number, lot = _ws(item.get('contract_number')), _ws(item.get('lot_number'))
+    if not currency or not (number or lot):
+        return None
+    try:
+        created = datetime.strptime(str(item.get('awarded_at')), '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        return None
+    buyer, executor = _ws(item.get('buyer_name')), _ws(item.get('winner_name'))
+    amount = item.get('amount')
+    return {
+        'external_id': 'ebirja-ctr-%s' % (number or lot),
+        'title': 'Договор %s | %s' % (number, lot) if number else lot,
+        'organization': buyer,
+        'winner_name': executor,
+        'price': float(amount) if amount is not None else None,
+        'currency': currency,
+        'deadline': created.strftime('%d.%m.%Y'),
+        'source': CONTRACT_TYPES[contract_type]['name'],
+        'source_url': CARD_URL % (contract_type, item.get('procedure_id')),
+        'status': 'completed',
+        'search_text': ' '.join(filter(None, [buyer, executor, lot, number])),
+        'region': '',
+        'collected_at': datetime.now(timezone.utc).isoformat(),
+        'message_type': 'contract',
+    }
+
+
+def fetch_contracts_api(contract_type, date_from, collect=None):
+    # type: (str, date, Optional[Callable[..., Dict[str, Any]]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]
+    """Договоры типа с date_from по API плюс HEARTBEAT_ROWS самых свежих.
+
+    Свежие — пульс источника: у тендера бывает 3 договора за два
+    месяца, окно в несколько дней пустое, collected_at стареет, и сторож
+    (36 ч, healthcheck sources.scripted) кричит «молчит» на живом источнике.
+    Браузер тоже каждый прогон перезаписывал первую страницу сайта (20).
+    """
+    from crawler.scripts.collect_ebirja_contract_api import collect_source, normalize
+    res = (collect or collect_source)(contract_type, date_from, API_PAGE_SIZE, API_PAGE_CAP)
+    items = list(res['rows'])
+    if res['raw_pages']:
+        items.extend(normalize(contract_type, r)
+                     for r in res['raw_pages'][0]['rows'][:HEARTBEAT_ROWS])
+    rows = []  # type: List[Dict[str, Any]]
+    ids = set()
+    skipped = set()
+    for item in items:
+        row = api_row(contract_type, item)
+        if row is None:
+            skipped.add(item.get('procedure_id'))
+        elif row['external_id'] not in ids:
+            # Окно и первая страница пересекаются, а один external_id дважды
+            # в пачке upsert роняет её целиком («cannot affect row a second time»).
+            ids.add(row['external_id'])
+            rows.append(row)
+    return rows, {
+        'complete': res['complete'],
+        'completion': res['completion'],
+        'pages': res['pages_collected'],
+        'skipped': len(skipped),
+    }
 
 
 def _parse_price(text):
@@ -343,8 +433,44 @@ def db_row(row):
     return {k: v for k, v in row.items() if k not in _AUDIT_ONLY_FIELDS}
 
 
-def upsert_to_supabase(rows, dry_run=False):
-    # type: (List[Dict[str, Any]], bool) -> int
+def _client():
+    # type: () -> Any
+    from crawler.config.settings import settings
+    from supabase import create_client
+    return create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+
+def enriched_search_text(client, ext_ids, chunk=50):
+    # type: (Any, List[str], int) -> Dict[str, str]
+    """search_text с данными --detail (winner:/discount:) по external_id.
+
+    Пачка 50: длинный in_ на self-hosted Supabase отдаёт 502 от nginx (05.10 —
+    уже на 200 id). Сбой после трёх попыток — исключение, а не пустой словарь:
+    иначе upsert молча затрёт обогащённые строки свежими из списка.
+    """
+    enriched = {}  # type: Dict[str, str]
+    for start in range(0, len(ext_ids), chunk):
+        part = ext_ids[start:start + chunk]
+        for attempt in range(1, 4):
+            try:
+                res = client.table('tenders').select(
+                    'external_id, search_text'
+                ).in_('external_id', part).execute()
+                break
+            except Exception as exc:
+                if attempt == 3:
+                    raise
+                logger.warning('Read search_text attempt %d/3 failed: %s', attempt, str(exc)[:80])
+                time.sleep(2 ** (attempt - 1))
+        for row in (res.data or []):
+            st = row.get('search_text') or ''
+            if 'winner:' in st or 'discount:' in st:
+                enriched[row['external_id']] = st
+    return enriched
+
+
+def upsert_to_supabase(rows, dry_run=False, enriched=None):
+    # type: (List[Dict[str, Any]], bool, Optional[Dict[str, str]]) -> int
     """Upsert rows to Supabase tenders table."""
     if not rows:
         return 0
@@ -355,47 +481,27 @@ def upsert_to_supabase(rows, dry_run=False):
             extra = ''
             if 'winner:' in search:
                 extra = ' | ' + search.split('| ', 1)[-1][:60] if '|' in search else ''
-            logger.info('  %s | %s | %s UZS%s',
+            logger.info('  %s | %s | %s %s%s',
                         r['external_id'], r['organization'][:30],
-                        r.get('price', '?'), extra)
+                        r.get('price', '?'), r.get('currency', ''), extra)
         if len(rows) > 5:
             logger.info('  ... and %d more', len(rows) - 5)
         return len(rows)
 
-    from crawler.config.settings import settings
-    from supabase import create_client
-    client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    client = _client()
 
     # Phase 4: Preserve enriched search_text (winner/discount data from --detail runs)
-    ext_ids = [r['external_id'] for r in rows]
-    try:
-        # Fetch in batches of 500 (Supabase IN filter limit)
-        enriched = {}  # type: Dict[str, str]
-        for chunk_start in range(0, len(ext_ids), 500):
-            chunk = ext_ids[chunk_start:chunk_start + 500]
-            existing = client.table('tenders').select(
-                'external_id, search_text'
-            ).in_('external_id', chunk).execute()
-
-            for row in (existing.data or []):
-                st = row.get('search_text', '')
-                if 'winner:' in st or 'discount:' in st:
-                    enriched[row['external_id']] = st
-
-        # Merge: if existing has detail data and new doesn't, keep existing search_text
-        if enriched:
-            preserved = 0
-            for row in rows:
-                eid = row['external_id']
-                if eid in enriched:
-                    new_st = row.get('search_text', '')
-                    if 'winner:' not in new_st and 'discount:' not in new_st:
-                        row['search_text'] = enriched[eid]
-                        preserved += 1
-            if preserved:
-                logger.info('Preserved enriched search_text for %d contracts', preserved)
-    except Exception as exc:
-        logger.warning('Could not fetch existing search_text: %s', str(exc)[:80])
+    if enriched is None:
+        enriched = enriched_search_text(client, [r['external_id'] for r in rows])
+    preserved = 0
+    for row in rows:
+        old = enriched.get(row['external_id'])
+        new_st = row.get('search_text', '')
+        if old and 'winner:' not in new_st and 'discount:' not in new_st:
+            row['search_text'] = old
+            preserved += 1
+    if preserved:
+        logger.info('Preserved enriched search_text for %d contracts', preserved)
 
     batch_size = 500
     total = 0
@@ -478,45 +584,82 @@ async def _enrich_with_details(browser, contracts, dry_run=False):
     return contracts
 
 
-async def main_async(args):
+def _date_from(args):
+    # type: (Any,) -> date
+    if args.since:
+        return date.fromisoformat(args.since)
+    return date.today() - timedelta(days=args.days)
+
+
+async def _detail_pass(rows, per_type, dry_run):
+    # type: (List[Dict[str, Any]], int, bool) -> None
+    """Карточки в Playwright — только для ещё не обогащённых, по per_type на тип.
+
+    Список по API даёт ~150 договоров магазина в день; карточка — ~5 с, поэтому
+    без лимита вечерний прогон растянулся бы на десятки минут.
+    """
+    enriched = {} if dry_run else enriched_search_text(_client(), [r['external_id'] for r in rows])
+    pending = []  # type: List[Dict[str, Any]]
+    taken = {}  # type: Dict[str, int]
+    for row in rows:
+        if row['external_id'] in enriched or taken.get(row['source'], 0) >= per_type:
+            continue
+        taken[row['source']] = taken.get(row['source'], 0) + 1
+        pending.append(row)
+    if not pending:
+        return
+    if dry_run:
+        logger.info('[DRY-RUN] Would open %d card pages', len(pending))
+        return
     from playwright.async_api import async_playwright
-
-    types_to_fetch = [args.type] if args.type != 'all' else list(CONTRACT_TYPES.keys())
-    all_rows = []  # type: List[Dict[str, Any]]
-    fetch_details = getattr(args, 'detail', False)
-
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
+        try:
+            await _enrich_with_details(browser, pending, dry_run=dry_run)
+        finally:
+            await browser.close()
 
-        for ctype in types_to_fetch:
-            info = CONTRACT_TYPES[ctype]
-            logger.info('=== Fetching %s (pages: %d) ===', info['name'], args.pages)
 
-            page = await browser.new_page()
-            try:
-                contracts = await fetch_contracts_page(
-                    page, info['url'], ctype, max_pages=args.pages
-                )
-                logger.info('Found %d contracts for %s', len(contracts), ctype)
+async def main_async(args):
+    types_to_fetch = [args.type] if args.type != 'all' else list(CONTRACT_TYPES.keys())
+    date_from = _date_from(args)
+    all_rows = []  # type: List[Dict[str, Any]]
+    incomplete = []  # type: List[str]
 
-                if fetch_details and contracts:
-                    contracts = await _enrich_with_details(
-                        browser, contracts, dry_run=args.dry_run
-                    )
-
-                all_rows.extend(contracts)
-            except Exception as exc:
-                logger.warning('Failed to fetch %s: %s', ctype, str(exc)[:100])
-                _send_telegram_alert(
-                    '<b>Ebirja Contracts ALERT</b>\nFailed to fetch %s: %s' % (ctype, str(exc)[:100])
-                )
-            finally:
-                await page.close()
-
-        await browser.close()
+    for ctype in types_to_fetch:
+        info = CONTRACT_TYPES[ctype]
+        try:
+            contracts, run = fetch_contracts_api(ctype, date_from)
+        except Exception as exc:
+            logger.warning('Failed to fetch %s: %s', ctype, str(exc)[:100])
+            _send_telegram_alert(
+                '<b>Ebirja Contracts ALERT</b>\nFailed to fetch %s: %s' % (ctype, str(exc)[:100])
+            )
+            incomplete.append('%s (ошибка)' % ctype)
+            continue
+        logger.info('%s: %d contracts since %s (pages %d, %s, skipped %d)',
+                    info['name'], len(contracts), date_from, run['pages'],
+                    run['completion'], run['skipped'])
+        if not run['complete']:
+            incomplete.append('%s (%s)' % (ctype, run['completion']))
+        all_rows.extend(contracts)
 
     logger.info('Total contracts: %d', len(all_rows))
-    upserted = upsert_to_supabase(all_rows, dry_run=args.dry_run)
+    if args.detail and all_rows:
+        try:
+            await _detail_pass(all_rows, args.detail_limit, args.dry_run)
+        except Exception as exc:
+            # Карточки — довесок: без них список всё равно пишем.
+            logger.warning('Detail pass failed: %s', str(exc)[:120])
+
+    try:
+        upserted = upsert_to_supabase(all_rows, dry_run=args.dry_run)
+    except Exception as exc:
+        logger.error('Upsert aborted: %s', str(exc)[:160])
+        _send_telegram_alert(
+            '<b>Ebirja Contracts ALERT</b>\nНе записал %d договоров: %s' % (len(all_rows), str(exc)[:100])
+        )
+        sys.exit(1)
     logger.info('Done! Fetched: %d, Upserted: %d', len(all_rows), upserted)
 
     if len(all_rows) == 0:
@@ -532,16 +675,32 @@ async def main_async(args):
             % (upserted, len(all_rows))
         )
         sys.exit(1)
+    # Лист не дошёл до границы по дате — записано не всё окно.
+    if incomplete:
+        _send_telegram_alert(
+            '<b>Ebirja Contracts ALERT</b>\nСписок неполный с %s: %s' % (date_from, ', '.join(incomplete))
+        )
+        sys.exit(1)
 
 
 def main():
     parser = argparse.ArgumentParser(description='Fetch ebirja contracts')
     parser.add_argument('--type', choices=list(CONTRACT_TYPES.keys()) + ['all'], default='all')
     parser.add_argument('--dry-run', action='store_true')
-    parser.add_argument('--pages', type=int, default=1, help='Number of pages to fetch (default: 1)')
+    parser.add_argument('--days', type=int, default=3,
+                        help='Window: contracts of the last N days (default: 3; runs are twice a day)')
+    parser.add_argument('--since', default=None, help='Window start YYYY-MM-DD, overrides --days')
     parser.add_argument('--detail', action='store_true',
-                        help='Fetch detail pages for each contract (slow, ~5s per contract)')
+                        help='Open card pages for contracts not enriched yet (slow, ~5s per contract)')
+    parser.add_argument('--detail-limit', type=int, default=20,
+                        help='Card pages per type for --detail (default: 20)')
     args = parser.parse_args()
+    if args.days < 1 or args.detail_limit < 0:
+        parser.error('--days must be positive, --detail-limit non-negative')
+    try:
+        _date_from(args)
+    except ValueError:
+        parser.error('--since must be YYYY-MM-DD')
 
     asyncio.run(main_async(args))
 
