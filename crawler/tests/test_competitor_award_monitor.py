@@ -346,6 +346,55 @@ def test_digest_header_is_no_longer_called_weekly():
     assert "за неделю" not in text and "из списка" in text, text
 
 
+
+# ── аукцион/тендер/отбор ebirja: ИНН из карточки, площадка в сообщении (05.10) ──
+
+_REG = {"entities": [{"name": "PREMIUM POLIGRAF BIZNES", "inn": "303018986",
+                      "input_names": ["premium poligraf biznes"]}], "separate_candidates": []}
+
+
+def _auction_list(rows):
+    return {"source_key": "auction", "complete": True, "completion": "date_boundary", "rows": rows}
+
+
+def test_ebirja_auction_win_counts_only_after_card_inn_joins_the_registry():
+    from crawler.scripts import run_all_exchange_competitor_monitor as runner
+    rows = [{"procedure_id": "34944", "winner_name": "PREMIUM POLIGRAF BIZNES MCHJ", "amount": 343867216,
+             "raw": {"currency": "000"}},
+            {"procedure_id": "35000", "winner_name": "PREMIUM POLIGRAF BIZNES GROUP", "amount": 90000000,
+             "raw": {"currency": "000"}}]
+    cards = {"34944": {"winner_inn": "303018986", "winner_name": "PREMIUM POLIGRAF BIZNES MCHJ",
+                       "contract_number": "XA26032279", "procedure_id": "34944", "amount": 343867216,
+                       "currency": "UZS", "title": "Книга кассира", "buyer_name": "ASAKA AJ",
+                       "source_url": "https://ebirja.uz/ru/contracts/auction/34944"},
+             "35000": {"winner_inn": "999999999", "winner_name": "PREMIUM POLIGRAF BIZNES GROUP",
+                       "contract_number": "XA2", "procedure_id": "35000", "amount": 90000000, "currency": "UZS"}}
+    asked = []
+
+    def fake_enrich(candidates, max_details):
+        asked.extend(c["source_key"] for c in candidates)
+        return [{"detail": cards[c["archive_row"]["procedure_id"]]} for c in candidates]
+    with patch.object(runner, "collect_source", lambda *a, **kw: _auction_list(rows)), \
+            patch.object(runner, "enrich", fake_enrich):
+        run = runner._ebirja_run("auction", None, 100, 1, _REG, 25)
+    assert asked == ["auction", "auction"], "имя только отбирает кандидата — карточку спрашиваем"
+    assert run["status"] == "complete" and run["identity_rejected_count"] == 1, run
+    assert [a["contract_number"] for a in run["awards"]] == ["XA26032279"], "тёзка с чужим ИНН — не победа"
+    report = multi_source_delta({"ebirja_auction": run}, {"sources": {"ebirja_auction": {"award_keys": []}}})
+    assert [r["key"] for r in report["new_awards"]] == ["ebirja_auction:303018986:XA26032279"]
+    text = build_digest(report)
+    assert "· ebirja, аукцион" in text and "Книга кассира" in text and "Заказчик: ASAKA AJ" in text, text
+    assert "https://ebirja.uz/ru/contracts/auction/34944" in text
+
+
+def test_platform_label_does_not_change_the_award_fingerprint():
+    row = {"winner_inn": "303018986", "contract_number": "X1", "amount": 30000001, "currency": "UZS",
+           "title": "Книга"}
+    a = _qualified_source_awards("ebirja_auction", {"awards": [row]})[0]
+    b = _qualified_source_awards("ebirja_auction", {"awards": [dict(row, buyer_name="Новый заказчик")]})[0]
+    assert a["source_id"] == "ebirja_auction"
+    assert a["content_hash"] == b["content_hash"], "подпись площадки/заказчика не повод слать «изменение»"
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failures = 0
