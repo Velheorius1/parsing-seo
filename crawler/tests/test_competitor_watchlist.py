@@ -5,8 +5,9 @@
   • фирма без 9-значного ИНН (ПИНФЛ, мусор) в список не попадает, но и не теряется
     молча — счётчик пропусков;
   • порядок — по числу побед, при равенстве — по сумме;
-  • реестр валиден, в нём 25–32 активные фирмы с ИНН, а выбывшие (`retired`) не
-    попадают ни в ★, ни в блок «Список», ни в монитор.
+  • реестр валиден, в нём 25–32 фирмы из рейтинга с ИНН плюс закреплённые Данияром
+    (`pinned`, список 13.09 — с 05.10), а выбывшие (`retired`) не попадают ни в ★,
+    ни в блок «Список», ни в монитор.
 
 Run: python3 -m crawler.tests.test_competitor_watchlist   (exit 1 on any failure)
 """
@@ -74,7 +75,8 @@ def test_registry_holds_the_watchlist_and_retired_stay_out():
     from crawler.core.competitor_audit import registry_path
     reg = load_registry()
     active = [e for e in reg["entities"] if e.get("inn")]
-    assert 25 <= len(active) <= 32, len(active)
+    ranked = [e for e in active if not e.get("pinned")]
+    assert 25 <= len(ranked) <= 32, len(ranked)
     with open(registry_path(), encoding="utf-8") as fh:
         raw = json.load(fh)
     retired = {str(e.get("inn")) for e in raw.get("retired") or [] if e.get("inn")}
@@ -83,6 +85,16 @@ def test_registry_holds_the_watchlist_and_retired_stay_out():
     assert not (retired & watched) and not (retired & starred), retired & (watched | starred)
     for e in reg["entities"]:
         assert e.get("basis") and e.get("sources"), "у фирмы списка должно быть основание: %s" % e["name"]
+
+
+def test_owner_pinned_firms_stay_watched():
+    """Список Данияра 13.09 закреплён 05.10: нет побед на etender — не повод убирать,
+    фирма может выигрывать на Cooperation/Hayotbirja, где победителя видно плохо."""
+    reg = load_registry()
+    pinned = {e["inn"] for e in reg["entities"] if e.get("pinned")}
+    for inn in ("303743362", "204695568", "205353003", "305970088"):   # Micros Pak, Credo, Kolorpak, SP Books
+        assert inn in pinned, inn
+    assert pinned <= set(CW.watch_map(reg)) and pinned <= set(registry_inns(reg))
 
 
 if __name__ == "__main__":
