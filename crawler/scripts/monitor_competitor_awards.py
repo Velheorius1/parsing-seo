@@ -52,10 +52,29 @@ def _money(value: Any) -> str:
         return str(value or "?")
 
 
+# Где выигран договор — человеку, а не id источника (05.10: с аукционами, тендерами
+# и отборами ebirja в одном сообщении без площадки не понять, что это за договор).
+PLATFORM_RU = {
+    "etender_deals": "etender",
+    "uzex_direct": "UZEX, прямой договор",
+    "ebirja_shop": "ebirja, э-магазин",
+    "ebirja_auction": "ebirja, аукцион",
+    "ebirja_tender": "ebirja, тендер",
+    "ebirja_selection": "ebirja, отбор",
+    "cooperation_contracts": "Cooperation",
+}
+
+
 def _award_block(row: Dict[str, Any]) -> str:
     name = str(row.get("winner_name") or "ИНН %s" % row.get("winner_inn"))[:140]
     title = str(row.get("title") or "без названия")[:180]
-    lines = ["• %s · %s %s\n%s" % (name, _money(row.get("amount")), row.get("currency") or "", title)]
+    head = "• %s · %s %s" % (name, _money(row.get("amount")), row.get("currency") or "")
+    platform = PLATFORM_RU.get(str(row.get("source_id") or ""))
+    if platform:
+        head += " · %s" % platform
+    lines = ["%s\n%s" % (head, title)]
+    if row.get("buyer_name"):
+        lines.append("Заказчик: %s" % str(row["buyer_name"])[:140])
     specification = " ".join(str(row.get("specification_text") or "").split())[:280]
     if specification:
         lines.append("Позиции: %s" % specification)
@@ -276,6 +295,7 @@ def _qualified_source_awards(source_id: str, source_run: Dict[str, Any]) -> List
         event["specification_text"] = event.get("specification_text") or event.get("description")
         event["key"] = "%s:%s:%s" % (source_id, winner_inn, contract)
         event["winner_inn"] = winner_inn
+        event["source_id"] = source_id   # для подписи площадки; в отпечаток не входит
         fingerprint = {key: event.get(key) for key in ("winner_inn", "contract_number", "award_id", "procedure_id",
                                                         "amount", "currency", "title", "status", "is_win",
                                                         "specification_text")}

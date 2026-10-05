@@ -119,26 +119,22 @@ def _exact_ebirja_awards(details, registry):
 def _ebirja_run(source_key: str, date_from: date, page_size: int, page_cap: int,
                 registry: Dict[str, List[Dict[str, Any]]], max_details: int) -> Dict[str, Any]:
     result = collect_source(source_key, date_from, page_size, page_cap)
-    # Only the E-shop detail endpoint reveals the producer identity.  This
-    # list collector is still useful for coverage receipts, but must not make
-    # a winner claim before its bounded detail-enrichment step.
-    if source_key == "shop":
-        candidates = candidate_rows({"sources": [result]}, registry)
-        details = enrich(candidates, max_details)
-        complete = result["complete"] and len(candidates) == len(details)
-        awards, identity_rejected, identity_unresolved = _exact_ebirja_awards(details, registry)
-        status = "complete" if complete else "incomplete"
-        if complete and identity_unresolved:
-            status = "partial_identity"
-        return {"status": status, "captured_at": datetime.now(timezone.utc).isoformat(),
-                "detail": result["completion"], "awards": awards,
-                "receipt": result, "candidate_count": len(candidates), "fetched_count": len(details),
-                "identity_rejected_count": identity_rejected,
-                "identity_unresolved_count": identity_unresolved}
-    status = "complete_name_only" if result["complete"] else "incomplete_name_only"
+    # Списки договоров ebirja ИНН поставщика не отдают — только имя. Имя лишь
+    # отбирает кандидата; победа засчитывается после ИНН из публичной карточки
+    # договора. До 05.10.2026 так делали только для э-магазина, а аукцион, тендер
+    # и отбор помечали «имя без ИНН» и не смотрели вовсе.
+    candidates = candidate_rows({"sources": [result]}, registry)
+    details = enrich(candidates, max_details) if candidates else []
+    complete = bool(result.get("complete")) and len(candidates) == len(details)
+    awards, identity_rejected, identity_unresolved = _exact_ebirja_awards(details, registry)
+    status = "complete" if complete else "incomplete"
+    if complete and identity_unresolved:
+        status = "partial_identity"
     return {"status": status, "captured_at": datetime.now(timezone.utc).isoformat(),
-            "detail": ("public contract list has no winner INN; %s" % result["completion"]),
-            "receipt": result}
+            "detail": result.get("completion"), "awards": awards,
+            "receipt": result, "candidate_count": len(candidates), "fetched_count": len(details),
+            "identity_rejected_count": identity_rejected,
+            "identity_unresolved_count": identity_unresolved}
 
 
 COVERED_BY_DIGEST = "covered_by_digest"

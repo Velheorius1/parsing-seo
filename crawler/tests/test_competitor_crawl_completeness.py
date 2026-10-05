@@ -84,15 +84,18 @@ def test_ebirja_empty_first_page_with_nonzero_meta_is_incomplete_and_keeps_basel
     assert delta["state_candidate"]["sources"]["ebirja_shop"] == prior["sources"]["ebirja_shop"]
 
 
-def test_name_only_source_keeps_incomplete_status_from_its_receipt():
+def test_auction_source_keeps_incomplete_status_from_its_receipt():
+    """С 05.10 аукцион идёт тем же путём, что э-магазин («имя → карточка → ИНН»);
+    неполный список остаётся неполным, а не «отчитавшимся»."""
     original = runner.collect_source
     try:
         runner.collect_source = lambda *_args, **_kwargs: {"complete": False, "completion": "page_cap"}
         result = runner._ebirja_run("auction", date(2026, 9, 1), 100, 1, {}, 1)
     finally:
         runner.collect_source = original
-    assert result["status"] == "incomplete_name_only"
-    assert result["detail"].endswith("page_cap")
+    assert result["status"] == "incomplete"
+    assert result["detail"] == "page_cap"
+    assert result["awards"] == []
 
 
 def test_passport_with_unrun_or_incomplete_source_is_not_all_reported():
