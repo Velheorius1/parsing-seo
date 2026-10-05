@@ -135,6 +135,36 @@ function ToggleSwitch({
   );
 }
 
+// --- Админ-токен ---
+// Секрет больше не вшивается в сборку (NEXT_PUBLIC_* виден любому в браузере):
+// его вводит администратор, токен живёт в sessionStorage до закрытия вкладки.
+const ADMIN_TOKEN_KEY = 'parsing-seo-admin-token';
+
+function readAdminToken(): string {
+  try {
+    return sessionStorage.getItem(ADMIN_TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function storeAdminToken(token: string | null) {
+  try {
+    if (token) sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+    else sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  } catch {
+    // sessionStorage недоступен — спросим токен при следующем сохранении
+  }
+}
+
+function askAdminToken(): string {
+  const stored = readAdminToken();
+  if (stored) return stored;
+  const entered = (window.prompt('Админ-токен для изменения настроек') || '').trim();
+  if (entered) storeAdminToken(entered);
+  return entered;
+}
+
 // --- Main Component ---
 export function CrawlerSettings() {
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -171,6 +201,11 @@ export function CrawlerSettings() {
 
   // Save a single setting
   const saveSetting = useCallback(async (key: string, value: string) => {
+    const token = askAdminToken();
+    if (!token) {
+      setSaveStatus('Ошибка: нужен админ-токен');
+      return;
+    }
     setSaving(true);
     setSaveStatus(null);
     try {
@@ -178,11 +213,12 @@ export function CrawlerSettings() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-token': process.env.NEXT_PUBLIC_ADMIN_SECRET_TOKEN || '',
+          'x-admin-token': token,
         },
         body: JSON.stringify({ key, value }),
       });
       const data = await resp.json();
+      if (resp.status === 401) storeAdminToken(null); // неверный — спросим заново
       if (data.error) {
         setSaveStatus('Ошибка: ' + data.error);
       } else {
