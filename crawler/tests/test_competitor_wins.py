@@ -523,7 +523,7 @@ def test_watch_block_counts_active_and_silent_firms_without_listing_the_silent()
     items = [_watch_item(CW.STATUS_ALERTED, "306514938", "OLTIN-NASHR", 620e6),
              _watch_item(CW.STATUS_ALERTED, "306514938", "OLTIN-NASHR", 100e6, customer="Другой")]
     text = CW.build_message(_report(items), watch=WATCH)
-    assert "Список конкурентов (3)</b>: выиграли 1, молчат 2" in text, text
+    assert "Список конкурентов (3)</b>: выиграли 1" in text and "молчат" not in text, text
     assert "OLTIN-NASHR" in text and "×2" in text and "720 млн" in text, text
     assert "MATRIX" not in text, "молчащих не перечисляем"
 
@@ -531,21 +531,37 @@ def test_watch_block_counts_active_and_silent_firms_without_listing_the_silent()
 def test_watch_block_includes_hidden_wins_of_the_list():
     hidden = _watch_item(CW.PRINTER, "308044785", "PECHATNIK VOSTOKA", 400e6, lot_status=CW.STATUS_MISSED)
     text = CW.build_message(_report(printers=[hidden]), watch=WATCH)
-    assert "выиграли 1, молчат 2" in text and "гейт не узнал: 1" in text, text
+    assert "выиграли 1" in text and "гейт не узнал: 1" in text, text
 
 
 def test_watch_block_ignores_firms_outside_the_list_and_missing_inn():
     other = _watch_item(CW.STATUS_ALERTED, "111111111", "STRANGER", 50e6)
     noinn = _watch_item(CW.STATUS_ALERTED, None, "NOINN", 50e6)
     text = CW.build_message(_report([other, noinn]), watch=WATCH)
-    assert "выиграли 0, молчат 3" in text and "STRANGER" not in text.split("Лотов")[0]
+    assert "из списка не выигрывал никто" in text and "STRANGER" not in text.split("Лотов")[0]
+    assert "🆕 Не из списка: STRANGER MCHJ ×1" in text, text
+    assert "NOINN" not in text.split("🆕")[1].split("\n")[0], "без ИНН членство не проверить"
 
 
 def test_watch_block_is_capped_and_says_how_many_are_left():
     wide = {str(300000000 + i): "FIRM%d" % i for i in range(12)}
     items = [_watch_item(CW.STATUS_ALERTED, inn, name, 50e6) for inn, name in wide.items()]
     text = CW.build_message(_report(items), watch=wide)
-    assert "выиграли 12, молчат 0" in text and "…и ещё 4 фирм" in text, text
+    assert "выиграли 12" in text and "…и ещё 4 фирм" in text and "🆕" not in text, text
+
+
+def test_new_names_count_wins_and_cap_the_list():
+    items = [_watch_item(CW.STATUS_ALERTED, str(400000000 + i), "NEW%d" % i, 50e6) for i in range(7)]
+    items.append(_watch_item(CW.STATUS_ALERTED, "400000000", "NEW0", 60e6))
+    text = CW.build_message(_report(items), watch=WATCH)
+    line = [ln for ln in text.split("\n") if "🆕" in ln][0]
+    assert line.startswith("  🆕 Не из списка: NEW0 MCHJ ×2"), line
+    assert "…и ещё 2" in line, line
+
+
+def test_winner_without_name_shows_pinfl_for_14_digits():
+    assert CW.winner_name("ИНН 32003995590049") == "ПИНФЛ 32003995590049"
+    assert CW.winner_name("ИНН: 204247640") == "ИНН 204247640"
 
 
 def test_message_without_watch_is_unchanged():

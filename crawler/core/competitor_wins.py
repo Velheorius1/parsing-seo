@@ -142,7 +142,10 @@ def winner_name(winner):
     name = _INN_RE.sub("", str(winner or "")).replace("()", "").strip(" ,")
     if not name:
         inn = winner_inn(winner)
-        return "ИНН %s" % inn if inn else ""    # без имени показываем хотя бы ИНН
+        if not inn:
+            return ""
+        # без имени показываем хотя бы номер; 14 цифр — ПИНФЛ физлица (ИП), не ИНН
+        return ("ПИНФЛ %s" if len(inn) == 14 else "ИНН %s") % inn
     return name
 
 
@@ -776,11 +779,37 @@ def watch_rows(report, watch):
     return sorted(by.values(), key=lambda a: (-a["n"], -a["sum"], a["name"]))
 
 
+NEW_NAMES_CAP = 5
+
+
+def new_names(report, watch):
+    # type: (Dict[str, Any], Dict[str, str]) -> List[Tuple[str, int]]
+    """Кто брал профильные лоты окна, не будучи в списке: [(имя, побед)].
+
+    Только с ИНН — без него членство в списке не проверить. «Молчат 30» две
+    сводки подряд (02.10, 05.10) не говорило ничего: рынок дробный, топ по прошлым
+    победам не угадывает следующих, а новые имена — это кандидаты в список.
+    """
+    by = {}  # type: Dict[str, List[Any]]
+    for it in report.get("items") or []:
+        win = it["win"]
+        inn = win.get("winner_inn")
+        if not inn or inn in watch:
+            continue
+        if inn not in by:
+            by[inn] = [winner_name(win.get("winner")) or inn, 0]
+        by[inn][1] += 1
+    return sorted(((n, c) for n, c in by.values()), key=lambda v: (-v[1], v[0]))
+
+
 def _watch_lines(report, watch):
     # type: (Dict[str, Any], Dict[str, str]) -> List[str]
     rows = watch_rows(report, watch)
-    out = ["\n<b>👁 Список конкурентов (%d)</b>: выиграли %d, молчат %d" % (
-        len(watch), len(rows), len(watch) - len(rows))]
+    if rows:
+        head = "выиграли %d" % len(rows)
+    else:
+        head = "из списка не выигрывал никто"
+    out = ["\n<b>👁 Список конкурентов (%d)</b>: %s" % (len(watch), head)]
     for a in rows[:WATCH_ROWS_CAP]:
         parts = ["×%d" % a["n"], "%s млн" % _mln(a["sum"])]
         if a["disc"]:
@@ -792,6 +821,12 @@ def _watch_lines(report, watch):
     if len(rows) > WATCH_ROWS_CAP:
         rest = rows[WATCH_ROWS_CAP:]
         out.append("  …и ещё %d фирм на %s млн" % (len(rest), _mln(sum(a["sum"] for a in rest))))
+    fresh = new_names(report, watch)
+    if fresh:
+        shown = ", ".join("%s ×%d" % (html.escape(_short(n, 28)), c) for n, c in fresh[:NEW_NAMES_CAP])
+        if len(fresh) > NEW_NAMES_CAP:
+            shown += " …и ещё %d" % (len(fresh) - NEW_NAMES_CAP)
+        out.append("  🆕 Не из списка: %s" % shown)
     return out
 
 
@@ -907,6 +942,10 @@ def _tail_lines(report, items, registry_inns, monitor=None):
         line += " · AI %d/%d" % (cov.get("ai_used", 0), cov["ai_cap"])
     if cov.get("ai_errors"):
         line += " · сбоев AI %d" % cov["ai_errors"]
+    if cov.get("hidden_ai_dropped"):
+        line += " · из «спрятанных» AI убрал чужой предмет %d" % cov["hidden_ai_dropped"]
+    if cov.get("hidden_unchecked"):
+        line += " · «спрятанных» без проверки AI %d" % cov["hidden_unchecked"]
     if cov.get("undecided"):
         line += " · не решено %d — перенесено на следующий разбор" % cov["undecided"]
     tail.append(line)
