@@ -93,11 +93,14 @@ class _Q:
         self.store, self.name, self.mode = store, name, None
 
     def select(self, cols):
-        self.mode = "known" if cols.startswith("subject_hash,profile") else "rows"
+        if cols.startswith("feed,business_id,subject_hash"):
+            self.mode = "judged"        # apply_human: уже размеченных строк нет
+        else:
+            self.mode = "known" if cols.startswith("subject_hash,profile") else "rows"
         return self
 
     def __getattr__(self, attr):
-        if attr in ("is_", "gt", "order", "limit", "in_", "eq"):
+        if attr in ("is_", "gt", "order", "limit", "in_", "eq", "neq"):
             return lambda *a, **k: self
         if attr == "not_":
             return self
@@ -115,6 +118,8 @@ class _Q:
             r.data, self.store["rows"] = self.store["rows"], []
         elif self.mode == "known":
             r.data = self.store["known"]
+        elif self.mode == "judged":
+            r.data = []
         else:
             r.data = None
         return r
@@ -196,6 +201,46 @@ def test_real_golden_file_overrides_known_ai_mistakes():
              "subject_hash": "zz"}]
     decided, candidates, pending = C.plan(rows, human)
     assert [(r["profile"], r["profile_src"]) for r in decided] == [("none", "human")] * 2 and not candidates
+
+
+def test_late_human_label_overrides_an_already_judged_row():
+    """Метка, добавленная после разметки, переписывает «не наше» правила (Xalq Bank, 07.10)."""
+    upserts = []
+
+    class Q(object):
+        def __init__(self):
+            self.cols = None
+
+        def select(self, cols):
+            self.cols = cols
+            return self
+
+        def in_(self, *a):
+            return self
+
+        def neq(self, col, value):
+            assert (col, value) == ("profile_src", "human"), "ручную метку не трогаем"
+            return self
+
+        def upsert(self, batch, on_conflict=None):
+            upserts.extend(batch)
+            return self
+
+        def execute(self):
+            class R(object):
+                data = [{"feed": "deals", "business_id": "174537", "subject_hash": "4b0005a2bb77441e",
+                         "profile": "none", "profile_src": "no_stem"}]
+            return R()
+
+    class Client(object):
+        def table(self, name):
+            return Q()
+    n = C.apply_human(Client(), {"h:4b0005a2bb77441e": "poly", "f:x": "none"}, False, "2026-10-07")
+    assert n == 1 and upserts[0]["profile"] == "poly" and upserts[0]["profile_src"] == "human"
+
+
+def test_real_golden_marks_our_cardholder_win_as_poly():
+    assert C.human_labels().get("h:4b0005a2bb77441e") == "poly"
 
 
 def test_ai_budget_leaves_the_rest_unlabeled_for_next_run():
