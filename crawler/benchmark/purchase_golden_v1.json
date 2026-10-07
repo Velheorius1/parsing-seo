@@ -1,0 +1,2528 @@
+{
+ "version": 1,
+ "created": "2026-10-07",
+ "profile": "poly = полиграфия, merch = сувенирка/мерч с нанесением, none = не наше (решение Данияра 07.10.2026)",
+ "note": "Слепая разметка 210 предметов сделок etender (150 кандидатов + 60 без печатного корня) до прогона AI; плюс ручные метки дорогих ошибок AI. Служит и эталоном (purchase_golden), и ручными метками разметки (purchase_classify) — данные публичные. Отложенная слепая выборка 140 предметов (сделки + итоги ВМК-69), промпт её не видел: точность 0,98, полнота 0,96 (p4).",
+ "labels": [
+  {
+   "subject_hash": "bb2c15aeb79f304b",
+   "subject": "Poligrafiya va tipografiya xizmatlari (kitoblarni chop etish) / Услуги полиграфии и типографии (распечатка книг)",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "4d93a339e239b893",
+   "subject": "основа аликопон уф печать 145*75*20",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "abbd58977e0c1a14",
+   "subject": "imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish 2-Lot",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "97de39a9969bc8a8",
+   "subject": "1 дона 100 тўннали автокранни 1 ой муддатга қурилиш майдонига ижарага олиш учун",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "ee7c7e083f3d2b0b",
+   "subject": "Graduation coffee break",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "cdfd6a26bf9f7878",
+   "subject": "ПО ПРОЕКТУ ЦЕНТРАЛИЗОВАННОЙ СИСТЕМА ПЕЧАТИ В АКБ «БАНК РАЗВИТИЯ БИЗНЕСА»",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "418997cb3da932c1",
+   "subject": "Андижон шахар “Аёллар дафтари” жамғармаси хисобидан аёллар хонадонларини жорий таъмирлаш учун махсулотлар сотиб олиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "5c8e9e45e9f2a2e5",
+   "subject": "“Biznesni rivojlantirish banki” ATBning Markaziy idorasiga 2026-yil gazeta va jurnallar obunasini tashkil etish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "6edbb5fe795f5649",
+   "subject": "Углубления проводимых в сфере здравоохранения реформ.RIO va BSIATMDMSV filialini xalqaro sertifikatsiyadan yoki akkreditasiyadan o'tkazish yordam ko'rsatish bo'yicha",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "24463da903fcf59d",
+   "subject": "Китоблар руйхати файлда курсатилган",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "d9ec6b9d1b0f7eec",
+   "subject": "Услуги по стирке, дезинфекции и глажки белья на 2025 год.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "ac91dffb8af55950",
+   "subject": "AJ \"Uz-SaeMyung Co\" QK xisobotlarini yanada takomillashtirish maqsadida 1c dasturini yangi versiya 1c 3.0 O'zbekiston uchun Buxgalteriyani paketi va ustanovkasini xaridi",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "84abf0e2854466ae",
+   "subject": "Жахон иқтисодиёти ва дипломатия университети учун Қўриқлаш хизматлари харидини амалга ошириш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a13b96854ba27072",
+   "subject": "O‘zbekiston Respublikasining Yer kodeksi (o’zbek va rus tillarida, kirill alifbosida) kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "607cdb01949c855b",
+   "subject": "Закупка ПО Системы централизованного управления инфраструктурой печати_Procurement of Centralized Printing Infrastructure Management System software",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "3caed9f2f6f88639",
+   "subject": "“Chop etish qurilmalari va kartrijlarni texnik xizmat ko‘rsatish hamda qayta ishlash ishlari” bo‘yicha (Biznesni rivojlantirish banki Andijon viloyati)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "cd9ead0e17366e85",
+   "subject": "Qashqadaryo viloyati Nishon tumanidagi “Qashqadaryo Agro-Star” MChJ yerlarini yomg‘irlatib sug‘orish tizimi uchun PIVOT uskunalariga elektr uzatish liniyalarini tortish.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "d6e0715a2ebbded6",
+   "subject": "Navoiy viloyati, Nurota tumani, Sentob MFY hududidan, umumiy maydoni 0,16 gektar boʻlgan 4 ta Yakka tartibda uy-joy qurish uchun mo‘ljallangan yer uchastkalarini baholash ishlarini amalga oshirish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "4e76886522d037c7",
+   "subject": "\"Халқ билан хамнафас\" альбом ва “Янги Ўзбекистон келажак сари ишончли қадам” китобларини нашр қилиш",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "c22e44b1558ec42b",
+   "subject": "4 Р 116 в \"Учқўрғон ш Бўстон Қишлоғи Қирғиз Республикаси Чегарасига олиб борувчи автомобил йўлини 0-10км қисмини Реконструксия қилиш ишларига Суб пудрат ишларига",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "970d0baa950c5633",
+   "subject": "Ободонлаштириш бошқармасига кўчатлар сотиб олиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "943efef81fd54a6f",
+   "subject": "28 мактаб учун керакли жихозлар харид килиш учун",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "ecc8b8300d1ef20a",
+   "subject": "Тошкент ш. Янгихаёт тумани, Ал-Фарғоний МФЙ, Спутник 4-даҳаси, 40а-уй манзилдаги нотурар бинони баҳолаш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "d3af847eddb7e45a",
+   "subject": "Yuridik shaxsni davlat ro‘yxatidan o‘tganligi to‘g‘risida guvohnomasi",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "7ea6c4283f2abef5",
+   "subject": "Xodimlarni majburiy tibbiy ko'rikdan o'tkazish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "4d9571e0518b7024",
+   "subject": "Поставка, монтаж и пусконаладку специализированного оборудования Системы контроля и управления доступом сотрудников в режимные помещения Инспекции",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "aec6535edb41abae",
+   "subject": "Ish beruvchining fuqarolik javobgarligini majburiy sug'urta qilish (CCLLI) xizmati. Услуга обязательного страхования гражданской ответственности работодателя (ОСГОР)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "16bf2607e33c618d",
+   "subject": "Термиз туман, “Мустақиллик” МФЙ Собиқ 10-сон умумтаълим мактаби",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "e6dcd16f39d6ba20",
+   "subject": "Nishon tumani, “Navro‘z” MFY, Yangi hayot ko‘chasi, 9-uyda joylashgan “Bo‘sh turgan noturar bino”ni baholash xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "9dcf800c47510296",
+   "subject": "Спорт мактаби ўқувчиларини 2026 йил 170 календар кун моббайнида 4 махал овқат билан таъминлаш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "f657eba404a991a1",
+   "subject": "Ўзбекистон Республикаси Президентининг қарори билан 2025 йил учун хусусийлаштириш дастурига киритилган Жомбой тумани, “А.Қурбонов” МФЙ жойлашган Собиқ кинотеатр биноси",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "f5f9a2be0d700956",
+   "subject": "Закупка «Лабораторные оборудования для испытаний продукции легкой промышленности – мебели» (комплект №3)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "27b0bd1d3b0e3254",
+   "subject": "Javoblar varaqasi blankasi",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "54fffad79c0c8fbf",
+   "subject": "Каттақўрғон тумани спорт мактабига йирик форматдаги баннерларни сотиб олиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "05d6942e331c7d0a",
+   "subject": "“Davlat belgisi” MChJ Bosma fabrikasining qozonxona qismidagi mo‘ri (tutun) (дымовой) trubasini demontaj qilish, o‘rnatish (montaj qilish), ishga tushirish (“tayyor holatida” «под ключ»)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "4cf0cb53ce667382",
+   "subject": "Parkent tuman yo’llardan foydalanish korxonasi davlat muassasasi 2025 yil mobaynida ehtiyot qismlar harid qilish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "70769ebafe124419",
+   "subject": "Аёллар дафтарида турган эхтиёжманд аёлларни саёхат тадбирларини ташкил этиш хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "7726a114dd884cb9",
+   "subject": "Китоб чоп этиш ва етказиб бериш хизмати",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "b9e82c341a076efc",
+   "subject": "Нукус шаҳар Ободанлаштириш бошқармаси ишчи ҳизматкорларига йил совғасини таёрлаш ва етказип бериш",
+   "feed": "deals",
+   "label": "merch",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "ffeb0a66a91b1d4d",
+   "subject": "Услуги по складированию, хранению, отгрузке минеральных удобрений в Бешарыкский районе",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "db1a0ff073a3303d",
+   "subject": "“O‘zsanoatqurilishbank” ATBda ISO 37001:2016 standarti talablariga muvofiqlikni qayta sertifikatlash xizmatlarini olish uchun sertifikatlashtirish organini tanlash.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "978f536a69abff9d",
+   "subject": "“Ёшлар дафтари”да турган фаол булган ёшларга шунингдек 5-мухим ташаббус тадбирларида голиб булган ёшларни рагбатлантириш максадида совгалар асбоб ускуналар(2-д телевизор 65 смарт ва 1-дона 43 смарт)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "ff86f7b14a025212",
+   "subject": "китоблар",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "195e0de560ccd21f",
+   "subject": "“Guliston” Va “Teatr” jurnallarining 2026-yil 3-sonlarini choп etish xizmati uchun",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "bd90d39691c09dc4",
+   "subject": "“O'z-Tong Hong Kompani” QK AJ korxona uchun extiyot qism va moslamalar xarid qilish bo’yicha.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "dc653bfffdd14f9f",
+   "subject": "Nishon t., \"Paxtaobod\" MFY, Abu Ali Ibn Sino ko‘chasi, 54-uyda joylashgan \"Paxtaobod pochta aloqa bo‘limi binosi\"ni baholash xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "1c23e1cffab1553e",
+   "subject": "ISO 50001:2018 standart talablariga binoan sertifikatlashtirishni o'tkazish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "896055a29801d67a",
+   "subject": "Маънавий ҳаёт журналини 2026 йил 3-сонини чоп этиш",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "4de6631de4df8adc",
+   "subject": "Хорижий давлатлар ўқув ва илмий адабиётлар, дарсликлар ҳамда ўқув қўлланмалар харид қилиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "4951c0f1e7f10862",
+   "subject": "Тўрақўрғон туман Хўжанд кинохона биносини бахолаш хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "f2d1228938cb2520",
+   "subject": "Болалар кутубхонасига китоблар",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "857af07cb236c187",
+   "subject": "O‘zbekiston Respublikasining Fuqarolik kodeksi kitobini chop etish",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "5ef98330c2efd2f5",
+   "subject": "Хуқуқ тартибот масканларида Полиграфия хизмати учун",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "50c5e04d9d36178b",
+   "subject": "“Guliston” jurnalining 100 yilligi munosabati bilan bayram dasturhoni tayorlash va bezatish xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "eeb635f673d6ed6f",
+   "subject": "отбор поставщика услуги грузоперевозки по направлению г. Бангкок, Таиланд – Самарканд, Узбекистан. Наименование перевозимого груза: Кунги для D-Max RG",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "420e02b41ee0b7c6",
+   "subject": "Қоракўл тумани Жиғачи МФЙ (3 га), Кетмонтуғди МФЙ (1,9 га), Олот тумани Шайхлар МФЙ (2,5 га), Каттабаёт МФЙ (1,9 га), Жондор туман Жондор МФЙ (3,2 га), Обод МФЙ (3 га) ларида мастер режа ишлаб чиқиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "e6f7a00ab514aa0d",
+   "subject": "Eng yaxshi takliflarni tanlab olish uchun Yoshlar daftari jamag‘armasidan Vaslik bayonnomasiga bo‘yicha Yoshlarni bilimlarini oshirish uchun badiiy kitoblar xaridi",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "fd6b328fbe872895",
+   "subject": "Qozon suv ekonomayzeri, konvektiv bug’ qizdirgich va shirmali bug’ qizdirgich paketlarini tayyorlash bo’yicha ishlarini bajarish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "cfb86902c642e993",
+   "subject": "“Иссиқлик электр станциялари” АЖ Фарғона ИЭМ филиалида замонавий турдаги ПТН-500-180 озиқлантирувчи турбо насос ўрнатиш бўйича лойиха хужжатларини ишлаб чиқиш ишларини амалга ошириш.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "30d7eb66a9040319",
+   "subject": "Ёшлар дафтаридаги фаол булган ёшларни шунингдек беш мухим ташаббус тадбирларида голиб булган ёшларни рагбатлантириш максадида совгалар асбоб ускуналар (духовка тик маш ва сваркалар) сотиб олиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "9af6b9a6dcf190b9",
+   "subject": "Ёшлар дафтарига киритилган ёшларга китоблар олиш учун",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "6df965d7f761e4bd",
+   "subject": "Сифатли нашр қилинган бадиий адабиётлар харид қилиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "e51cc5c7e7b646a7",
+   "subject": "ISO 9001 sertifikati (ISO 9001 Certification)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "f879259cb52ee9d7",
+   "subject": "11 Ўзбекистондаги Ислом цивилизацияси маркази томонидан нашр ишлари",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "236fa25ae55c20b5",
+   "subject": "Шерабод пахта Тозалаш АЖ бахолаш ишлари учун Бахолаш ташкилотини танлаш.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "b1a3d234fb960de0",
+   "subject": "“HAMSHIRA” журналининг 2025 йил 1-6 сонларини (6та сон) Тошкент шаҳри ва вилоятлардаги обуначиларга етказиб бериш бўйича",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "1e5c7cad0cc0bdb8",
+   "subject": "“Yoshlar uchun ming kitob” loyihasini amalga oshirish maqsadida jahonda mashhur bo‘lgan kitoblarni chop etish",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "f4164f1221711b44",
+   "subject": "Жах,он иктисодиёти ва дипломатия университети уудудини ободонлаштириш (газонлар, дарахтлар, декоратив дарахтлар, буталар ва гулларни парваришлаш) хизматлари 2025й",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "33758c23f3e21478",
+   "subject": "Работы по бурению горизонтальных каналов Яшнабадского района",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "27dfd5d10de064d1",
+   "subject": "Тафаккур журналини 2026-йил 2-сонини нашр қилиш",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "24ae8eb4733ace80",
+   "subject": "95V008 \"D233 автомобиль жолынын 79 км.нен-Май жап АПЖ шекемги 0-10 км аралыктагы жолга кара каплама (асфальт) жаткарыу ишларининг лаборатория хулосалари ва синов баённомаларини олиш учун",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "1d2b05fea56dfeac",
+   "subject": "\"HAMSHIRA\" журналининг 2025 йил 3-сонини чоп этиш учун",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "be6eca1d88f3c58e",
+   "subject": "““KHIVA SUITES” MCHJ tomonidan moliyalashtirilgan Xorazm viloyati Xiva shahridagi mehmonxona majmuasi Qurilish” obyektini nazorat oʻlchovidan oʻtkazish yuzasidan",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "1713856e80993b46",
+   "subject": "Автофургон для перевозки лошадей (коневоз)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "db0db5c9cfe81b6b",
+   "subject": "Ўрмон уруғчилик ва селекция маркази лабораториясини қуришда Проект ЗВОС, Экологик экспертиза хулосаларини олиб бериш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "0e191628ccb2ee10",
+   "subject": "Piskent tumani, “Birlik” MFYda MG1727250011/7-lot va “Oybek” MFYda hududida joylashgan MG1727250025/1-lotlar boʻicha Qishloq xoʻjaligiga moʻjjallanmagan yer uchastkasini baholash hizmati uchun",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "8f57366b4f4665b3",
+   "subject": "Разработка, внедрение и сопровождение до сертификации системы энергоменеджмента / Энергетик менежмент тизимини ишлаб чиқиш, жорий этиш ва сертификатлаштиришга қадар ҳамроҳлик қилиш.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "e0d665d005076d16",
+   "subject": "Газета чоп этиш хизмати",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "4a62ca2a1ba592cc",
+   "subject": "Restoran bino va inshootlari (Farg‘ona shahar, Ma’rifat MFY, Yuksalish ko‘chasi 19-uy)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "cde5f573ce11cc7a",
+   "subject": "TDIU tasarrufidagi binolarining shisha paket, shisha vitraj oynalarini ishlab chiqarish va o‘rnatish, alyumin konstruksiyalar, alyumin qotishmalardan ishlangan vitrajlar ishlab chiqarish va o‘rnatish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "48795151920127d6",
+   "subject": "HSM payShield 10K Standard Build qurilmalari uchun texnik qo‘llab-quvvatlash Sertifikati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "f1961e8a628606d1",
+   "subject": "\"O'zbekiston\" jurnali 1 son 2024",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "48df1eff1b64de60",
+   "subject": "К41 П28 Ионометр для НИИ животноводства и птицеводства",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "fb74830ab793e6b4",
+   "subject": "Kitob tumani, “Tupchoq” MFY, Jayraxona qishlog‘i, 165-uyda joylashgan “Bo‘sh turgan bino”ni baholash xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "d58cf4521b70791d",
+   "subject": "O‘zbekiston Respublikasining Soliq kodeksi (o'zbek tilida kirill alifbosida) kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "f177f441bf7689c3",
+   "subject": "Нашр этиш хизмати",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "f9cc050e5704d48a",
+   "subject": "Tadbirkorlik uchun: Qorao`zak tumanida 1 ta Nukus shaharda 1 ta Qo`ng`irot tumanida 1 ta yer uchastkalari",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "d6c4dacc9056c06d",
+   "subject": "Бланки медицинского назначения 4003-707310154001",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "ca644708ef6f9f0a",
+   "subject": "Sopol kalibrlash sharlarini kalibrlash / Ceramic calibration spheres calibration (3 yillik Ochiq turdagi / Blanket for 3 years)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a0a509870d24b339",
+   "subject": "«O’zbekneftgaz» AJ Gazli NGQCHBda ISO 9001:2015, ISO 14001:2019, ISO 45001:2020 xalqaro standartlari talablariga muvofiqligini tasdiqlash maqsadida sertifikatlarni olish bo’yicha",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "58b4e420e3a38ec5",
+   "subject": "\"O‘zagrosug‘urta”AJ 2024 yil yakunlari bo‘yicha xalqaro moliyaviy hisobot standartlari (IFRS 17) va Milliy buxgalteriya hisobi standartlari (MBHS) asosida tayyorlangan hisobotini auditdan o‘tkazish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "fa7c2dcc28d1962c",
+   "subject": "Регуляторы и сальники",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "d621d7f0038d98b2",
+   "subject": "2026 йил учун даврий нашрларга обуна бўлиш / Подписка на периодические издания на 2026 год",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "f44edeb9b5a21de5",
+   "subject": "Toshkent davlat yuridik universitetiga 2026-yil uchun mahalliy gazeta va jurnallarga (davriy nashrlarga) obuna boʻlish va ularni yetkazib berish xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "b7551c5c935e2371",
+   "subject": "Chop etish qurilmalari va kartridjlarni texnik xizmat ko‘rsatish hamda qayta ishlash",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "35fbccb9201d1966",
+   "subject": "PCI DSS standarti talablariga muvofiq sertifikatlashtirilgan auditdan o‘tkazish / Закупка сертификационного аудита соответствия требованиям стандарта PCI DSS",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "2142bb3585a275e1",
+   "subject": "Система эндоскопическая",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "bdc67dbd42f16a03",
+   "subject": "Sifat menejmentini sertifikatlashtirish auditi, 1-nazorat auditi va 2- nazorat auditini ko'rsatish xizmati.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a648df680cbc3481",
+   "subject": "ISO 9001 va ISO 37001 xalqaro standartlari bo‘yicha boshqaruv tizimlarini joriy etish va sertifikat olish.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "d3e2e62c6a065188",
+   "subject": "на оказание услуг по организации перевозки образцов нефтепродуктов и химических продуктов",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a08fcca65d0e8f65",
+   "subject": "Xitoy Xalq Respublikasidan O ‘zbekiston Respublikasi Farg’ona Shahriga butlobchi qisimlarni tashish bo’yicha ekspeditorlik xizmatlarini sotib olish.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "d0d4f3f72cc4a1e7",
+   "subject": "Озик-овкат 04",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "664020c63d5e9333",
+   "subject": "картошка 4005 захира",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "f6df769646460f59",
+   "subject": "Конимех ҳокимлиги ёшлар дафтари жамгармаси эхтиёжи учун сотиб олинадиган спорт кийимлари",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "6524a5c0d244c8df",
+   "subject": "Оборудование связи для санатория / «Санаторий учун алоқа ускуналари»",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "48f21a2386aa8a6b",
+   "subject": "Риштон ММТБга карашли мактабларга китоб олиш учун",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "38dd32e9ef2e9e9b",
+   "subject": "Республика тиббиёт муассасалари учун тиббий жиҳозлар харид қилиш_ЛОТ№16 (ПҚ-454)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "214b496d6fdac5c1",
+   "subject": "Amudaryo tumani Bog‘ MFY hududidan o‘tuvchi 95V061 avtomabil yo‘lining 1.2 km.dan 2 km qismigacha 900 metr va 95V161 avtomabil yo‘lining 7,5 km.dan 6,3 km.gacha bo‘lgan oraliqqa asfalt qoplamasi yotqi",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "1b4fce5ce0c7178a",
+   "subject": "Оказание услуги по изготовлению рекламно-сувенирных материалов для филиала «УзМобайл»",
+   "feed": "deals",
+   "label": "merch",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "66750c22d5dbb01d",
+   "subject": "Ручные дорожно-разметочные машины, оснащенные бензиновым двигателем для нанесения горизонтальной дорожной разметки",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "cd86651bc30b5371",
+   "subject": "Tafakkur jurnalini chop etish",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "058e34e2b499c798",
+   "subject": "O‘zbekiston Respublikasining Konstitutsiyasi (o‘zbek tilida kiril va lotin alifbosida va rus tilida shuningdek, o‘zbek tili lotin yozuvi, rus tili hamda ingliz tillarida) kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "5e4477e7deb327e2",
+   "subject": "“Toshkent IEM” filialiga qarashli 3-sonli kogeneratsiya markazida (Sergeli) o‘rnatilgan MWM TCG3020 V20 gaz-porshenli agregatga 4000-32000 ekvivalent soat ish vaqti boʻyicha uzoq muddatli texnik",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "e85509b62033ad6f",
+   "subject": "“Kriminologiya” o‘quv darsligini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "9863c8453457145b",
+   "subject": "UzAuto Motors AJ buyurtmachiligida 2023-2024-yillada amalga oshirilgan ta'mirlash ishlari yuzasidan nazorat o'lchovi o‘tkazish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "9ff7719cb30e8f28",
+   "subject": "Строительство зала прилёта для внутриреспубликанских рейсов ООО «Международный Аэропорт Карши»",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "b7a09ea4830495e9",
+   "subject": "Spare parts for Comau blanked",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "287910bd16061b14",
+   "subject": "Surxondaryo viloyat Angor tuman Tibbiyot birlashmasiga Zarur bo`lgan tibbiyot jurnallari va tibbiy blanklar xarid qilish bo‘yicha",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "d8e13704d1f63c71",
+   "subject": "Сурхондарё вилоят болалар кўп тармоқли тиббиёт марказига зарур бўлган тиббий бланкаларни тайёрлаб бериш хизмати бўйича",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "8c3c1493a607ffb9",
+   "subject": "Қорақалпоғистон Республикаси прокуратура органлари ҳудудларида қуёш панеллари орқали ёритиладиган кўча ёритгич чироқларини харид килиш ваўрнатиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "9d5a454287fabfdb",
+   "subject": "Бажарилган қурилиш-таъмирлаш ишлари устидан назорат ўлчов ишини ўтказиш хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "8683308938d172d3",
+   "subject": "Тупроккала ахборот-кутибхона маркази учун бадий китоблар сотиб олиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "841f49965cdd37e6",
+   "subject": "Баннер ясатиш хизматлари",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "8f07954303b409d2",
+   "subject": "Nashrlarni chop etish xizmati",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "b3f5ccaf668bb8a2",
+   "subject": "Умумтаълим мактаблари ўқувчилари ўртасида ЧҚБТ мусобақа ғолибларига совғалар",
+   "feed": "deals",
+   "label": "merch",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "c9e8cfe3d071f80a",
+   "subject": "Oʻrta Chirchiq tumani \"Jangʻabay\" MFY, Jangʻabay koʻchasi, 193-uyda joylashgan Zahiradagi boshqaruv punkti binosini baholash xizmati uchun",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "63ec6241709178e2",
+   "subject": "Nishon tumani, “Nuriston” MFY, Do‘stlik ko‘chasi, 80-uyda joylashgan “Baza USR” binolarini baholash xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "b35e25d97c53661e",
+   "subject": "O‘zbekiston Respublikasining turizm salohiyatiga bag‘ishlangan tarqatma materiallarni chop etishga oid shartnoma tuzish uchun",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "6f6feaac5d48a62d",
+   "subject": "Respublika shoshilinch tibbiy yordam ilmiy markazi Surxondaryo filialiga zarur bo`lgan tibbiyot jurnallari va tibbiy blanklar sotib olish uchun",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "4c0b8dfca9888d40",
+   "subject": "Дўстлик тумани Ободонлаштириш бошқармаси янги йил байрам қатнашчиларига байрам совғаларини таёрлатиш учун",
+   "feed": "deals",
+   "label": "merch",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "fac51921c1ca987f",
+   "subject": "Йўл қурилиш ва махсус техникаларни таъмирлаш, зарур эҳтиёт қисмларини ўрнатиш ва техник хизмат кўрсатиш хизматлари",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "64f1ab02f26470f5",
+   "subject": "O‘zbekiston Respublikasining Fuqarolik protsessual kodeksi (o’zbek va rus tillarida, kirill alifbosida) kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "fca9a181395713ad",
+   "subject": "Eng yaxshi takliflarni tanlab olish uchun Yoshlar daftari jamag‘armasidan Vaslik bayonnomasiga bo‘yicha",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "69b84cd76d5792ca",
+   "subject": "NAVOIYAZOT AJda ISO/IEC 27001:2022 «Axborot xavfsizligini boshqarish tizimi (AXBT)» xalqaro standartiga muvofiq sertifikatlashga tayyorlash bo‘yicha konsalting xizmatlarini ko‘rsatish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "458c48c2bf33c7a7",
+   "subject": "Samarqand viloyat IIBga poligrafiya xizmatlari",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "417dad483d546d0a",
+   "subject": "“UzAuto Motors’ AJ uchun ISO 37001:2016 (ISO 37001:2025) va ISO 37301:2021 standartlariga muvofiq sertifikatlash va o‘qitish xizmati.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "99cd4825ba691a9d",
+   "subject": "Выполнения работ по размещению диджитал баннеров и контекстной медийной рекламы для АКБ «AGROBANK»",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "13f3637f074fb96f",
+   "subject": "“Chop etish qurilmalari va kartrijlarni texnik xizmat ko‘rsatish hamda qayta ishlash ishlari” bo‘yicha (Biznesni rivojlantirish banki Qashqadaryo viloyati)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a095dbe63d0564fd",
+   "subject": "Keksalar, urush va mehnat faxriylari uchun Qarshi sanatoriyasining autsorsing usulida ovqatlanish xizmatlarini taqdim etish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "806708361480786b",
+   "subject": "“ИМОМ БУХОРИЙ ИЛМИЙ АСАРЛАРИ” ТЎПЛАМИ. (12 номдаги китоб жамланма)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "e4f4701ae219ce9d",
+   "subject": "Шароф Рашидов туман Ахборот кутубхона марказиги китоблар туплами етказиб бериш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "b024ac4113e47b35",
+   "subject": "Lot 5 \"Vinkrsitin\" Gematologiya PQ-4592",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "40e8da8905f23066",
+   "subject": "elektr avtobuslaridan foydalanish boʻyicha operatsion maʼlumotlarni toʻplash va Toshkent shahridagi Shota Rustaveli koʻchasiga taʼsirini oʻrganish boʻyicha xizmatlarni sotib olish.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "e06b508a9d3b70c6",
+   "subject": "Poligrafiya mahsulotalrini ishlab chiqarish va yetkazib berish",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "c4e3e5ab88c0bf83",
+   "subject": "“Sun’iy intellekt tizimi yordamida kasallik tarixlari analitikasini yuritish va prognozlashga ixtisoslashgan platforma hamda belgilangan standartlar asosida bemorlarga umumiy tashxis qo‘yish imkoniyat",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "5076655b153480bf",
+   "subject": "Loyiha ishlab chiqish va qayta hisob kitob qilish uchun pudrat tashkiloti tanlash",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a0645ed4caff9bc3",
+   "subject": "специальный одежда для работникам службы ПАСОП аэропорта Фергана комплект состоит кител, брюки, кепка-2шт и футболка трикотажная-2 шт подробное описание и фото указано в техническом задание",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a07b4fc93d712a6c",
+   "subject": "\"Davlat belgisi\" DUK bosma fabrikasi \"B\" ishlab chiqarish binosining avtomatik yong'in o'chirish tizimini modernizatsiya qilish bo'yicha loyiha-smeta hujjatlarini ishlab chiqish xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a5a774a12844c169",
+   "subject": "«O`zChasys» MChJ qo‘shma korxonasi ishchi-xodimlari uchun Yengi kalta erkaklar uchun maxsus buklanadigan yoqali yozgi Polo futbolkasini xarid qilish bo‘yicha.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "881566308d603dae",
+   "subject": "“Аёллар дафтари”да турган хотин қизларга Термопот (41 дона) харид қилиш бўйича",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "c5665dd208fa05a3",
+   "subject": "\"DAVLAT BELGISI\" DUK bosma fabrikasi qo'riqlash binosi uchun 3 to'plam kanal turidagi konditsionerlarni xarid qilish, o'rnatish va ishga tushirish xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "ff2521adf53f1c7a",
+   "subject": "Закупка сценический деревьев и цветочной рассады",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "0fe5c9b0f1a38de2",
+   "subject": "Ro‘yxat asosida kitoblar sotib olish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "c0d0de030b169d8f",
+   "subject": "IEC 61000-XX xalqaro standartlariga muvofiq, Telekomunikatsiya texnik vositalarini sertifikatlashtirish sinov markazining akreditatsiya sohasini radiotexnik va elektromagnit moslashu",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "aad4cce59cd1e72d",
+   "subject": "Работы по бурению горизонтальных каналов М.Улугбекского района",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "6a0cdc3ba5ac4b77",
+   "subject": "зарур босма маҳсулотлар ҳамда товар-моддий захираларни етказиб бериш",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "b93b048e021322cb",
+   "subject": "metal yig`iluvchi panjaralarni bo`yoqlash xizmatlarini sotib olish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "9fa149d909255c0f",
+   "subject": "Жамиятнинг Қўнғирот филиали нефт маҳсулотларини сақлаш омборхонасида жойлашган горизонтал ва вертикал сиғим (резервуар)ларни коррозиядан ҳимоя қилиш (буёқлаш) хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "e95c294a1c29a1a9",
+   "subject": "2 dona V=2000 m3 sig‘imli akkumulyator baklari hamda 1 dona KVGM-100 issiq suv qozoni konvektiv paket shirmalari almashinuvi, issiqlik himoyasi mukammal ta’miri. / Аккум. Баки + Ширмы на КВГМ-100",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "ed1c07a05276b1bd",
+   "subject": "Nishon tumani, “Nuriston” MFY, Do‘stlik ko‘chasi, 78-uyda joylashgan “Baza SAEMI” binolarini baholash xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "e01a11258679ec63",
+   "subject": "АХО Ташкент Сувенирка",
+   "feed": "deals",
+   "label": "merch",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "afcf92b34595dea5",
+   "subject": "биринчи чорак учун китоб махсулотлари",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "9ceb4fbd6fba80af",
+   "subject": "“O‘ztransgaz” AJ boshqaruv tizimining xalqaro standartlar talablariga muvofiqligini sertifikatlash xizmatlarini amalga oshirish ISO 9001:2015, ISO 14001:2015, ISO 45001:2018 va ISO 50001:2018. Shuning",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "736064f7e1fe5996",
+   "subject": "Ibrohim Saffor Buxoriyning “TALXISUL ADILLA LI QOVAIDAT TAVHID” kitobini chop qilish",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "48dfaf99bee31675",
+   "subject": "O‘zbekiston Respublikasining Mehnat kodeksi (o’zbek va rus tillarida, kirill alifbosida) kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "cbf9bcb2d9042cdf",
+   "subject": "The journey to the Сonstitution kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a5dacb56b9dbcc6b",
+   "subject": "Urganch tumanida joylashgan \"Xorazmdonmahsulotlari\" AJ ustav fondi (ustav kapitali)dagi 92,23 foiz davlat aksiya paketini bo'yicha baholash hisobotini ekspertizadan o'tkazish xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "2927896d13959c2f",
+   "subject": "Нашрга тайёрлаш ва чоп этиш",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "c5eddaa5eeb06412",
+   "subject": "Приобретение полиграфической продукции",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "2793a0cd1e4fb552",
+   "subject": "Шаҳрисабз шаҳри, \"Кеш\" МФЙ, Кеш кўчаси, 15а-уйда жойлашган \"Китоб\" станциясидаги бўш турган бинони баҳолаш хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "e66083ce89446dc7",
+   "subject": "Умумий биноларни тозалаш хизмати буйича",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "26fd3216185e48c0",
+   "subject": "Наманган вилоятидан аукцион савдоларига чиқариладиган 24 та ер майдонини баҳолаш хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "5a651b4043cfca38",
+   "subject": "O‘zbekiston Respublikasining suv kodeksi kitobini chop etish",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "22b19f9acc37ecf2",
+   "subject": "Сертификатлаштиришгача бўлган даврда бошқарув тизимини жорий этиш ва унинг ҳамроҳлиги (қўллаб-қувватлаш хизмати) / Внедрение и сопровождение до сертификации системы менеджмента",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a121f8b0f62dda9f",
+   "subject": "Стендлар, баннерлар ва пешлавҳалар тайёрлаш ҳамда етказиб бериш // Изготовление и поставка стендов, баннеров и табличек",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "d6ddcb09c15812fa",
+   "subject": "Услуга по переоборудованию автотранспортных средств iSUZU NPR 75 для нанесения дорожной разметки краской",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "c5f81acf8ba031e0",
+   "subject": "Bolalar uchun yuridik ensiklopediya kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "b69bb7db1c44602c",
+   "subject": "Ахборот кутубхона маркази учун 227 хил турдаги китоблар харид килиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "b9250b93c4cc8fcd",
+   "subject": "Ёшлар таъдбири учун совғалар олиш",
+   "feed": "deals",
+   "label": "merch",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "95dcc0a7bfe0598e",
+   "subject": "Yuklarni (nashrlarni) etkazib berish xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "f89e14d7a23ecbb3",
+   "subject": "Услуга по печатанию периодических изданий",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "2fb2bbfaea33f1b0",
+   "subject": "“O‘ztransgaz” AJ issiqxona gazlari chiqindilarini professional tekshirish (sertifikatlash) xizmatlarini sotib olish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "3aac69dfc9e1cc6d",
+   "subject": "Программа подготовки к международной сертификации по системе IPMA / Халқаро IPMA тизими бўйича сертификатлашга тайёргарлик дастури",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "398b0b0bd46b0201",
+   "subject": "подарочные наборы с фирменным логотипом компании.",
+   "feed": "deals",
+   "label": "merch",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "9df9db3f77285faf",
+   "subject": "Ўзбекистон Республикаси Миллий гвардиси Самарқанд вилояти Қўриқлаш бошқармасига металл конструкцияли нишонлар ясаб бериш хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "6ef14a6d12c83d59",
+   "subject": "\"HAMSHIRA\" журналининг 2024 йил 6-сонини чоп этиш учун",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "79a5143209fc96bf",
+   "subject": "Jamiyatda \"Korrupsiyaga qarshi boshqaruv tizimi\"ni xalqaro va milliy standart ISO 37001:2016 bo'yicha qayta sertifikatlash auditining siklini o'tkazish bo'yicha sertifikatlash xizmatini ko'rsatish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "8836662d5666d2c6",
+   "subject": "Ёшлар дафтарига киритилган Ёшларга совғалар олиш учун",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "94f07a95ea51e884",
+   "subject": "Qashqadaryo viloyati, Nishon tumani hududida 4 dona Pivot yomgʻirlatib sugʻorish tizimini va nasos stansiyasini oʻrnatish (3-bosqich)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "775a50fd4d3baccb",
+   "subject": "Запасные части для навесного оборудования СЗМ КамАЗ / КамАЗ СЗМ осма жиҳозлари учун эҳтиёт қисмлар.",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "464ad40ece6a5ee8",
+   "subject": "Выполнения работ по антикоррозийной покраски металлоконструкций и покраски стен машинного зала Чарвакской ГЭС",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "0bf90435ff733cfc",
+   "subject": "МАРКАЗ ТОМОНИДАН ТАЙЁРЛАНГАН КИТОБ ВА РИСОЛАЛАРНИ НАШР ҚИЛИШ",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "549718c6c0f6d6eb",
+   "subject": "Nurafshon shaxri, Toshkent yoʻli koʻchasida joylashgan “NURAFSHON AVTOCENTR” MCHJning 100 foiz davlat ulushini baxolash xizmati vositalari baxolash xizmati uchun",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "927e972592e1a42f",
+   "subject": "Д234 \"NUKUS SH.-CHIMBOY SH.-TAXTAKO‘PIR SH\" объектининг 68-82-километрларида автомобиль йўли остидан Ø219 мм пўлат қувурни горизонтал йўналтирилган бурғилаш усули билан ўтказиш ишлари",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "976f512baede1259",
+   "subject": "Қора металл парчалари ва чиқиндиларини қайта ишлаш учун гидравлик пакетлаш пресси – шеф-монтаж, ишга тушириш-созлаш ва ходимларни ўқитишни ўз ичига олган ҳолда (Техник топшириққа мувофиқ)",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "ef8b7029886481aa",
+   "subject": "Markazning buyurtmasiga asosan Respublikaning turizm salohiyatiga bag‘ishlangan tarqatma materiallarni chop etish",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "82c2cda9b560b0bf",
+   "subject": "Вакцина ящурная культуральная моно-и поливалентная сорбированная инактивированная типов: A, O, Азия-1",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a52068e781f616bd",
+   "subject": "Нишон тумани, “Пахтакор” МФЙ, Мерос кўчаси, 4-уйда жойлашган “Нотурар бино”ни баҳолаш хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "d0d75eaeb8f5646d",
+   "subject": "Amudaryo tumani, Navoiy MFY, Halqlar do‘stligi ko‘chasi raqamsiz uyda joylashgan Sut mahsulotlarini ishlab chiqarish binosini baholash",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "685f00027a221bf5",
+   "subject": "Тил ва адабиёт таълими журнали 2026 йил 5 сони",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "755baaae4add1412",
+   "subject": "MCHJ “KWANGJIN AUTOSYSTEMS” Qo’shma korxonasida IATF 16949:2016, ISO 9001:2015 xalqaro standartlari talabiga binoan sertifikatlashtirish auditi va nazorat auditini o'tkazish",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "2435b8a84f7408e4",
+   "subject": "РИДваКИАТМни мувофиқликни баҳолаш органларини халқаро стандартларга мувофиқ аккредитацияга тайёрлаш ва сертификатдан ўтказиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "54300701e04efc61",
+   "subject": "Xorazm viloyatida joylashgan «AUTO RUBBER» MChJ filiali ishchi hodimlariga korxona logotipi tushurilgan mavsumiy uniforma sotib olish uchun.",
+   "feed": "deals",
+   "label": "merch",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "a2055f881472ce61",
+   "subject": "Ma'naviy hayot jurnalini 4 sonini nashr etish",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "125144bd1512f8b6",
+   "subject": "Форилмон давлат ўрмон хўжалигининг Қўшработ тумани, “Оқчопсой” МФЙ ҳудудидаги ўрмон фонди ерларида суғориш қудуғини қуришда топография ишларини бажариш",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "df11ec1e9ee91229",
+   "subject": "Оказание услуги по консультированию и таможенному оформлению грузов, перемещаемых через границу Республики Узбекистан для нужд ГУП Центр \"Узаэронавигация\"",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "ee2661a736cb5bd4",
+   "subject": "Услуги по лабораторным испытаниям и оформлению сертификата соответствия / Лаборатория синовларини ўтказиш ва мувофиқлик сертификатини расмийлаштириш хизматлари",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "495df6cecbf41305",
+   "subject": "Oqdaryo tuman Kengashlari deputatlari sayloviga tayyorgarlik kurish va uni utkazish uchun konselariya va poligrafiya mahsulotlari",
+   "feed": "deals",
+   "label": "poly",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "2dd961c272298f52",
+   "subject": "Приобретение комплекса оборудования DPI по внедрению на сети филиала «УзМобайл» АК «Узбектелеком» системы анализа и применения политик для управления пакетным трафиком",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "92af76f173cdcbba",
+   "subject": "Янги нашр қилинган ҳамда талаб бўйича адабиётлар",
+   "feed": "deals",
+   "label": "none",
+   "source": "blind-2026-10-07"
+  },
+  {
+   "subject_hash": "227cb9e3af926067",
+   "subject": "2026-2027-o‘quv yilida 1-sinf o‘quvchilari, uyda yakka tartibda ta’lim olishi mumkin bo‘lgan imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish 3-Lot",
+   "feed": "deals",
+   "label": "none",
+   "source": "review-2026-10-07: дорогая ошибка AI"
+  },
+  {
+   "subject_hash": "5dffffc9a3d64a9b",
+   "subject": "2026-2027-o‘quv yilida 1-sinf o‘quvchilari, uyda yakka tartibda ta’lim olishi mumkin bo‘lgan imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish 2-Lot",
+   "feed": "deals",
+   "label": "none",
+   "source": "review-2026-10-07: дорогая ошибка AI"
+  },
+  {
+   "subject_hash": "6623d328c4e4d938",
+   "subject": "2026-2027-o‘quv yilida 1-sinf o‘quvchilari, uyda yakka tartibda ta’lim olishi mumkin bo‘lgan imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish 1-Lot",
+   "feed": "deals",
+   "label": "none",
+   "source": "review-2026-10-07: дорогая ошибка AI"
+  },
+  {
+   "subject_hash": "659e7b4d30472997",
+   "subject": "Imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish 7-Lot",
+   "feed": "deals",
+   "label": "none",
+   "source": "review-2026-10-07: дорогая ошибка AI"
+  },
+  {
+   "subject_hash": "f7c5f1139574b1f9",
+   "subject": "Imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish 8-lot",
+   "feed": "deals",
+   "label": "none",
+   "source": "review-2026-10-07: дорогая ошибка AI"
+  },
+  {
+   "subject_hash": "17c027464048965c",
+   "subject": "Imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish 6-Lot",
+   "feed": "deals",
+   "label": "none",
+   "source": "review-2026-10-07: дорогая ошибка AI"
+  },
+  {
+   "subject_hash": "4e668b42856e482f",
+   "subject": "Imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish 5-Lot",
+   "feed": "deals",
+   "label": "none",
+   "source": "review-2026-10-07: дорогая ошибка AI"
+  },
+  {
+   "subject_hash": "269b9a3d33f5328a",
+   "subject": "Imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish 4-Lot",
+   "feed": "deals",
+   "label": "none",
+   "source": "review-2026-10-07: дорогая ошибка AI"
+  },
+  {
+   "subject_hash": "5f39967f4e4f8f54",
+   "subject": "imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish",
+   "feed": "deals",
+   "label": "none",
+   "source": "review-2026-10-07: дорогая ошибка AI"
+  },
+  {
+   "subject_hash": "d821db8df7b72b3b",
+   "subject": "imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish 1-Lot",
+   "feed": "deals",
+   "label": "none",
+   "source": "review-2026-10-07: дорогая ошибка AI"
+  },
+  {
+   "subject_hash": "7773b39be783a05d",
+   "subject": "По приобретению художественно-декоративных изделий с нанесением национального орнамента, выполненных из массива древесины бука, согласно предварительному расчёту, для размещения на объекте: «Строитель",
+   "feed": "deals",
+   "label": "none",
+   "source": "review-2026-10-07: дорогая ошибка AI"
+  },
+  {
+   "subject_hash": "1e8c0d040fdc8038",
+   "subject": "Кракалпогистон Республикаси Жокарги Кенгесининг Президиум карарына асас ”Темир дафтар” ва кам таъминланган ёрдамга мухтож аҳоли оилаларинг уйларини тежамкор энергия ускуналари билан таъминлаш",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "8410e6799a1b6783",
+   "subject": "O‘zbekiston Respublikasining Havo kodeksi kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "61d2dcecbcd497e3",
+   "subject": "Переоборудование грузового шасси ISUZU NPR 75 для нанесения дорожной разметки.",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "f980ebcf1e3a2b2a",
+   "subject": "Поставка счетчиков количества жидкости СКЖ-30",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "0345039768451b44",
+   "subject": "РИО в БСИАТМ Сурхондарё вилоят филиалига тиббий бланкалар тайёрлатиш учун",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "ebd49e5a09668223",
+   "subject": "“Talimarjon IES” AJ geoaxborot ma‘lumotlar bazasi (GIS)ni hozirgi kun holatida yangilash, fazoviy ma‘lumotlar bazasini shakllantirish, kadastr kitobini yangilash, topografik tasvir xaritalarini yarati",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "cf5131cf7f4c247a",
+   "subject": "O‘zbekiston Respublikasining Гражданский кодекс kitobini chop etis",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "ac12ed1f4a0b15ea",
+   "subject": "Buxoro viloyatidagi “UMS” MChJ reklama tuzilmasini ta’mirlash/Ремонт и техническое обслуживание рекламных конструкций ООО «UMS» в Бухарской области.",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "edb44d33c46bd096",
+   "subject": "Google ads, Meta ads, Telegram ads, Display & Video 360, Native Network reklama tarmoqlarida internet tarmog‘ida raqamli reklamani joylashtirish va qo‘llab-quvvatlash bo‘yicha xizmatlar ko‘rsatish",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "0a3ba1a18d985bd3",
+   "subject": "Оказание сертификационной услуги по проведению цикла ре-сертификационного аудита системы менеджмента качества и выдача сертификатов по международному и национальному стандартам ISO 9001:2015",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "5eee7a71ece6c794",
+   "subject": "Armiya hayot maktabi kitobi",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "c467bcf7bd1fac8b",
+   "subject": "\"DAVLAT TILIDA ISH YURITISH ASOSLARI\" (lotin) orginal maketi va dizaynini tayyorlash hamda chop etish",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "22e98b09700ed85e",
+   "subject": "1 ta obyektni baholash",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "8a2d68ff612de20d",
+   "subject": "Qizdirgich va yoqish pechlarining rejim-sozlash sinovlari/ Режимно-наладочные испытания подогревателя и печей дожига",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "46b63f968f71820c",
+   "subject": "услуга по печатанию журнала \"Иктисодий шарх\"",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "79ef6e3c1df3def8",
+   "subject": "баннер 5 екиншиси",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "5ba5150ebdcec4e7",
+   "subject": "чоп этиш хизмати",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "bebcbcf10b2836cd",
+   "subject": "Navoiy viloyatidagi “UMS” MChJ reklama tuzilmasini ta’mirlash/Ремонт и техническое обслуживание рекламных конструкций ООО «UMS» в Навоийской области.",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "8b40700a372b63ef",
+   "subject": "Март газета чоп этиш",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "1f35f2e67e7f2238",
+   "subject": "\"А-4 Форматдаги икки томонлама чоп этиш учун Рангли принтер\"",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "8860f3edbf05637c",
+   "subject": "Полиграфическая продукция",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "52d6a1b9727ff657",
+   "subject": "Журналнинг 2 сони чоп этиш",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "8dfe62c9920a9eac",
+   "subject": "2026 yil xususiylashtirishga asosan Samarqand shahar, “Shukrona” MFY, 29-mavzesi, 91-uyda joylashgan Noturar bino baholash xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "bef368c18013f605",
+   "subject": "Тафаккур журналининг 4-сонини чоп этиш",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "776b973b4ad0e773",
+   "subject": "Баликчи ММТБга каршли мактаблар том кисмларига ёнгинни пасайтирувчи кимёвий суюклик билан ишлов бериш",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "c5a095e501ac61ad",
+   "subject": "Изготовление баннер и стенд",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "5455cb38faa47a42",
+   "subject": "2 komplekt katta hajmli harflar Bank logotipi dizaynini brendbuk hamda brenchbuk talablariga mos ravishda vositani ishlab chiqarish va o’rnatish. (Jizzax, Namangan)",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "b5fd18f037891534",
+   "subject": "Shahrisabz shahar, «Do‘stlik» MFY hududida tashkil etilgan «Kitob tuman kichik sanoat zonasi»ning 31-lotini baholash xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "ddf0fd34785ad887",
+   "subject": "Мусобақа учун совғалар",
+   "feed": "civil",
+   "label": "merch",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "d9c57f16cbe9f666",
+   "subject": "Услуга по бланкопечатанию",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "39de7bd0c8729385",
+   "subject": "Насос станцияларидаги турли маркадаги электродвигатель ва насосларнинг бутловчи кисмлари ва деталларини капитал таъмирлаш ишлари",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "9d967a8e4bd78b67",
+   "subject": "Каттақўрғон туман маданият ва туризм бўлимига кондиционер маҳсулотларини сотиб олиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "b20660da5ad652d6",
+   "subject": "Услуги по очистке и обследованию дымоходов и вентиляционных каналов",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "d81dd24499d8f25e",
+   "subject": "Nogironligi bo‘lgan shaxslar va ijtimoiy himoyaga muhtoj xotin-qizlarning huquqlarini himoya qilish bo’yicha Qo‘llanmani tayyorlash",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "e9ee9b1d8c3e7a42",
+   "subject": "Армия журнали",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "904c0d7110e0b623",
+   "subject": "Автопатрул машиналаридаги логотипни алмаштириш ишлари",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "698152cc66001a7c",
+   "subject": "журнал ва бланка",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "fb246373e6e192b4",
+   "subject": "По выбору аудиторской организации для трансформации финансовой отчетности АО «Талимаржанская ТЭС» в соответствии с Международными стандартами на 31 декабря 2024 г. и сопровождение внешнего аудита",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "818e54d66f2895ee",
+   "subject": "Жарқўрғон туман Аёллар дафтари жамғармаси ҳисобидан қурилиш моллари ҳарид қилиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "ab096b71d09edffa",
+   "subject": "“Biznesni rivojlantirish banki” ATB uchun chop etish qurilmalari qurilmalarini yetkazib berish",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "22ffbacef7c628b6",
+   "subject": "Hajmi 950 L bo‘lgan sig‘imlarni sertifikatlash",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "bded7dd4596112c3",
+   "subject": "Toshkent davlat yuridik universitetiga 2025-yil uchun mahalliy gazeta va jurnallarga (davriy nashrlarga) obuna boʻlish va ularni yetkazib berish xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "b4980a498db51877",
+   "subject": "Bosh ofis va BXMlar uchun «Roll Up Banner» stendlarini xarid qilish",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "0cd94282158c75de",
+   "subject": "Maktabgacha ta’lim tashkilotlari uchun idishlar (kosa(likopcha), likopcha, krujka, qoshiq) xarid qilish",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "bfd2a729ae06f23f",
+   "subject": "O'zbekiston jurnali 2025-yil 4-soni",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "a66c80d493843bba",
+   "subject": "Рекламные конструкции",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "4e3c8b12a44a8392",
+   "subject": "Самарқанд Вилояти ИИБга журналлар тайёрлаб бериш хизмати бўйича",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "c233c77106010482",
+   "subject": "Ixtisoslashtirilgan ta’lim muassasalari agentligi tizimidagi ta’lim muassasalariga darsliklarni nashr qilish xizmatini xarid qilish",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "48e9b453bb704d39",
+   "subject": "Термос",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "afda8cfaed4636cd",
+   "subject": "Бухоро вилоят ИИБ ХПБга хизмат китоблари тайёрлаб, етказиб бериш ишларини амалга ошириш",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "10575b334bbe61dd",
+   "subject": "Yealink 05",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "ff3faeeb30d1e317",
+   "subject": "Тошкент шаҳар автобус бекатларида реклама жойлаштириш ҳамда реклама маҳсулотларини тайёрлаш ва ўрнатиш хизматлари хариди",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "b32dd938be1f6991",
+   "subject": "Автомобиль йўли остидан Ø219 мм пўлат қувурни горизонтал йўналтирилган бурғилаш усули билан ўтказиш ишлари",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "9a2675d9a4372ea5",
+   "subject": "бланкалар 08.2026й",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "2cbe26e861326770",
+   "subject": "А.Навоий номидаги Ўзбекистон миллий кутубхонаси Тошкент вилояти Турон ахборот кутубхона марказ эхтиёжи учун Бадий китоблар сотиб олиш буйича",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "5452ebba4597a627",
+   "subject": "Янгиобод туманида жойлашган Янгиобод-4 насос станциясидаги А-4-450х-4УЗ 500 кВт 1500 об/мин.ли электродвигателини жорий таьмирлаш ишига лойиҳа-смета хужжатларини ишлаб чиқиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "5d758d48ddb9c064",
+   "subject": "Ичимлик қувирини янгилаш учун проект-смета",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "0c5308464e913a0a",
+   "subject": "Бўстонлиқ тумани ихтисослашган кўп тармоқли бошқармаси, Чимён ёнғин-қутқарув отряди биносига Плакатлар ўрнатиш",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "a9bb76f81a6cb45c",
+   "subject": "2026 йил хусусийлаштиришга асосан Тойлок тумани, Жумабозор МФЙда жойлашган бўш турган нотурар бинони бахолаш хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "070cfa77db37e8e0",
+   "subject": "Разработка проектно-сметной документации включая сводное экспертное заключение объекта: «Текущий ремонт механизированной очистки отводящего коллектора с ПК0 до ПК220 Бухарского НПЗ»",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "7f0e6bd8efe38822",
+   "subject": "Босма китоблар",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "5fe0b703cbe72d03",
+   "subject": "Xujjatlar va kitob chop etish",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "40d3d8d5f33b090f",
+   "subject": "Видеокамера IP 160",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "f63f894a0f6e1583",
+   "subject": "daftar va ruchka",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "d93e47fde9abbda8",
+   "subject": "пано ва баннер тайёрлатиш хизмати",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "e16b7e402c81c9a1",
+   "subject": "ISO 9001:2015, ISO 21001:2018 стандартлари талабларига мувофиқ бошқарув тизими сертификатлаштириш аудити хизматлари",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "5140f1bb753b262e",
+   "subject": "Бойсун тумани, “Бошработ” МФЙ Бино-иншоот (Автомобилларга техник хизмат кўрсатиш)",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "5c986cf16b764976",
+   "subject": "Порошковая проволока для внепечной обработки стали (Согласно ТЗ) / Пўлатни печдан ташқари қайта ишлаш учун кукунли сим (Техник топширикга мувофик)",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "67f580b0135c26ca",
+   "subject": "Корпоративные комплекты подарков с логотипом ООО “Uzbekistan GTL”",
+   "feed": "deals",
+   "label": "merch",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "1bac175e848bba60",
+   "subject": "Крафт конверт",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "33a685006b5cdae0",
+   "subject": "Электроный тендер на оказание услуг по печати газет «Янги Ўзбекистон» и «Правда Востока» на протяжении 2025 года для нужд Государственного учреждение «Редакции газет «Янги Ўзбекистон» и «Правда Во",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "730dcca2b38dfc5c",
+   "subject": "O‘zbekiston Respublikasining “Advоkatning kasb etikasi qoidalariga ilmiy-amaliy sharh” chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "27f3cd8eb85f81ed",
+   "subject": "Куз киш мавсуми учун гуруч захираси",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "a4f051d48dead133",
+   "subject": "Termiz tumani, Yangiobod MFY, Otchopar ko'chasi, 13-uy Mexmonxona va bostirma binosi",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "5402903a1b8b174d",
+   "subject": "Nishon tumani, “Kimyogar” MFY, Adolat ko‘chasi, 68-uyda joylashgan “140 o‘rinli “Erkatoy-1” bolalar bog‘chasi”ni baholash xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "7beee2aaae8aedb8",
+   "subject": "Самарқанд Вилояти ИИБга китоб ва журналлар тайёрлаб бериж хтзмати бўйича",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "03c0367cef013c58",
+   "subject": "Стойки железобетонные для ЛЭП",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "7a8e3ade407d555c",
+   "subject": "Котельная блочно-модульная",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "e016613897a44e14",
+   "subject": "Услуги по привлечению финансовых ресурсов / «Молиявий ресурсларни жалб қилиш бўйича хизматлар»",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "fbf21d0251dd2563",
+   "subject": "Тросоукладчик",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "bce943f980a0ac3f",
+   "subject": "Foto va video qurilmalarini sotib olish",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "414414c49aa5d60f",
+   "subject": "Ручная дорожно-разметочная машина, оснащенная бензиновым двигателем для нанесения горизонтальной дорожной разметки",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "103a2a7b50984ba2",
+   "subject": "Китоб тумани, “Нурафшон” МФЙ, Хайробод кўчаси, 158-уйда жойлашган “К.Рустамова шохобчаси”ни баҳолаш хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "9a743e70abd5ec00",
+   "subject": "5 ta kitob, 2024-noyabr",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "c2b10988821be5f5",
+   "subject": "Ofis texnikalari uchun qog'oz varaqlari Sylvamo Svetotopy, A4f C07/3, 500 varaq",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "f0cd35d8fd763eae",
+   "subject": "Yangiariq tumani Qarmish MFY, Xiva ko'chasi 33/1-uyda joylashgan eski binoni baholash xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "e557796b3c7a977e",
+   "subject": "Ўзтрансгаз АЖда ISO 37001:2025 va O'z MSt ISO 37001:2025 \"Коррупсияга қарши бошқарув тизимлари\" стандартлари талабларига мувофиқ баҳолаш мақсадида аудитрлар сиклини (сертификатлаштириш аудити,",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "10483ec70591af5d",
+   "subject": "Флаер",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "09ffa5f8803e5cfe",
+   "subject": "Иштихон туман Одил МФЙ биносига Фотоэлектрическая панель сотиб олиш ва урнатиш",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "74576e20f8b954c4",
+   "subject": "Korroziya ingibitori (Karbogidrazid 99 %)/ Ингибитор коррозии (Карбогидразид 99 %)/ Corrosion inhibitor (Carbohydrazide 99 %)",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "3439dfbd99465f4a",
+   "subject": "Keksa avlod vakillarining huquqlari va qonuniy manfaatlarini ta’minlash bo‘yicha qo‘llanma tayyorlash",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "b8b3dc4ce174efbd",
+   "subject": "Техническое обслуживание системы автоматического водяного пожаротушения на 1 календарный год",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "34d0587aeb8ed162",
+   "subject": "“Innovatsion rivojlanish nashriyot matbaa uyi” MChJning ustav kapitalidagi davlat ulushini baholash",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "16060f4ea11670b8",
+   "subject": "На поставку служебных удостоверений",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "e3c28df418c3f558",
+   "subject": "Mudofaa vazirligi logotipi tushirilgan va qadimiy obidalar surati bilan bezatilgan metaldan yasalgan lagan futlyari bilan",
+   "feed": "civil",
+   "label": "merch",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "a91b15af590d5faa",
+   "subject": "Қонликўл тумани, “Жана қала” МФЙда жойлашган Омборхона ва бостирма 2-биносини баҳолаш",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "c808b7ee704f597f",
+   "subject": "monitor, printer va kameralar",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "0534a9edcc1e6471",
+   "subject": "Проектирование, бурение и ввод в эксплуатацию скважины с использованием необходимых расходных материалов, оборудования, сменных элементов для полива капельным орошением декоративных садов ДК",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "534b701532d12fb9",
+   "subject": "Qoraqalpog’iston Respublikasida “UMS” MChJ tashqi reklama konstruksiyalarida reklama va axborot materiallarini o'rnatish va demontaj qilish/Вып.работ по монтажу и демонтажу РИМ на наружных РК в РК",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "6cbe8f024067d2f3",
+   "subject": "Выполнение работ по бурению горизонтально направленным методом (прокол)",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "8567c2a3f20f593b",
+   "subject": "Фарғона давлат ўрмон хўжалигининг Фарғона тумани, “Мехнатобод” МФЙ ҳудудидаги ўрмон фонди ерларида суғориш қудуғини қуришда топография ишларини бажариш",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "3033113ac074fe89",
+   "subject": "Kelajak posbonlari esdalik nishonlarini futlyarlari bilan xarid qilish.",
+   "feed": "civil",
+   "label": "merch",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "799a3424e41c019e",
+   "subject": "Фахрий коровул формаси",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "805050b9005300a1",
+   "subject": "Каттақўрғон туман Ёшлар дафтари 5-ташаббусга совғалар",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "f96448cd27fe87d7",
+   "subject": "ЭСДАЛИК СОВҒА СОАТЛАР ТАЙЁРЛАТИБ ҲАРИД ҚИЛИШ",
+   "feed": "civil",
+   "label": "merch",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "a43d6f787cc73572",
+   "subject": "Eng yaxshi takliflarni tanlab olish uchun Yoshlar daftari jamag‘armasidan Vaslik bayonnomasiga bo‘yicha Sportchi yoshlarni taqdirlash uchun estalik sovg‘lar toplami",
+   "feed": "deals",
+   "label": "merch",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "24649fc8d04edf7a",
+   "subject": "Моноблок_МФУ",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "bbc463c888a47d21",
+   "subject": "Қашқадарё вилояти Нишон тумани \"Пахтазор\" МФЙдаги 6-сонли МТТни мукаммал таъмирлаш",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "88d26a735ba461e9",
+   "subject": "Услуга по техническому обслуживанию сантехники",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "1484220999f47d5f",
+   "subject": "Услуги по сертификации продукции / Маҳсулотларни сертификатлаштириш хизматлари",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "ecb09ac0adf48428",
+   "subject": "асфальтлаштириш",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "c074ae2ea28f0749",
+   "subject": "O‘simlik moddalari kimyosi instituti sertifikatlashtirish organi va uning sinov markazi uchun maxsus laborator inventar xarid qilish.",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "aa052c9ad26361c3",
+   "subject": "Бадий китоблар",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "8deb2a7cf4a26942",
+   "subject": "Нишон тумани, \"Ойдин\" МФЙ, Ойдин кўчаси, 3-уйда жойлашган \"Бўш турган 3-сон дала шийпони биносини баҳолаш хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "cf208906663f0b51",
+   "subject": "Комплектующие к буровым станкам СБШ-250 MHA-32",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "b5a75722ec801c16",
+   "subject": "Монтаж и установка wifi оборудования на территории склада",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "0e37fb1522293158",
+   "subject": "O‘zbekiston Respublikasining Налоговий кодекс kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "68fa24d2f9b37a70",
+   "subject": "“Chop etish qurilmalari va kartrijlarni texnik xizmat ko‘rsatish hamda qayta ishlash ishlari” bo‘yicha (Biznesni rivojlantirish banki Qoraqolpog‘iston Respublikasi)",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "50e9ba79e264804b",
+   "subject": "O‘zbekiston Respublikasida xorijiy ishchi kuchini tartibga solish tizimini isloh qilish maqsadida konsalting kompaniyasini jalb qilish",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "b3c1f37d76f8c621",
+   "subject": "Сариосиё туман тадбирларида баннерлар ясатиш ва урнатиш ишларини бажариш",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "eca7446118ccc040",
+   "subject": "Логотип тушуриш хизмати ва Банкка логотипи туширилган корпоратив махсулотларни харид қилиш",
+   "feed": "deals",
+   "label": "merch",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "2b818d87ce10e9e6",
+   "subject": "Jo‘jalar uchun boshlang‘ich, o‘stiruvchi va semirtiruvchi yemlar",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "54029f13884de3ae",
+   "subject": "Газеталарни (нашрларни) етказиб бериш хизмати",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "e79dd2fe25b5a745",
+   "subject": "Китоб ва мукова жетон",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "e4da444341f0d56b",
+   "subject": "интрактив доска",
+   "feed": "civil",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "018c3dce9e973d37",
+   "subject": "Ёшлар дафтарига киритилган Ёшларга татами олиш учун",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "fdd880be786e52fe",
+   "subject": "TATU Samarqand filiali akademik litseyi talabalarini 3 maxal issiq ovqat bilan ta’minlash Autsorsing xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "62cf3e1669825634",
+   "subject": "O‘zbekiston Respublikasining Bojxona kodeksi kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "0449fb58192d48ab",
+   "subject": "Qoraqalpog’iston Respublikasida “UMS” MChJ tashqi reklama konstruksiyalarida reklama va axborot materiallarini o'rnatish va demontaj qilish.",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "7db077cf949c8a84",
+   "subject": "O‘zbekiston Respublikasining Jinoyat protsessual kodeksi (o’zbek tii kirill alifbosida) kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "5e928de8460dbc9b",
+   "subject": "Kitob tumani, “Ali Qushchi” MFY, Katta yo‘l ko‘chasi, 104a-uyda joylashgan “Sobiq bolalar shifoxonasi bir qismi”ni baholash xizmati",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "7a99f41e6e5933c1",
+   "subject": "JASLARDÍŃ HUQÍQLARÍ HÁM NÍZAMLÍ MÁPLERIN TÁMIYINLEWi chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "97d4d83a78ad7966",
+   "subject": "kitoblar xaridi",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "51e0e1279d72f887",
+   "subject": "Тошкент ш. Сергели тумани, Шукрона МФЙ, Қўйлиқ-6 даҳаси, 23а-уй манзилдаги бино-иншоотни баҳолаш",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "856094dec2ddc8f9",
+   "subject": "Жахон иктисодиёти ва дипломатия университети укув, ёрдамчи ва талабалар турар жойи биноларидаги иссиклик бутинларига профилактик хизмат курсатиш хамда босим остида ювиш хизматлари хариди",
+   "feed": "deals",
+   "label": "none",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "ef581bb24794b5bc",
+   "subject": "\"Тил ва адабиёт таълми\" журналининг 4 сонини чоп этиш",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "bcc8e65570a6e144",
+   "subject": "1 son jurnal chop qilish",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "970514a8aea39e7e",
+   "subject": "STOM uchun kartinka chop etish",
+   "feed": "civil",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  },
+  {
+   "subject_hash": "f6384d75f4256917",
+   "subject": "O‘zbekiston Respublikasining Budjet kodeksi (o’zbek va rus tillarida, kirill alifbosida) kitobini chop etish.",
+   "feed": "deals",
+   "label": "poly",
+   "source": "holdout-2026-10-07"
+  }
+ ]
+}

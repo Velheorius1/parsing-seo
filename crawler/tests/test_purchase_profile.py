@@ -149,8 +149,46 @@ def test_known_verdict_is_reused_without_calling_ai():
     assert client.store["upserts"][0]["profile"] == "none" and result["ai_reused"] == 1
 
 
+def test_lots_differing_only_by_number_get_one_verdict():
+    """«Prezident sovgʻasi» 1-Lot / 8-Lot: AI 07.10 решил по-разному, 126 млрд ушли в «наше»."""
+    rows = [{"id": i, "feed": "deals", "business_id": str(i), "subject_hash": "h%d" % i,
+             "subject": "Prezident sovgʻasi to‘plamini xarid qilish %d-Lot" % i} for i in (1, 2, 8)]
+    calls = []
+
+    def call(prompt):
+        calls.append(prompt)
+        return '{"items": [{"i": 1, "p": "none"}]}'
+    client = _Client(rows)
+    C.run(client, ai_calls=5, dry_run=False, call=call)
+    assert len(calls) == 1 and calls[0].count("to‘plamini xarid qilish") == 1, "одна строка на семью"
+    assert {u["profile"] for u in client.store["upserts"]} == {"none"} and len(client.store["upserts"]) == 3
+
+
+def test_human_label_beats_rule_and_ai():
+    rows = [{"id": 1, "feed": "deals", "business_id": "1", "subject": "Kitob chop etish", "subject_hash": "h1"},
+            {"id": 2, "feed": "deals", "business_id": "2", "subject": "Ko'prik qurilishi", "subject_hash": "h2"}]
+    client = _Client(rows)
+    C.run(client, ai_calls=5, dry_run=False, call=lambda p: (_ for _ in ()).throw(AssertionError("AI")),
+          human={"h:h1": "none", "h:h2": "poly"})
+    got = {u["business_id"]: (u["profile"], u["profile_src"]) for u in client.store["upserts"]}
+    assert got == {"1": ("none", "human"), "2": ("poly", "human")}
+
+
+def test_golden_file_labels_whole_family(tmp_path=None):
+    import json as _json, tempfile as _tf, os as _os
+    path = _os.path.join(_tf.mkdtemp(), "g.json")
+    _json.dump({"labels": [{"subject_hash": "x1", "subject": "Prezident sovgʻasi 1-Lot", "label": "none"}]},
+               open(path, "w"))
+    human = C.human_labels(path)
+    rows = [{"id": 1, "feed": "deals", "business_id": "1", "subject": "Prezident sovgʻasi 7-Lot", "subject_hash": "x7"}]
+    decided, candidates, pending = C.plan(rows, human)
+    assert decided[0]["profile"] == "none" and decided[0]["profile_src"] == "human" and not candidates
+
+
 def test_ai_budget_leaves_the_rest_unlabeled_for_next_run():
-    rows = [{"id": i, "feed": "deals", "business_id": str(i), "subject": "Kitob %d chop etish" % i,
+    # Предметы различаются словами, а не цифрами: цифры family_key сливает в одну семью.
+    words = ["%s%s" % (a, b) for a in "абвгдежзик" for b in "лмнопр"]
+    rows = [{"id": i, "feed": "deals", "business_id": str(i), "subject": "Kitob %s chop etish" % words[i - 1],
              "subject_hash": "h%d" % i} for i in range(1, 61)]
     client = _Client(rows)
     answer = '{"items": [%s]}' % ", ".join('{"i": %d, "p": "poly"}' % i for i in range(1, 26))
