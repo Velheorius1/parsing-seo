@@ -179,6 +179,50 @@ def test_api_error_is_reported_not_treated_as_archive_end():
     assert run["completion"].startswith("error") and not run["complete"]
 
 
+def test_nul_from_api_is_scrubbed_before_it_reaches_postgres():
+    """22P05: одна запись сделки с \u0000 (06.2025) уронила догрузку истории."""
+    B.RAW_DIR = Path(tempfile.mkdtemp())
+    seen = []
+
+    class _T:
+        def upsert(self, batch, on_conflict=None):
+            seen.extend(batch)
+            return self
+
+        def execute(self):
+            return None
+
+    class _C:
+        def table(self, name):
+            return _T()
+    post, calls = _pages([dict(DEAL, category_name="Bla\x00nki", customer_name="ASAKA\x00BANK")])
+    B.collect_uzex("deals", date(2026, 9, 1), _C(), False, time.time() + 30, 0, True, post=post)
+    assert seen and all("\x00" not in str(v) for row in seen for v in row.values())
+
+
+def test_failed_page_write_stops_the_feed_without_moving_state():
+    B.RAW_DIR = Path(tempfile.mkdtemp())
+
+    class _T:
+        def upsert(self, batch, on_conflict=None):
+            return self
+
+        def execute(self):
+            raise RuntimeError("22P05 unsupported Unicode escape sequence")
+
+    class _C:
+        def table(self, name):
+            return _T()
+    B.time.sleep, sleep = (lambda s: None), B.time.sleep
+    try:
+        post, calls = _pages([DEAL])
+        run = B.collect_uzex("deals", date(2026, 9, 1), _C(), False, time.time() + 30, 0, False, post=post)
+    finally:
+        B.time.sleep = sleep
+    assert run["completion"].startswith("error: upsert") and not run["complete"]
+    assert B._load_state("deals", "2026-09-01")["next_page"] == 0, "незаписанная страница будет повторена"
+
+
 def test_upsert_drops_duplicate_keys_inside_one_batch():
     sent = []
 

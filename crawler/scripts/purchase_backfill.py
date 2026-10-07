@@ -60,6 +60,19 @@ PAGE_SIZE = 500
 INCREMENTAL_DAYS = 7
 
 
+def scrub(value):
+    # type: (Any) -> Any
+    """Убирает NUL из строк ответа API: Postgres не хранит \u0000 в text
+    (22P05), и одна такая запись сделки 06.2025 роняла всю догрузку истории."""
+    if isinstance(value, str):
+        return value.replace('\x00', '')
+    if isinstance(value, list):
+        return [scrub(v) for v in value]
+    if isinstance(value, dict):
+        return {k: scrub(v) for k, v in value.items()}
+    return value
+
+
 def _client():
     # type: () -> Any
     from crawler.core.db import _get_client
@@ -166,12 +179,18 @@ def collect_uzex(feed, since, client, dry_run, deadline, pause, incremental,
         if not raw_rows:
             completion = 'archive_end'
             break
+        raw_rows = scrub(raw_rows)
         digest = _receipt(feed, page, raw_rows)
         days = [d for d in (_row_day(feed, r) for r in raw_rows) if d]
         rows = [L.from_uzex(feed, r, digest) for r in raw_rows]
         payloads = [L.list_payload(r) for r in rows
                     if r is not None and r['awarded_on'] and r['awarded_on'] >= since_text]
-        written += upsert_rows(client, payloads, dry_run)
+        try:
+            written += upsert_rows(client, payloads, dry_run)
+        except Exception as exc:
+            # Страница не записана — состояние не двигаем, следующий прогон её повторит.
+            completion = 'error: upsert %s' % str(exc)[:110]
+            break
         pages += 1
         page += 1
         if not incremental:
@@ -201,13 +220,17 @@ def collect_ebirja(since, client, dry_run, collect=None):
         payloads = []
         for index, page in enumerate(res.get('raw_pages') or []):
             digest = _receipt(L.EBIRJA_FEEDS[source_key], index, page.get('rows') or [])
-            for raw in page.get('rows') or []:
+            for raw in scrub(page.get('rows') or []):
                 row = L.from_ebirja_list(source_key, normalize(source_key, raw), digest)
                 if row is not None and row['awarded_on'] and row['awarded_on'] >= since_text:
                     payloads.append(L.list_payload(row))
-        written = upsert_rows(client, payloads, dry_run)
-        results.append({'feed': L.EBIRJA_FEEDS[source_key], 'completion': res.get('completion'),
-                        'complete': bool(res.get('complete')), 'rows': written,
+        completion = res.get('completion')
+        try:
+            written = upsert_rows(client, payloads, dry_run)
+        except Exception as exc:
+            written, completion = 0, 'error: upsert %s' % str(exc)[:110]
+        results.append({'feed': L.EBIRJA_FEEDS[source_key], 'completion': completion,
+                        'complete': bool(res.get('complete')) and written == len(payloads), 'rows': written,
                         'pages': res.get('pages_collected')})
     return results
 
@@ -253,7 +276,7 @@ def collect_details(client, limit, dry_run, deadline, pause, get=None):
             completion = 'time_budget'
             break
         try:
-            details = _fetch_details(row, get)
+            details = scrub(_fetch_details(row, get))
             streak = 0
         except Exception as exc:
             failed += 1
