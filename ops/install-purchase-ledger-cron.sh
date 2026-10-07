@@ -13,14 +13,17 @@ BAK="/root/crontab.bak.$(date +%Y%m%d-%H%M%S)-purchase-ledger"
 crontab -l > "$BAK"
 echo "crontab сохранён: $BAK"
 
-if crontab -l | grep -q "purchase_backfill"; then
-  echo "крон журнала закупок уже стоит — выхожу"
-  exit 0
-fi
+BACKFILL="15 1 * * * cd /opt/parsing-seo && flock -n /tmp/parsing-seo-purchase-ledger.lock .venv/bin/python3 -m crawler.scripts.purchase_backfill --feed all --incremental --details 2500 --max-minutes 90 >> /var/log/parsing-seo-purchase-ledger.log 2>&1 # parsing-seo purchase ledger daily"
+CLASSIFY="5 3 * * * cd /opt/parsing-seo && flock -w 3600 /tmp/parsing-seo-purchase-ledger.lock .venv/bin/python3 -m crawler.scripts.purchase_classify --ai-calls 200 --alert >> /var/log/parsing-seo-purchase-classify.log 2>&1 # parsing-seo purchase classify daily"
 
-( crontab -l
-  echo "15 1 * * * cd /opt/parsing-seo && flock -n /tmp/parsing-seo-purchase-ledger.lock .venv/bin/python3 -m crawler.scripts.purchase_backfill --feed all --incremental --details 2500 --max-minutes 90 >> /var/log/parsing-seo-purchase-ledger.log 2>&1 # parsing-seo purchase ledger daily"
-) | crontab -
+for kind in purchase_backfill purchase_classify; do
+  if crontab -l | grep -q "$kind"; then
+    echo "$kind уже стоит — пропускаю"
+    continue
+  fi
+  if [ "$kind" = purchase_backfill ]; then line="$BACKFILL"; else line="$CLASSIFY"; fi
+  ( crontab -l; echo "$line" ) | crontab -
+done
 
 echo "поставлено:"
-crontab -l | grep -E "purchase_backfill"
+crontab -l | grep -E "purchase_backfill|purchase_classify"

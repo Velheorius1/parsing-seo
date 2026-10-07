@@ -176,12 +176,30 @@ def main():
     parser = argparse.ArgumentParser(description='Разметка журнала закупок по профилю')
     parser.add_argument('--ai-calls', type=int, default=200, help='потолок вызовов AI (пачка = %d предметов)' % BATCH)
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--alert', action='store_true', help='сбой — сообщением в Telegram (ночной крон)')
     args = parser.parse_args()
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    result = run(_client(), args.ai_calls, args.dry_run, log_path=RAW_DIR / 'ai-decisions.jsonl',
-                 human=human_labels())
+    try:
+        result = run(_client(), args.ai_calls, args.dry_run, log_path=RAW_DIR / 'ai-decisions.jsonl',
+                     human=human_labels())
+    except Exception as exc:
+        if args.alert:
+            alert('упала: %s' % str(exc)[:300])
+        raise
     print(json.dumps(result, ensure_ascii=False))
-    return 1 if result['ai_failed_calls'] >= 3 else 0
+    failed = result['ai_failed_calls'] >= 3
+    if failed and args.alert:
+        alert('AI не ответил 3 раза подряд — %d семей предметов остались без оценки' % result['ai_left_hashes'])
+    return 1 if failed else 0
+
+
+def alert(text):
+    # type: (str) -> None
+    # Ночной крон пишет в лог, который никто не читает: без сообщения сломанная
+    # разметка молча оставляет журнал без оценки, и топ тихо стареет.
+    import html
+    from crawler.scripts.fetch_ebirja_contracts import _send_telegram_alert
+    _send_telegram_alert('<b>Разметка журнала закупок</b>\n%s' % html.escape(text))
 
 
 if __name__ == '__main__':

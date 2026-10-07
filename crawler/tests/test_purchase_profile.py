@@ -210,6 +210,34 @@ def test_ai_budget_leaves_the_rest_unlabeled_for_next_run():
     assert len(client.store["upserts"]) == 25, "неоценённые не пишутся «none» — ждут следующего прогона"
 
 
+def test_nightly_run_shouts_when_ai_or_db_fails():
+    """Крон 03:05 пишет в лог, который никто не читает: сбой обязан прийти сообщением."""
+    sent = []
+    saved = (C.run, C._client, C.alert, sys.argv)
+    try:
+        C._client = lambda: None
+        C.alert = sent.append
+        C.run = lambda *a, **k: {"ai_failed_calls": 3, "ai_left_hashes": 40}
+        sys.argv = ["purchase_classify", "--alert", "--dry-run"]
+        assert C.main() == 1 and len(sent) == 1 and "40 семей" in sent[0]
+
+        sys.argv = ["purchase_classify", "--dry-run"]
+        assert C.main() == 1 and len(sent) == 1, "без --alert молчит (ручной прогон)"
+
+        def boom(*a, **k):
+            raise RuntimeError("PostgREST 502")
+        C.run = boom
+        sys.argv = ["purchase_classify", "--alert", "--dry-run"]
+        try:
+            C.main()
+            raise AssertionError("исключение проглочено")
+        except RuntimeError:
+            pass
+        assert len(sent) == 2 and "502" in sent[1]
+    finally:
+        C.run, C._client, C.alert, sys.argv = saved
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failures = 0
