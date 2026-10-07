@@ -36,6 +36,15 @@ def test_tricky_words_reach_ai_instead_of_rule_yes():
         assert P.rule_verdict({"feed": "deals", "subject": subject}) == (None, "ai"), subject
 
 
+def test_merch_and_ad_materials_without_print_words_reach_ai():
+    """Сверка 07.10: эти предметы без корней «печать/сувенир» уходили в «нет корня»."""
+    for subject in ("Merchendayzing mahsulotlarini ishlab chiqarish va yetkazib berish",
+                    "Ijodkorlikni rivojlantirish va reklama-axborot materiallarini ishlab chiqarish",
+                    "приобретение услуг по изготовлению рекламно-оформительской продукции",
+                    "Turizm salohiyatiga bag‘ishlangan tarqatma materiallar"):
+        assert P.rule_verdict({"feed": "deals", "subject": subject}) == (None, "ai"), subject
+
+
 def test_no_print_stem_is_none_without_ai():
     assert P.rule_verdict({"feed": "deals", "subject": "Avtomobil yo‘lini rekonstruksiya qilish"}) == \
         ("none", "no_stem")

@@ -66,6 +66,11 @@ def test_direct_division_is_category_not_subject():
     assert not L.needs_details(other)
 
 
+def test_platform_typo_dates_are_not_dates():
+    assert L.iso_day("3202-03-16T00:00:00") is None, "опечатка прямых закупок 07.10"
+    assert L.iso_day("06.10.2026") == "2026-10-06" and L.iso_day("10/06/2026") == "2026-10-06"
+
+
 def test_foreign_currency_never_lands_in_uzs_sum():
     row = L.from_uzex("deals", dict(DEAL, currency_name="Доллар"))
     assert row["currency"] == "USD" and row["amount_uzs"] is None

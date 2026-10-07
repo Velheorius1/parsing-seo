@@ -89,6 +89,9 @@ def rank(rows, today, top):
         if not row.get('buyer_inn'):
             skipped['без ИНН'] += 1
             continue
+        if not row.get('awarded_on') or row['awarded_on'] > today.isoformat():
+            skipped['дата в будущем'] += 1
+            continue
         groups[row['buyer_inn']].append(row)
     entities = []
     for inn, items in groups.items():
