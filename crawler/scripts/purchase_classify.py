@@ -111,6 +111,23 @@ def plan(rows, human=None):
     return decided, candidates, pending
 
 
+def apply_human(client, human, dry_run, now):
+    # type: (Any, Dict[str, str], bool, str) -> int
+    """Ручная метка, добавленная ПОСЛЕ разметки, перебивает прежнее решение
+    правила или AI (по точному subject_hash). Без этого метка действовала бы
+    только на новые строки: картхолдеры для Xalq Bank (753 млн, наша победа)
+    остались бы «не наше» навсегда (07.10.2026)."""
+    hashes = sorted(key[2:] for key in human if key.startswith('h:'))
+    fixed = []  # type: List[Dict[str, Any]]
+    for start in range(0, len(hashes), 50):
+        rows = client.table(TABLE).select('feed,business_id,subject_hash,profile,profile_src') \
+            .in_('subject_hash', hashes[start:start + 50]).neq('profile_src', 'human').execute().data or []
+        for row in rows:
+            fixed.append({'feed': row['feed'], 'business_id': row['business_id'],
+                          'profile': human['h:' + row['subject_hash']], 'profile_src': 'human', 'profile_at': now})
+    return upsert_rows(client, fixed, dry_run) if fixed else 0
+
+
 def _payload(row, now):
     # type: (Dict[str, Any], str) -> Dict[str, Any]
     return {'feed': row['feed'], 'business_id': row['business_id'], 'profile': row['profile'],
@@ -119,6 +136,7 @@ def _payload(row, now):
 
 def run(client, ai_calls, dry_run, call=None, log_path=None, human=None):
     # type: (Any, int, bool, Optional[Callable[[str], str]], Optional[Any], Optional[Dict[str, str]]) -> Dict[str, Any]
+    human_applied = apply_human(client, human or {}, dry_run, datetime.now(timezone.utc).isoformat())
     rows = unlabeled_rows(client)
     decided, by_hash, pending = plan(rows, human)
     known = known_hash_verdicts(client, list(by_hash)) if by_hash else {}
@@ -165,7 +183,7 @@ def run(client, ai_calls, dry_run, call=None, log_path=None, human=None):
     for row in decided:
         key = '%s/%s' % (row['profile_src'], row['profile'])
         by_src[key] = by_src.get(key, 0) + 1
-    return {'unlabeled': len(rows), 'written': written, 'pending_details': pending,
+    return {'unlabeled': len(rows), 'written': written, 'pending_details': pending, 'human_applied': human_applied,
             'ai_candidates_hashes': len(by_hash), 'ai_reused': len(known), 'ai_families': len(candidates),
             'ai_calls': calls, 'ai_failed_calls': failed_calls, 'ai_decided_hashes': ai_decided,
             'ai_left_hashes': len(todo) - ai_decided, 'by_source': by_src}
