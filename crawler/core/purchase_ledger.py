@@ -60,7 +60,9 @@ _LIST_COLUMNS = (
 
 def norm_text(value):
     # type: (Any) -> str
-    return '' if value is None else ' '.join(str(value).split())
+    # NUL Postgres в text не хранит (22P05): сборщик чистит ответы API на входе,
+    # здесь — вторая линия для любого другого вызова.
+    return '' if value is None else ' '.join(str(value).replace('\x00', '').split())
 
 
 def subject_hash(subject):
