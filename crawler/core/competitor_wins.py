@@ -844,7 +844,9 @@ def summarize_monitor(delta, reported_statuses):
                 for s in (delta.get("sources") or []) if s.get("status") not in ok]
     return {"new": len(delta.get("new_awards") or []), "changed": len(delta.get("changed_awards") or []),
             "bootstrap": bool(delta.get("bootstrap")), "problems": problems,
-            "delivered": delta.get("telegram_delivered"), "generated_at": delta.get("generated_at")}
+            "delivered": delta.get("telegram_delivered"), "generated_at": delta.get("generated_at"),
+            # Победы списка вне профиля (судья предмета, 07.10): не слали, но счёт виден.
+            "off_profile": sum(s.get("off_profile_awards") or 0 for s in (delta.get("sources") or []))}
 
 
 def _monitor_line(monitor):
@@ -864,6 +866,8 @@ def _monitor_line(monitor):
             else:
                 # Монитор держит недоставленное в outbox и повторит в следующий запуск.
                 line += "\n⚠️ отправить их не удалось — монитор повторит в следующий запуск"
+        if monitor.get("off_profile"):
+            line += "; не наш профиль — не слали: %d" % monitor["off_profile"]
     if monitor.get("problems"):
         line += "\n⚠️ не отработали: %s" % html.escape("; ".join(monitor["problems"]))
     return line
