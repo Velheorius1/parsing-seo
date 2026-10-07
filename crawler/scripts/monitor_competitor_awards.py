@@ -73,6 +73,12 @@ def _award_block(row: Dict[str, Any]) -> str:
     if platform:
         head += " · %s" % platform
     lines = ["%s\n%s" % (head, title)]
+    if "profile" in row and row.get("profile") is None:
+        # Судья не решил (нет карточки или AI не ответил): шлём, но не как проверенное.
+        lines.append("⚠️ Предмет не проверен")
+    elif row.get("profile") == "none":
+        # Сюда доходит только «не наше» от AI: правило и ручная метка отсекают раньше.
+        lines.append("⚠️ AI: предмет, похоже, не наш — смешанный лот?")
     if row.get("buyer_name"):
         lines.append("Заказчик: %s" % str(row["buyer_name"])[:140])
     specification = " ".join(str(row.get("specification_text") or "").split())[:280]
@@ -261,8 +267,25 @@ def delta(snapshot: Dict[str, Any], prior_state: Dict[str, Any]) -> Dict[str, An
                                 "captured_at": snapshot.get("captured_at")}}
 
 
-def _qualified_source_awards(source_id: str, source_run: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Validate generic collector output before it can become a digest event."""
+# Без события — только «не наше», решённое правилом (ни одного печатного/сувенирного
+# корня, непечатный раздел прямой закупки) или ручной меткой. «Не наше» от AI шлём с
+# пометкой: PREMIUM POLIGRAF выиграл у банка лот «Книга кассира, сургуч, пломбы…»
+# на 344 млн — AI назвал его чужим, а это та победа конкурента, которую мы 05.10
+# считали пропуском. Победы списка редки — лишняя строка дешевле пропуска.
+_RULED_OFF_PROFILE = frozenset(("no_stem", "category", "human"))
+
+
+def is_off_profile(row: Dict[str, Any]) -> bool:
+    return row.get("profile") == "none" and row.get("profile_src") in _RULED_OFF_PROFILE
+
+
+def _qualified_source_awards(source_id: str, source_run: Dict[str, Any],
+                             keep_off_profile: bool = False) -> List[Dict[str, Any]]:
+    """Validate generic collector output before it can become a digest event.
+
+    Победа вне профиля по правилу (сборщик судит предмет с 07.10.2026, см.
+    is_off_profile) — не событие. keep_off_profile — только чтобы их сосчитать.
+    """
     awards = []
     for row in source_run.get("awards") or []:
         # UZEX collectors distinguish a participant from the actual winner.
@@ -270,6 +293,8 @@ def _qualified_source_awards(source_id: str, source_run: Dict[str, Any]) -> List
         # competitor-win report, even when the bidder, amount and contract ID
         # otherwise match every gate.
         if source_id in ("etender_deals", "uzex_direct") and row.get("is_win") is not True:
+            continue
+        if is_off_profile(row) and not keep_off_profile:
             continue
         # The bounded UZEX public collector emits audit-shaped records
         # (final_total/evidence_url).  The weekly monitor historically expected
@@ -315,14 +340,21 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
     """
     old = prior_state.get("sources") or {}
     bootstrap = not bool(old)
-    statuses, new_awards, changed_awards, candidate_state = [], [], [], {}
+    statuses, new_awards, changed_awards, candidate_state, off_profile = [], [], [], {}, []
     for source_id, label in SOURCE_PASSPORT:
         run = source_runs.get(source_id) or {"status": "not_collected"}
         status = str(run.get("status") or "not_collected")
         entry = {"source_id": source_id, "label": label, "status": status,
                  "detail": run.get("detail")}
         if status in ("complete", "partial_identity"):
-            current = _qualified_source_awards(source_id, run)
+            judged = _qualified_source_awards(source_id, run, keep_off_profile=True)
+            current = [row for row in judged if not is_off_profile(row)]
+            # Отсеянное судьёй видно в квитанции и строке сводки, а не исчезает молча.
+            entry["off_profile_awards"] = len(judged) - len(current)
+            off_profile.extend({"source_id": source_id, "winner_name": row.get("winner_name"),
+                                "amount": row.get("amount"), "title": row.get("title"),
+                                "profile_src": row.get("profile_src"), "key": row["key"]}
+                               for row in judged if is_off_profile(row))
             previous = set((old.get(source_id) or {}).get("award_keys") or [])
             old_hashes = (old.get(source_id) or {}).get("content_hashes") or {}
             # A transient/capped detail lookup is absence of evidence, not an
@@ -366,7 +398,7 @@ def multi_source_delta(source_runs: Dict[str, Dict[str, Any]], prior_state: Dict
     all_sources_reported = all(row["status"] in _REPORTED_STATUSES for row in statuses)
     return {"sources": statuses, "new_awards": new_awards, "changed_awards": changed_awards, "bootstrap": bootstrap,
             "state_candidate": {"sources": candidate_state},
-            "all_sources_reported": all_sources_reported}
+            "all_sources_reported": all_sources_reported, "off_profile_awards": off_profile}
 
 
 def _read(path: Path, fallback: Dict[str, Any]) -> Dict[str, Any]:

@@ -5,12 +5,16 @@ The runner deliberately produces a source passport even where a public site
 does not disclose a winner INN or a contract currency.  It neither touches
 Supabase/state files nor sends Telegram; pass its JSON to
 ``monitor_competitor_awards`` for an offline delta preview.
+
+С 07.10.2026 сборщик ещё и судит предмет каждого договора тем же судьёй, что
+журнал закупок (``purchase_profile``): список конкурентов выигрывает и чужое.
+Это один вызов AI на пачку договоров, а не на каждый.
 """
 import argparse
 import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
@@ -137,11 +141,97 @@ def _ebirja_run(source_key: str, date_from: date, page_size: int, page_cap: int,
             "identity_unresolved_count": identity_unresolved}
 
 
+# Предмет договора судит тот же судья, что журнал закупок. 06.10.2026 в сводку
+# пришла AKZ SOFIA из списка с топогеодезией на 32 млн: победа конкурента, но не
+# наш профиль. Что из этого не слать, решает monitor_competitor_awards.is_off_profile.
+JUDGED_SOURCES = ("uzex_direct", "ebirja_shop", "ebirja_auction", "ebirja_tender", "ebirja_selection")
+_AI_BATCH = 25
+
+
+def subject_row(source_id, award):
+    # type: (str, Dict[str, Any]) -> Dict[str, Any]
+    """Договор монитора → строка для purchase_profile.rule_verdict."""
+    if source_id == "uzex_direct":
+        # title прямого договора — раздел классификатора; позиции есть только в
+        # карточке. Без карточки печатный раздел ждёт позиций, остальные — не наше.
+        spec = award.get("specification_text") if award.get("_specification_status") == "complete" else None
+        return {"feed": "direct", "category": award.get("title"), "subject": spec,
+                "buyer_name": award.get("buyer_name")}
+    parts = [award.get("product_title") or award.get("title"), award.get("classifier_title"),
+             award.get("description")]
+    # Описание карточки ebirja — markdown-таблица: черта и дефисы только шумят.
+    subject = " | ".join(" ".join(str(part).replace("|", " ").replace("--", " ").split())
+                         for part in parts if part and str(part).strip(" |-\n"))
+    return {"feed": source_id, "subject": subject or None,
+            "subject_codes": [award["classifier_code"]] if award.get("classifier_code") else [],
+            "buyer_name": award.get("buyer_name")}
+
+
+def judge_subjects(runs, call=None, human=None):
+    # type: (Dict[str, Dict[str, Any]], Optional[Callable[[str], str]], Optional[Dict[str, str]]) -> Dict[str, int]
+    """Проставить договорам profile / profile_src на месте, вернуть счёт исходов.
+
+    profile None — предмет не проверен: карточки нет (src «pending») или AI не
+    ответил («ai_error»). Такой договор монитор шлёт с пометкой, а не молча
+    выбрасывает. Ручная метка эталона главнее правила и AI.
+    """
+    from crawler.core import purchase_profile as P
+    from crawler.core.purchase_ledger import subject_hash
+    human = human or {}
+    awards, rows = [], []
+    for source_id in JUDGED_SOURCES:
+        for award in (runs.get(source_id) or {}).get("awards") or []:
+            awards.append(award)
+            rows.append(subject_row(source_id, award))
+    families = {}  # type: Dict[str, List[int]]
+    for index, row in enumerate(rows):
+        subject = row.get("subject")
+        label = (human.get("h:%s" % subject_hash(subject)) or human.get("f:" + P.family_key(subject))) \
+            if subject else None
+        verdict = (label, "human") if label else P.rule_verdict(row)
+        if verdict == (None, "ai"):
+            # Лоты, отличающиеся только цифрами, — одно решение.
+            families.setdefault(P.family_key(subject), []).append(index)
+        else:
+            awards[index]["profile"], awards[index]["profile_src"] = verdict
+    keys = list(families)
+    for start in range(0, len(keys), _AI_BATCH):
+        chunk = keys[start:start + _AI_BATCH]
+        try:
+            verdicts = P.classify_batch([rows[families[key][0]] for key in chunk], call)
+        except Exception:
+            verdicts = {}
+        for position, key in enumerate(chunk):
+            verdict = verdicts.get(position)
+            for index in families[key]:
+                awards[index]["profile"] = verdict[0] if verdict else None
+                awards[index]["profile_src"] = "ai" if verdict else "ai_error"
+    counts = {}  # type: Dict[str, int]
+    for award in awards:
+        key = "%s/%s" % (award.get("profile_src"), award.get("profile"))
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _judge_or_mark(runs, call=None):
+    # type: (Dict[str, Dict[str, Any]], Optional[Callable[[str], str]]) -> Dict[str, int]
+    """Судья упал целиком — договоры уходят с пометкой «не проверен», а не как проверенные."""
+    try:
+        from crawler.scripts.purchase_classify import human_labels
+        return judge_subjects(runs, call, human_labels())
+    except Exception as exc:
+        for source_id in JUDGED_SOURCES:
+            for award in (runs.get(source_id) or {}).get("awards") or []:
+                award["profile"], award["profile_src"] = None, "judge_error"
+        return {"judge_error": 1, "error": str(exc)[:120]}  # type: ignore
+
+
 COVERED_BY_DIGEST = "covered_by_digest"
 
 
 def build_runs(date_from: date, page_size: int, page_cap: int, max_details: int = 25,
-               rpc_post=None, etender_covered_by_digest: bool = False) -> Dict[str, Dict[str, Any]]:
+               rpc_post=None, etender_covered_by_digest: bool = False,
+               judge: bool = False, judge_call=None) -> Dict[str, Dict[str, Any]]:
     """Collect every public source once, retaining limitations explicitly.
 
     ``etender_covered_by_digest``: победы etender уже идут в сводку по ВСЕМ победителям
@@ -184,6 +274,11 @@ def build_runs(date_from: date, page_size: int, page_cap: int, max_details: int 
     except Exception as exc:
         runs["cooperation_contracts"] = {"status": "collector_error", "captured_at": captured, "detail": str(exc)[:180]}
     runs.update(_public_rpc_runs(rpc_post))
+    if judge:
+        counts = _judge_or_mark(runs, judge_call)
+        for source_id in JUDGED_SOURCES:
+            if source_id in runs:
+                runs[source_id]["subject_check"] = counts
     return runs
 
 
@@ -195,6 +290,8 @@ def main() -> int:
     parser.add_argument("--max-details", type=int, default=25, help="bounded Ebirja Shop detail cards")
     parser.add_argument("--etender-covered-by-digest", action="store_true",
                         help="не собирать etender_deals: их показывает сводка competitor_wins_weekly")
+    parser.add_argument("--no-subject-check", action="store_true",
+                        help="не судить предмет договора (по умолчанию судит, purchase_profile)")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     if args.page_size < 1 or args.page_cap < 1:
@@ -202,7 +299,8 @@ def main() -> int:
     lower = date.fromisoformat(args.date_from) if args.date_from else date.today() - timedelta(days=14)
     result = {"mode": "public_read_only_all_exchange_run", "captured_at": datetime.now(timezone.utc).isoformat(),
               "date_from": lower.isoformat(), "sources": build_runs(lower, args.page_size, args.page_cap, args.max_details,
-                                    etender_covered_by_digest=args.etender_covered_by_digest)}
+                                    etender_covered_by_digest=args.etender_covered_by_digest,
+                                    judge=not args.no_subject_check)}
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result["sources"], ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
