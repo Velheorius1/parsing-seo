@@ -60,7 +60,9 @@ _LIST_COLUMNS = (
 
 def norm_text(value):
     # type: (Any) -> str
-    return '' if value is None else ' '.join(str(value).split())
+    # NUL Postgres в text не хранит (22P05): сборщик чистит ответы API на входе,
+    # здесь — вторая линия для любого другого вызова.
+    return '' if value is None else ' '.join(str(value).replace('\x00', '').split())
 
 
 def subject_hash(subject):
@@ -77,9 +79,12 @@ def iso_day(value):
     text = str(value or '').strip()[:10]
     for fmt in ('%Y-%m-%d', '%d.%m.%Y', '%m/%d/%Y'):
         try:
-            return datetime.strptime(text, fmt).date().isoformat()
+            day = datetime.strptime(text, fmt).date()
         except ValueError:
-            pass
+            continue
+        # Опечатки площадки («3202-03-16» в прямых закупках) — не дата: иначе
+        # «последняя покупка» и окна по месяцам уезжают на тысячу лет вперёд.
+        return day.isoformat() if 2000 <= day.year <= 2099 else None
     return None
 
 
