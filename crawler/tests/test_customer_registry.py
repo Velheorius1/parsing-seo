@@ -127,6 +127,10 @@ def test_html_marks_pinned_bitrix_clients_and_old_export():
     assert 'Закреплённые вне топа' in page and 'НАЦБАНК ВЭД' in page
     assert 'старше 45 дней' in page, 'выгрузка 67 дней назад'
     assert 'старше' not in R.bitrix_line(dict(bitrix, as_of='2026-10-01'), TODAY)
+    uzauto = {'bitrix': [{'id': 37, 'name': 'UZAUTO'}], 'inns': ['200244767']}
+    cell = R.bitrix_cell(uzauto, registry, {'companies': [{'id': 37, 'orders': 0, 'requests': 1}]})
+    assert cell == 'в Битриксе: заявок 1, заказов нет', 'заявка без заказа — не «клиент»'
+
 
 
 if __name__ == '__main__':

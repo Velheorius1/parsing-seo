@@ -199,6 +199,10 @@ def bitrix_cell(entity, registry, bitrix):
     if links:
         orders = sum((companies.get(str(link['id'])) or {}).get('orders') or 0 for link in links)
         last = max([(companies.get(str(link['id'])) or {}).get('last_order') or '' for link in links])
+        if not orders:
+            # UzAuto 07.10: одна заявка в 2024, заказов не было — это не «клиент».
+            requests = sum((companies.get(str(link['id'])) or {}).get('requests') or 0 for link in links)
+            return 'в Битриксе: заявок %d, заказов нет' % requests
         return 'клиент: %d заказ(ов)%s' % (orders, ', посл. %s' % last[:7] if last else '')
     maybe = [p['bitrix_name'] for p in (registry or {}).get('bitrix_proposals') or []
              if p.get('status') == 'proposed' and p.get('inn') in entity.get('inns', [])]
