@@ -9,8 +9,13 @@
 Результат — data/private/customer_rank_<дата>.json и .html (репозиторий
 публичный: список заказчиков в git не кладём). --tg шлёт HTML документом.
 
+Реестр (фаза 3, core/customer_registry): подтверждённые группы ИНН (структуры
+одной организации) складываются в одну строку; --registry пересобирает реестр
+и кладёт месячный снимок. Клиенты Битрикса — из data/private/bitrix_companies.json
+(выгрузка на Маке, customer_registry_edit bitrix-export).
+
   python3 -m crawler.scripts.customer_rank --top 100
-  python3 -m crawler.scripts.customer_rank --top 100 --tg
+  python3 -m crawler.scripts.customer_rank --top 100 --registry --tg
 """
 import argparse
 import html
@@ -22,6 +27,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from crawler.core import customer_registry as CR
 from crawler.core import purchase_ledger as L
 from crawler.core import purchase_profile as P
 from crawler.scripts.purchase_backfill import TABLE
@@ -29,6 +35,7 @@ from crawler.scripts.purchase_backfill import TABLE
 PRIVATE_DIR = Path(__file__).resolve().parents[2] / 'data' / 'private'
 _COLS = ('id,feed,business_id,buyer_inn,buyer_name,buyer_type,winner_inn,winner_name,subject,'
          'amount_uzs,awarded_on,status,profile,source_url')
+BITRIX_PATH = PRIVATE_DIR / 'bitrix_companies.json'
 FEED_RU = {'deals': 'сделки etender', 'direct': 'прямые закупки UZEX', 'civil': 'итоги ВМК-69',
            'ebirja_shop': 'ebirja магазин', 'ebirja_auction': 'ebirja аукцион',
            'ebirja_tender': 'ebirja тендер', 'ebirja_selection': 'ebirja отбор'}
@@ -74,10 +81,12 @@ def coverage(client):
     return out
 
 
-def rank(rows, today, top):
-    # type: (List[Dict[str, Any]], date, int) -> Dict[str, Any]
+def rank(rows, today, top, groups=None):
+    # type: (List[Dict[str, Any]], date, Optional[int], Optional[Dict[str, Dict[str, Any]]]) -> Dict[str, Any]
+    """top None — весь рейтинг (для реестра). groups — ИНН → подтверждённая группа."""
+    groups = groups or {}
     cut12 = (today - timedelta(days=365)).isoformat()
-    groups = defaultdict(list)  # type: Dict[str, List[Dict[str, Any]]]
+    buckets = defaultdict(list)  # type: Dict[str, List[Dict[str, Any]]]
     skipped = Counter()  # type: Counter
     for row in rows:
         if row.get('status') not in L.PURCHASE_STATUSES:
@@ -92,21 +101,25 @@ def rank(rows, today, top):
         if not row.get('awarded_on') or row['awarded_on'] > today.isoformat():
             skipped['дата в будущем'] += 1
             continue
-        groups[row['buyer_inn']].append(row)
+        member = groups.get(row['buyer_inn'])
+        buckets[member['id'] if member else row['buyer_inn']].append(row)
     entities = []
-    for inn, items in groups.items():
+    for key, items in buckets.items():
+        member = groups.get(items[0]['buyer_inn'])
+        inns = list(member['inns']) if member else [key]
         spend12 = sum(Decimal(str(r['amount_uzs'])) for r in items if r['awarded_on'] >= cut12)
         spend24 = sum(Decimal(str(r['amount_uzs'])) for r in items if r['awarded_on'] < cut12)
         total = spend12 + spend24
         names = Counter(r.get('buyer_name') for r in items if r.get('buyer_name'))
-        name = names.most_common(1)[0][0] if names else inn
+        name = member['name'] if member else (names.most_common(1)[0][0] if names else key)
         types = Counter(r.get('buyer_type') for r in items if r.get('buyer_type'))
         winners = defaultdict(Decimal)  # type: Dict[str, Decimal]
         for r in items:
             winners[r.get('winner_name') or r.get('winner_inn') or '?'] += Decimal(str(r['amount_uzs']))
         biggest = max(items, key=lambda r: Decimal(str(r['amount_uzs'])))
         entities.append({
-            'inn': inn, 'name': name, 'segment': P.segment(name, types.most_common(1)[0][0] if types else None),
+            'inn': inns[0], 'inns': inns, 'name': name,
+            'segment': P.segment(name, types.most_common(1)[0][0] if types else None),
             'score': float(spend12 * 2 + spend24), 'spend12': float(spend12), 'spend24': float(spend24),
             'purchases': len(items), 'poly': sum(1 for r in items if r['profile'] == 'poly'),
             'merch': sum(1 for r in items if r['profile'] == 'merch'),
@@ -119,7 +132,8 @@ def rank(rows, today, top):
                          sorted(items, key=lambda r: -Decimal(str(r['amount_uzs'])))[:3]],
         })
     entities.sort(key=lambda e: -e['score'])
-    return {'entities': entities[:top], 'total_entities': len(entities), 'skipped': dict(skipped)}
+    return {'entities': entities if top is None else entities[:top], 'total_entities': len(entities),
+            'skipped': dict(skipped)}
 
 
 def _mln(value):
@@ -154,21 +168,74 @@ def status_line(cov, metrics):
     return judge
 
 
-def render_html(result, cov, today, metrics=None):
-    # type: (Dict[str, Any], List[Dict[str, Any]], date, Optional[Dict[str, Any]]) -> str
+def load_bitrix(path=None):
+    # type: (Optional[Path]) -> Optional[Dict[str, Any]]
+    try:
+        return json.loads(Path(path or BITRIX_PATH).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+
+
+def bitrix_line(bitrix, today):
+    # type: (Optional[Dict[str, Any]], date) -> str
+    """Возраст выгрузки Битрикса: старая выгрузка = «не клиент» может быть неправдой."""
+    if not bitrix or not bitrix.get('as_of'):
+        return 'Битрикс: выгрузки нет — клиентов не отмечаем'
+    age = (today - date.fromisoformat(str(bitrix['as_of'])[:10])).days
+    line = 'Битрикс: выгрузка от %s (%d дн. назад, компаний %d)' % (
+        str(bitrix['as_of'])[:10], age, len(bitrix.get('companies') or []))
+    if age > CR.BITRIX_STALE_DAYS:
+        line = '⚠️ %s — старше %d дней, клиенты могли поменяться' % (line, CR.BITRIX_STALE_DAYS)
+    return line
+
+
+def bitrix_cell(entity, registry, bitrix):
+    # type: (Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[Dict[str, Any]]) -> str
+    """«клиент: N заказов» по подтверждённой связи; «возможно: …» — по предложению."""
+    if entity is None:
+        return ''
+    companies = {str(c['id']): c for c in (bitrix or {}).get('companies') or []}
+    links = entity.get('bitrix') or []
+    if links:
+        orders = sum((companies.get(str(link['id'])) or {}).get('orders') or 0 for link in links)
+        last = max([(companies.get(str(link['id'])) or {}).get('last_order') or '' for link in links])
+        if not orders:
+            # UzAuto 07.10: одна заявка в 2024, заказов не было — это не «клиент».
+            requests = sum((companies.get(str(link['id'])) or {}).get('requests') or 0 for link in links)
+            return 'в Битриксе: заявок %d, заказов нет' % requests
+        return 'клиент: %d заказ(ов)%s' % (orders, ', посл. %s' % last[:7] if last else '')
+    maybe = [p['bitrix_name'] for p in (registry or {}).get('bitrix_proposals') or []
+             if p.get('status') == 'proposed' and p.get('inn') in entity.get('inns', [])]
+    return 'возможно: %s' % ', '.join(maybe[:2]) if maybe else ''
+
+
+def render_html(result, cov, today, metrics=None, registry=None, bitrix=None):
+    # type: (Dict[str, Any], List[Dict[str, Any]], date, Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[Dict[str, Any]]) -> str
     esc = html.escape
-    rows = []
+    registry = registry or CR.empty()
+    reg = CR.by_inn(registry)
+    rows, shown = [], set()  # type: (List[str], set)
     for i, e in enumerate(result['entities'], 1):
+        entity = reg.get(e['inn'])
+        shown.update(e.get('inns') or [e['inn']])
+        star = '⭐ ' if entity and entity.get('pinned') else ''
+        group = ' · ИНН в группе: %d' % len(e['inns']) if len(e.get('inns') or []) > 1 else ''
         winners = '<br>'.join('%s — %s' % (esc(w[:40]), _mln(s)) for w, s in e['winners'])
         rows.append(
-            '<tr><td class="n">%d</td><td><b>%s</b><div class="m">ИНН %s · %s</div>'
+            '<tr><td class="n">%d</td><td><b>%s%s</b><div class="m">ИНН %s · %s%s</div>'
             '<div class="m">%s</div></td><td class="n">%s</td><td class="n">%s</td><td class="n">%d'
             '<div class="m">полигр. %d · мерч %d</div></td><td class="n">%d%%<div class="m">%s</div></td>'
-            '<td class="w">%s</td><td class="n">%s</td></tr>' % (
-                i, esc(e['name']), e['inn'], esc(e['segment']),
-                esc(' · '.join(e['examples'][:2])), _mln(e['spend12']), _mln(e['spend24']), e['purchases'],
+            '<td class="w">%s</td><td class="w">%s</td><td class="n">%s</td></tr>' % (
+                i, star, esc(e['name']), e['inn'], esc((entity or {}).get('segment_override') or e['segment']),
+                group, esc(' · '.join(e['examples'][:2])), _mln(e['spend12']), _mln(e['spend24']), e['purchases'],
                 e['poly'], e['merch'], round(e['biggest_share'] * 100), esc(e['biggest_subject'][:70]),
-                winners, e['last']))
+                winners, esc(bitrix_cell(entity, registry, bitrix)), e['last']))
+    pinned = [x for x in registry['entities'] if x.get('pinned') and not set(x['inns']) & shown]
+    pinned_html = ''.join('<li>⭐ %s — ИНН %s · %s</li>' % (
+        esc(x['name']), ', '.join(x['inns']),
+        'место %s' % x['rank'] if x.get('rank') else 'покупок нашего профиля за 24 мес нет') for x in pinned)
+    open_merge = [p for p in registry.get('merge_proposals') or [] if p.get('status') == 'proposed']
+    open_bitrix = [p for p in registry.get('bitrix_proposals') or [] if p.get('status') == 'proposed']
     cov_rows = ''.join(
         '<tr><td>%s</td><td class="n">%s</td><td class="n">%s</td><td class="n">%s</td><td class="n">%s</td></tr>' % (
             esc(FEED_RU.get(c['feed'], c['feed'])), c.get('total', 0), c.get('since') or '—',
@@ -190,14 +257,18 @@ h2{font-size:16px;margin:24px 0 6px}
 <h1>Топ-%d заказчиков полиграфии и мерча</h1>
 <p>%s · балл = траты за 12 мес ×2 + за 13–24 мес · суммы в млн сум · заказчиков с покупками: %d</p>
 <p>%s</p>
+<p>%s · ⭐ — закреплён · предложений ждут «да»: объединить %d, связать с Битриксом %d</p>
 <div class="wrap"><table><tr><th>№</th><th>Заказчик</th><th class="n">12 мес</th><th class="n">13–24 мес</th>
-<th class="n">Покупок</th><th class="n">Крупнейшая</th><th>Кто выигрывал</th><th class="n">Последняя</th></tr>
+<th class="n">Покупок</th><th class="n">Крупнейшая</th><th>Кто выигрывал</th><th>Битрикс</th><th class="n">Последняя</th></tr>
 %s</table></div>
+%s
 <h2>Охват лент</h2><p>Не учтено: %s</p>
 <div class="wrap"><table style="min-width:520px"><tr><th>Лента</th><th class="n">Договоров</th><th class="n">С даты</th>
 <th class="n">Без ИНН</th><th class="n">Без оценки</th></tr>%s</table></div>
 </body></html>""" % (len(result['entities']), today.isoformat(), result['total_entities'],
-                     esc(status_line(cov, metrics if metrics is not None else judge_metrics())), ''.join(rows),
+                     esc(status_line(cov, metrics if metrics is not None else judge_metrics())),
+                     esc(bitrix_line(bitrix, today)), len(open_merge), len(open_bitrix), ''.join(rows),
+                     '<h2>Закреплённые вне топа</h2><ul>%s</ul>' % pinned_html if pinned_html else '',
                      skipped, cov_rows)
 
 
@@ -219,19 +290,27 @@ def main():
     parser.add_argument('--top', type=int, default=100)
     parser.add_argument('--months', type=int, default=24)
     parser.add_argument('--tg', action='store_true', help='прислать HTML документом в чат алертов')
+    parser.add_argument('--registry', action='store_true',
+                        help='пересобрать реестр (data/private/customer_registry.json) и месячный снимок')
     args = parser.parse_args()
     today = date.today()
     since = (today - timedelta(days=round(args.months * 30.44))).isoformat()
     client = _client()
-    result = rank(profile_rows(client, since), today, args.top)
+    registry = CR.load()
+    full = rank(profile_rows(client, since), today, None, CR.groups(registry))
+    result = dict(full, entities=full['entities'][:args.top])
     cov = coverage(client)
     PRIVATE_DIR.mkdir(parents=True, exist_ok=True)
     stamp = today.isoformat()
+    if args.registry:
+        registry = CR.build(full['entities'], registry, stamp, args.top)
+        CR.save(registry)
+        CR.save(registry, PRIVATE_DIR / ('customer_registry_%s.json' % stamp[:7]))
     json_path = PRIVATE_DIR / ('customer_rank_%s.json' % stamp)
     html_path = PRIVATE_DIR / ('customer_rank_%s.html' % stamp)
     json_path.write_text(json.dumps({'generated_at': datetime.now(timezone.utc).isoformat(), 'since': since,
                                      'coverage': cov, **result}, ensure_ascii=False, indent=1), encoding='utf-8')
-    html_path.write_text(render_html(result, cov, today), encoding='utf-8')
+    html_path.write_text(render_html(result, cov, today, registry=registry, bitrix=load_bitrix()), encoding='utf-8')
     print(json.dumps({'entities': result['total_entities'], 'top': len(result['entities']),
                       'skipped': result['skipped'], 'html': str(html_path)}, ensure_ascii=False))
     if args.tg:
