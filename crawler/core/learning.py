@@ -1,0 +1,106 @@
+"""Предложения правок фильтра: кнопки «да / нет» и решение Данияра (фаза 5).
+
+Система только предлагает — слово в словарь алертов, площадку в работу; включает
+человек кнопкой под предложением (решение Данияра 07.10.2026). Предложения пишет
+crawler/scripts/propose_fixes.py, клик ловит feedback_bot.
+
+Кто нажал — проверяется. Кнопки релевантности feedback_bot принимает от любого,
+кто видит сообщение; здесь клик меняет фильтр, поэтому решать может только
+владелец личного чата алертов (id личного чата в Telegram совпадает с id
+пользователя) или явный список LEARNING_APPROVER_IDS. Групповой чат (id < 0)
+никого не даёт: без явного списка решать не может никто.
+"""
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, Optional, Set, Tuple
+
+TABLE = 'learning_proposals'
+PREFIX = 'lp'
+DECISIONS = {'ok': 'approved', 'no': 'rejected'}
+MARKS = {
+    'approved': {'emoji': '✅', 'text': 'Одобрено'},
+    'rejected': {'emoji': '❌', 'text': 'Отклонено'},
+}
+
+
+def callback_data(pid, label):
+    # type: (int, str) -> str
+    return '%s:%d:%s' % (PREFIX, pid, label)
+
+
+def keyboard(pid):
+    # type: (int) -> list
+    return [[{'text': '✅ Да', 'callback_data': callback_data(pid, 'ok')},
+             {'text': '❌ Нет', 'callback_data': callback_data(pid, 'no')}]]
+
+
+def parse(data):
+    # type: (Any) -> Optional[Tuple[int, str]]
+    """'lp:12:ok' -> (12, 'ok'). Мусор и чужие кнопки -> None, не исключение."""
+    parts = str(data or '').split(':')
+    if len(parts) != 3 or parts[0] != PREFIX or parts[2] not in DECISIONS:
+        return None
+    try:
+        pid = int(parts[1])
+    except ValueError:
+        return None
+    return (pid, parts[2]) if pid > 0 else None
+
+
+def approvers(chat_id, extra=''):
+    # type: (Any, Any) -> Set[int]
+    """id тех, кто вправе решать: владелец личного чата алертов + явный список."""
+    ids = set()  # type: Set[int]
+    raw_ids = [chat_id]  # type: list
+    raw_ids.extend(str(extra or '').split(','))
+    for raw in raw_ids:
+        try:
+            value = int(str(raw).strip())
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            ids.add(value)
+    return ids
+
+
+def who(user):
+    # type: (Dict[str, Any]) -> str
+    name = user.get('username') or user.get('first_name') or ''
+    return ('%s %s' % (user.get('id'), name)).strip()
+
+
+def decide(client, pid, label, by, now=None):
+    # type: (Any, int, str, str, Optional[datetime]) -> Tuple[Optional[str], Optional[Dict[str, Any]]]
+    """Записать решение, если предложение ещё ждёт.
+
+    -> (новый статус, строка) или (None, None): уже решено раньше или такого id
+    нет. Условие status='proposed' стоит в самом UPDATE, поэтому второй клик
+    (или клик по старому сообщению) не перезаписывает первое решение.
+    """
+    status = DECISIONS[label]
+    stamp = (now or datetime.now(timezone.utc)).isoformat()
+    rows = client.table(TABLE).update(
+        {'status': status, 'decided_by': by, 'decided_at': stamp, 'updated_at': stamp}
+    ).eq('id', pid).eq('status', 'proposed').execute().data or []
+    return (status, rows[0]) if rows else (None, None)
+
+
+def ack_text(status, row):
+    # type: (str, Dict[str, Any]) -> str
+    text = MARKS[status]['text']
+    if status == 'approved' and row.get('kind') == 'keyword':
+        # Правило «слова только коммитом» (shadow_search.promote): живой словарь
+        # один — alert_keywords в settings.py, и слово туда идёт с тестом.
+        text += ': слово включу коммитом с тестом'
+    return text
+
+
+def pending_keywords(rows, live):
+    # type: (Iterable[Dict[str, Any]], Iterable[str]) -> Tuple[list, list]
+    """Одобренные слова: (уже в живом словаре -> applied, ещё ждут коммита)."""
+    live_set = set(k.strip().lower() for k in live)
+    applied, waiting = [], []
+    for row in rows:
+        if row.get('kind') != 'keyword' or row.get('status') != 'approved':
+            continue
+        (applied if row.get('key') in live_set else waiting).append(row)
+    return applied, waiting

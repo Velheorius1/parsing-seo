@@ -40,7 +40,8 @@ _DIRECT_PRINT_DIVISION = re.compile(
     r'минеральные неметаллические|резин|пластмасс|кож', re.I)
 
 # Корни-кандидаты (рус., узб. латиница и кириллица). Широко нарочно: лишний
-# кандидат стоит долю цента AI, пропущенный — заказчика в топе.
+# кандидат стоит долю цента AI, пропущенный — заказчика в топе. Картхолдер
+# добавлен 07.10: наша же победа (Xalq Bank, 753 млн) ушла в «нет корня».
 _STEM_RE = re.compile(
     r'полиграф|типограф|печат|тираж|издан|издат|бланк|книг|учебник|брошюр|буклет|листовк|флаер|'
     r'календар|блокнот|ежедневник|тетрад|конверт|визитк|открытк|грамот|диплом|сертификат|журнал|'
@@ -48,6 +49,7 @@ _STEM_RE = re.compile(
     r'футболк|кепк|бейсболк|кружк|ручк|значк|флаг|баннер|пакет|альбом|удостоверени|бюллетен|вымпел|'
     r'термос|зонт|реклам|мерч|промо|раздаточн|пособи|методичк|'
     r'chop|bosma|nashr|matbaa|tipograf|poligraf|kitob|darslik|jurnal|gazeta|blank|broshyur|buklet|'
+    r'kart.?holder|cardholder|картхолдер|'
     r'varaq|taqvim|kalendar|bloknot|daftar|konvert|vizitka|otkritka|diplom|sertifikat|yorliq|'
     r'guvohnoma|sovg|esdalik|suvenir|logotip|ramz|futbolka|krujka|kepka|ruchka|nishon|bayroq|'
     r'stiker|banner|paket|albom|faxriy|tashakkurnoma|reklam|merch|promo|tarqatma|risola|'
