@@ -2192,28 +2192,32 @@ sources:
 
   - id: ucell
     name: "Ucell (COSCOM)"
-    adapter: html
-    enabled: false  # 308 redirect to /partners — procurement page removed
-    url: "https://ucell.uz/ru/procurement"
+    adapter: api
+    # 07.10.2026: закупки COSCOM переехали на портал Zinit (tender.ucell.uz);
+    # старая ucell.uz/ru/procurement отдаёт 308 на /partners — источник стоял
+    # выключенным, и «ПКО Сувенирная продукция» (03–14.09.2026) прошёл мимо.
+    # Список публичный, без входа: GET /api/v1/requests/, 121 запись с 16.09.2024.
+    enabled: true
+    url: "https://tender.ucell.uz/api/v1/requests/"
     method: GET
+    params: {"sorting": "-published_at", "page_size": "50"}
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
-    rate_limit: 0.5
+    rate_limit: 1.0
     timeout: 20
     id_prefix: "ucell"
-    html_selectors:
-      container: "a[href*='tender.ucell.uz']"
-      title: ""
-      deadline: ""
-      link: "@href"
+    response_path: "items"
     field_map:
-      title: title
-      organization: "Ucell (COSCOM)"
-      deadline: deadline
-      source_url_template: "{link}"
-    keywords_fields: [title]
-
-  # — Транспорт —
+      title: name
+      organization: company.name
+      deadline: proposal_acceptance_end_date
+      date_start: published_at
+      external_id: id
+      source_url_template: "https://tender.ucell.uz/proposal/{id}"
+      extra_info:
+        "ИНН заказчика": "{company.tin}"
+        "Номер": "{code}"
+    keywords_fields: [name]
 
   - id: railway
     name: "Узбекистон темир йуллари (ЖД)"
