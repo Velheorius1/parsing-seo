@@ -127,8 +127,35 @@ def _mln(value):
     return '{:,.0f}'.format(value / 1e6).replace(',', ' ')
 
 
-def render_html(result, cov, today):
-    # type: (Dict[str, Any], List[Dict[str, Any]], date) -> str
+def judge_metrics(path=None):
+    # type: (Optional[Path]) -> Dict[str, Any]
+    """Последний замер судьи на отложенной выборке (поле metrics эталона)."""
+    from crawler.scripts.purchase_classify import GOLDEN
+    try:
+        return json.loads(Path(path or GOLDEN).read_text(encoding='utf-8')).get('metrics') or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def status_line(cov, metrics):
+    # type: (List[Dict[str, Any]], Dict[str, Any]) -> str
+    """Чему верить в списке: замер судьи и сколько договоров ещё не учтено."""
+    if metrics.get('prompt') == P.PROMPT_VERSION:
+        judge = 'судья профиля: точность %s, полнота %s на отложенной выборке %s предметов' % (
+            str(metrics.get('precision')).replace('.', ','), str(metrics.get('recall')).replace('.', ','),
+            metrics.get('items'))
+    else:
+        judge = 'судья профиля не перемерен после смены промпта (%s)' % P.PROMPT_VERSION
+    unlabeled = sum(c.get('unlabeled') or 0 for c in cov)
+    no_inn = sum(c.get('no_inn') or 0 for c in cov)
+    if unlabeled or no_inn:
+        return '%s · черновик: %d договоров ещё без оценки, %d без ИНН заказчика — см. охват' % (
+            judge, unlabeled, no_inn)
+    return judge
+
+
+def render_html(result, cov, today, metrics=None):
+    # type: (Dict[str, Any], List[Dict[str, Any]], date, Optional[Dict[str, Any]]) -> str
     esc = html.escape
     rows = []
     for i, e in enumerate(result['entities'], 1):
@@ -161,15 +188,16 @@ th{background:var(--head);font-weight:600;font-size:12px;position:sticky;top:0}
 h2{font-size:16px;margin:24px 0 6px}
 </style></head><body>
 <h1>Топ-%d заказчиков полиграфии и мерча</h1>
-<p>%s · балл = траты за 12 мес ×2 + за 13–24 мес · суммы в млн сум · заказчиков с покупками: %d ·
-черновик: судья профиля ещё не сверен с эталоном</p>
+<p>%s · балл = траты за 12 мес ×2 + за 13–24 мес · суммы в млн сум · заказчиков с покупками: %d</p>
+<p>%s</p>
 <div class="wrap"><table><tr><th>№</th><th>Заказчик</th><th class="n">12 мес</th><th class="n">13–24 мес</th>
 <th class="n">Покупок</th><th class="n">Крупнейшая</th><th>Кто выигрывал</th><th class="n">Последняя</th></tr>
 %s</table></div>
 <h2>Охват лент</h2><p>Не учтено: %s</p>
 <div class="wrap"><table style="min-width:520px"><tr><th>Лента</th><th class="n">Договоров</th><th class="n">С даты</th>
 <th class="n">Без ИНН</th><th class="n">Без оценки</th></tr>%s</table></div>
-</body></html>""" % (len(result['entities']), today.isoformat(), result['total_entities'], ''.join(rows),
+</body></html>""" % (len(result['entities']), today.isoformat(), result['total_entities'],
+                     esc(status_line(cov, metrics if metrics is not None else judge_metrics())), ''.join(rows),
                      skipped, cov_rows)
 
 

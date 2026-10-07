@@ -225,7 +225,9 @@ _SEGMENTS = (
     ('страховая', re.compile(r"sug'urta|sugurta|сугурта|суғурта|страхов|insurance")),
     ('банк', re.compile(r"bank|банк|\batb\b|\bатб\b")),
     # Узбекская латиница пишет «ҳ» и как h, и как x: «XARBIY QISM», «xokimligi».
-    ('силовые', re.compile(r"harbiy|xarbiy|ҳарбий|харбий|военн|mudofaa|мудофаа|ichki ishlar|ички ишлар|"
+    # «MUDOFA VAZIRLIGI» — площадка пишет и с одной «a»; МВД/ИИБ/FVB — аббревиатуры в именах заказчиков.
+    ('силовые', re.compile(r"harbiy|xarbiy|ҳарбий|харбий|военн|mudofa|мудофа|ichki ishlar|ички ишлар|"
+                           r"\bмвд\b|\bиив\b|\bииб\b|\biiv\b|\biib\b|\bfvb\b|\bфвб\b|"
                            r"milliy gvardiya|миллий гвардия|gvardiya|xavfsizlik|хавфсизлик|chegara|"
                            r"prokuratura|прокурат|favqulodda|фавқулодда|jazoni ijro|жазони ижро|"
                            r"koloniya|колония|qo'riqlash|қўриқлаш|караул|bojxona|божхона|таможен")),

@@ -74,6 +74,9 @@ def test_segments_from_names():
     assert P.segment('"ASAKA" AJ tijorat banki') == "банк"
     assert P.segment("Kapital sug'urta AJ") == "страховая"
     assert P.segment("75061-SONLI XARBIY QISM") == "силовые"
+    assert P.segment("O`ZBEKISTON RESPUBLIKASI MUDOFA VAZIRLIGI HUZURIDAGI") == "силовые", "опечатка площадки"
+    assert P.segment("ГУБДД МВД РУз") == "силовые"
+    assert P.segment("QORAQALPOGISTON RES.FVB") == "силовые"
     assert P.segment("Namangan viloyat hokimligi") == "хокимият"
     assert P.segment("Samarqand viloyat xokimligi") == "хокимият"
     assert P.segment("Oliy ta'lim, fan va innovatsiyalar vazirligi") == "министерство/агентство"
@@ -183,6 +186,16 @@ def test_golden_file_labels_whole_family(tmp_path=None):
     rows = [{"id": 1, "feed": "deals", "business_id": "1", "subject": "Prezident sovgʻasi 7-Lot", "subject_hash": "x7"}]
     decided, candidates, pending = C.plan(rows, human)
     assert decided[0]["profile"] == "none" and decided[0]["profile_src"] == "human" and not candidates
+
+
+def test_real_golden_file_overrides_known_ai_mistakes():
+    """«отчопар» — топоним (ВМК-69, 2 млрд); AI 07.10 прочёл в нём «чоп» и записал в печать."""
+    human = C.human_labels()
+    rows = [{"id": 1, "feed": "civil", "business_id": "1", "subject": "отчопар", "subject_hash": "4084ad45ea58bcbf"},
+            {"id": 2, "feed": "deals", "business_id": "2", "subject": "Imkoniyati cheklangan bolalar uchun oʻquv qurollari – “Prezident sovgʻasi” to‘plamini xarid qilish 9-Lot",
+             "subject_hash": "zz"}]
+    decided, candidates, pending = C.plan(rows, human)
+    assert [(r["profile"], r["profile_src"]) for r in decided] == [("none", "human")] * 2 and not candidates
 
 
 def test_ai_budget_leaves_the_rest_unlabeled_for_next_run():
