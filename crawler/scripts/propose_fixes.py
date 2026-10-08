@@ -515,29 +515,35 @@ def main(argv=None):
         print(json.dumps({'applied': [r['key'] for r in applied],
                           'waiting_commit': [r['key'] for r in waiting]}, ensure_ascii=False))
         return 0
+    words = [w for w in (args.words or '').split(',') if w.strip()] if args.words else None
+    result = run(client, hit, current, words=words, use_ai=not args.no_ai, ai_cap=args.ai_calls,
+                 judge=args.judge, days=args.days, dry_run=args.dry_run, send_tg=not args.no_send)
+    result.pop('fresh', None)
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
+def run(client, hit, current, words=None, use_ai=True, ai_cap=AI_CAP, judge=JUDGE_PER_WORD, days=WINDOW_DAYS,
+        dry_run=False, send_tg=True):
+    # type: (Any, Callable, List[str], Optional[List[str]], bool, int, int, int, bool, bool) -> Dict[str, Any]
+    """Предложить, записать, отправить, отметить включённое. Зовёт и недельный отчёт."""
     rows = ledger_misses(client)
     misses = keyword_misses(client, rows)
-    words = [w for w in (args.words or '').split(',') if w.strip()] if args.words else None
     dropped = {}  # type: Dict[str, str]
-    proposals = asyncio.run(propose_words(client, misses, current, hit, words=words, use_ai=not args.no_ai,
-                                          ai_cap=args.ai_calls, judge=args.judge, days=args.days,
-                                          dropped=dropped))
+    proposals = asyncio.run(propose_words(client, misses, current, hit, words=words, use_ai=use_ai,
+                                          ai_cap=ai_cap, judge=judge, days=days, dropped=dropped))
     proposals += channel_gaps(rows)
-    if args.dry_run:
+    if dry_run:
         for text, _, _ in messages(proposals):
             print(text)
             print('-' * 40)
-        print(json.dumps({'misses_no_keyword': len(misses), 'proposals': len(proposals), 'dropped_words': dropped},
-                         ensure_ascii=False))
-        return 0
+        return {'misses_no_keyword': len(misses), 'proposals': len(proposals), 'dropped_words': dropped}
     fresh = save(client, proposals)
-    sent = 0 if args.no_send else send(client, fresh)
+    sent = send(client, fresh) if send_tg else 0
     applied, waiting = sync(client, current)
-    print(json.dumps({'misses_no_keyword': len(misses), 'proposals': len(proposals), 'dropped_words': dropped,
-                      'new_or_unsent': len(fresh),
-                      'sent': sent, 'applied': [r['key'] for r in applied],
-                      'waiting_commit': [r['key'] for r in waiting]}, ensure_ascii=False))
-    return 0
+    return {'misses_no_keyword': len(misses), 'proposals': len(proposals), 'dropped_words': dropped,
+            'new_or_unsent': len(fresh), 'sent': sent, 'applied': [r['key'] for r in applied],
+            'waiting_commit': [r['key'] for r in waiting], 'fresh': fresh}
 
 
 if __name__ == '__main__':

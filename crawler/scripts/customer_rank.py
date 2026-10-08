@@ -25,7 +25,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from crawler.core import customer_registry as CR
 from crawler.core import purchase_ledger as L
@@ -270,6 +270,19 @@ h2{font-size:16px;margin:24px 0 6px}
                      esc(bitrix_line(bitrix, today)), len(open_merge), len(open_bitrix), ''.join(rows),
                      '<h2>Закреплённые вне топа</h2><ul>%s</ul>' % pinned_html if pinned_html else '',
                      skipped, cov_rows)
+
+
+def rebuild_registry(client, registry, today, top=100, months=24):
+    # type: (Any, Dict[str, Any], date, int, int) -> Tuple[Dict[str, Any], Dict[str, Any]]
+    """Пересобрать рейтинг и реестр (ручные поля и закреплённые переживают), сохранить
+    реестр и месячный снимок. -> (реестр, полный рейтинг). Зовут --registry и недельный отчёт."""
+    since = (today - timedelta(days=round(months * 30.44))).isoformat()
+    full = rank(profile_rows(client, since), today, None, CR.groups(registry))
+    stamp = today.isoformat()
+    registry = CR.build(full['entities'], registry, stamp, top)
+    CR.save(registry)
+    CR.save(registry, PRIVATE_DIR / ('customer_registry_%s.json' % stamp[:7]))
+    return registry, full
 
 
 def send_document(path, caption):
