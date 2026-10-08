@@ -120,7 +120,8 @@ def test_digest_sender_actually_passes_the_map():
     i = src.index("async def _send_digest")
     j = src.index("async def send_alerts", i)
     body = src[i:j]
-    assert "_build_digest_text(tenders, archive)" in body
+    # С фазы 6 третьим аргументом идут ⭐ топ-100; карта архива — по-прежнему второй.
+    assert "_build_digest_text(tenders, archive" in body
     assert "_lookup_tender_uuid" in body
 
 
@@ -143,6 +144,14 @@ def test_reminder_without_uuid_falls_back_to_platform():
     """Хоть какая-то ссылка лучше, чем никакой: без uuid отдаём платформу."""
     row = {"source": "Cooperation.uz Лоты", "source_url": "https://x/lots?lotId=1"}
     assert D._reminder_url(row) == "https://x/lots?lotId=1"
+
+
+def test_reminder_strips_markdown_from_customer_too():
+    """Заголовок чистился всегда, заказчик — нет: «_» или «*» в имени ломали
+    разметку, Telegram отвечал 400, напоминание пропадало."""
+    text = D._format_reminder({"title": "Печать *бланков*", "organization": "OOO_TEX*SERVIS [UZ]",
+                               "deadline": "2026-10-10", "source": "ETender UZEX"}, "1_day")
+    assert "Заказчик: OOOTEXSERVIS UZ]" in text and "Печать бланков" in text
 
 
 def test_both_reminder_formats_use_the_helper():

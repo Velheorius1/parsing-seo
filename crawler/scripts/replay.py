@@ -91,6 +91,7 @@ async def replay_tenders(
     keywords=None,           # type: Optional[List[str]]
     tnved_scope=None,        # type: Optional[List[str]]
     collected_at=None,       # type: Optional[dict]
+    vip_index=None,          # type: Optional[dict]
 ):
     # type: (...) -> List[ReplayVerdict]
     """Mirror of the prod decision path, minus every side effect.
@@ -99,6 +100,7 @@ async def replay_tenders(
     writes a cache file; the caller injects live mutes if the question is
     "would it push through today's mutes" rather than "is the tender catchable".
     collected_at: optional {external_id: iso_ts} for as_of="collected_at".
+    vip_index: ⭐-полоса топ-100 (core/vip_lane) — как в send_alerts при режиме не off.
     """
     from crawler.core.notifier import (
         prefilter, _get_keywords, _load_tnved_scope, _route_to_push,
@@ -121,7 +123,7 @@ async def replay_tenders(
 
         for t in tenders:
             now = _as_of_value(as_of, collected_at.get(t.external_id))
-            pf = prefilter([t], keywords, tnved_scope=tnved_scope, now=now)
+            pf = prefilter([t], keywords, tnved_scope=tnved_scope, now=now, vip_index=vip_index)
             v = pf.verdicts[0]
             rv = ReplayVerdict(
                 external_id=t.external_id, source=t.source, title=t.title,
