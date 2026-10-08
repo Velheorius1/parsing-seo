@@ -295,3 +295,84 @@ if __name__ == "__main__":
             failures += 1
     print("\n%d/%d passed" % (len(tests) - failures, len(tests)))
     sys.exit(1 if failures else 0)
+
+
+# --- ИНН филиала в карточке ebirja (08.10) -----------------------------------
+
+def test_branch_tin_resolves_to_parent_inn_but_not_for_individuals():
+    """6 447 договоров э-магазина лежали без заказчика: tin филиала — 14 цифр
+    («20724339001140» = Агробанк 207243390 + МФО 01140), нормализатор брал только 9."""
+    from crawler.core.purchase_ledger import buyer_inn_of, ebirja_card_details
+    assert buyer_inn_of('207243390', 'AGROBANK') == '207243390'
+    assert buyer_inn_of('20724339001140', '01140 - "Агробанк" АТБ') == '207243390'
+    assert buyer_inn_of('31508901290017', 'YATT ABDISAMATOV BEKMURODJON') is None, 'ПИНФЛ физлица — не ИНН'
+    assert buyer_inn_of('31508901290017', '  ЯТТ Иванов') is None
+    assert buyer_inn_of('00000000000000', 'X') is None and buyer_inn_of('1234', 'X') is None
+    card = {'customer': {'tin': '30495276700006', 'title': '“O‘zbekgidroenergo” AJ “Farhod GES” filiali'},
+            'producer': {'tin': '123456789'}, 'order': {'product_log': {'title': 'Bloknot'}}}
+    assert ebirja_card_details('shop', card)['buyer_inn'] == '304952767'
+
+
+def test_branch_inn_backfill_reads_one_card_per_name_and_skips_conflicts():
+    from crawler.scripts import purchase_backfill as B
+
+    rows = [{'id': 1, 'feed': 'ebirja_shop', 'business_id': '10', 'buyer_name': 'Agrobank 01140'},
+            {'id': 2, 'feed': 'ebirja_shop', 'business_id': '11', 'buyer_name': 'Agrobank 01140'},
+            {'id': 3, 'feed': 'ebirja_shop', 'business_id': '12', 'buyer_name': 'Agrobank 01140'},
+            {'id': 4, 'feed': 'ebirja_shop', 'business_id': '20', 'buyer_name': 'Two branches'},
+            {'id': 5, 'feed': 'ebirja_shop', 'business_id': '21', 'buyer_name': 'Two branches'},
+            {'id': 6, 'feed': 'ebirja_shop', 'business_id': '30', 'buyer_name': 'YATT IVANOV'}]
+    tins = {'10': '20724339001140', '11': '20724339001140', '20': '30495276700006', '21': '30634930400007'}
+    calls, updates = [], []
+
+    class _Resp(object):
+        def __init__(self, bid):
+            self.bid = bid
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {'customer': {'tin': tins.get(self.bid), 'title': 'X'}, 'producer': {}, 'order': {}}
+
+    def get(url, params=None, **kw):
+        calls.append(params['id'])
+        return _Resp(params['id'])
+
+    class _Q(object):
+        def __init__(self):
+            self.filters, self.payload = [], None
+
+        def table(self, name):
+            self.filters, self.payload = [], None
+            return self
+
+        def select(self, *a, **k):
+            return self
+
+        def update(self, payload):
+            self.payload = payload
+            return self
+
+        def __getattr__(self, name):
+            def f(*a, **k):
+                self.filters.append((name,) + a)
+                return self
+            return f
+
+        @property
+        def not_(self):
+            return self
+
+        def execute(self):
+            if self.payload is not None:
+                updates.append((self.payload['buyer_inn'], [f for f in self.filters if f[0] == 'eq']))
+                return type('R', (), {'data': [{}] * 3})()
+            if any(f[0] == 'gt' and f[2] > 0 for f in self.filters):
+                return type('R', (), {'data': []})()
+            return type('R', (), {'data': rows})()
+
+    out = B.fix_branch_inns(_Q(), dry_run=False, pause=0, get=get)
+    assert sorted(calls) == ['10', '11', '20', '21'], 'карточка на имя + вторая для сверки; ИП не читаем'
+    assert out['conflicts'] == ['Two branches'] and out['fixed_names'] == 1 and out['rows_matched'] == 3
+    assert updates == [('207243390', [('eq', 'feed', 'ebirja_shop'), ('eq', 'buyer_name', 'Agrobank 01140')])]
