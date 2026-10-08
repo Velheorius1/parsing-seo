@@ -36,6 +36,7 @@ PRIVATE_DIR = Path(__file__).resolve().parents[2] / 'data' / 'private'
 _COLS = ('id,feed,business_id,buyer_inn,buyer_name,buyer_type,winner_inn,winner_name,subject,'
          'amount_uzs,awarded_on,status,profile,source_url')
 BITRIX_PATH = PRIVATE_DIR / 'bitrix_companies.json'
+DRAFT_SHARE = 0.001
 FEED_RU = {'deals': 'сделки etender', 'direct': 'прямые закупки UZEX', 'civil': 'итоги ВМК-69',
            'ebirja_shop': 'ebirja магазин', 'ebirja_auction': 'ebirja аукцион',
            'ebirja_tender': 'ebirja тендер', 'ebirja_selection': 'ebirja отбор'}
@@ -76,8 +77,15 @@ def coverage(client):
             continue
         oldest = client.table(TABLE).select('awarded_on').eq('feed', feed).order('awarded_on') \
             .limit(1).execute().data
+        # ИП (YATT) ИНН организации не имеют по природе — это не дыра в сборе, и из-за
+        # них список не должен вечно висеть «черновиком» (08.10: 6 447 «без ИНН» были
+        # филиалами, после их починки остались только ИП).
+        individuals = sum(client.table(TABLE).select('id', count='exact').eq('feed', feed).is_('buyer_inn', 'null')
+                          .ilike('buyer_name', prefix).limit(1).execute().count or 0
+                          for prefix in ('YATT %', 'ЯТТ %', 'ИП %'))
         out.append({'feed': feed, 'total': total, 'since': (oldest or [{}])[0].get('awarded_on'),
-                    'no_inn': count(buyer_inn=None), 'unlabeled': count(profile=None)})
+                    'no_inn': count(buyer_inn=None) - individuals, 'individuals': individuals,
+                    'unlabeled': count(profile=None)})
     return out
 
 
@@ -110,7 +118,11 @@ def rank(rows, today, top, groups=None):
         spend12 = sum(Decimal(str(r['amount_uzs'])) for r in items if r['awarded_on'] >= cut12)
         spend24 = sum(Decimal(str(r['amount_uzs'])) for r in items if r['awarded_on'] < cut12)
         total = spend12 + spend24
-        names = Counter(r.get('buyer_name') for r in items if r.get('buyer_name'))
+        # Имя — из официальных лент (etender, UZEX, ВМК-69): в ebirja заказчик часто
+        # филиал, и с 08.10 его договоры идут на ИНН головной — без этого Агробанк
+        # в списке назывался «01140 — … Марказий амалиётлар бошқармаси».
+        named = [r for r in items if r.get('buyer_name') and not str(r.get('feed') or '').startswith('ebirja_')]
+        names = Counter(r['buyer_name'] for r in (named or [r for r in items if r.get('buyer_name')]))
         name = member['name'] if member else (names.most_common(1)[0][0] if names else key)
         types = Counter(r.get('buyer_type') for r in items if r.get('buyer_type'))
         winners = defaultdict(Decimal)  # type: Dict[str, Decimal]
@@ -162,7 +174,9 @@ def status_line(cov, metrics):
         judge = 'судья профиля не перемерен после смены промпта (%s)' % P.PROMPT_VERSION
     unlabeled = sum(c.get('unlabeled') or 0 for c in cov)
     no_inn = sum(c.get('no_inn') or 0 for c in cov)
-    if unlabeled or no_inn:
+    total = sum(c.get('total') or 0 for c in cov)
+    # Черновик — когда дыра заметна (больше 0,1% журнала), а не из-за трёх строк из 163 тыс.
+    if unlabeled + no_inn > total * DRAFT_SHARE:
         return '%s · черновик: %d договоров ещё без оценки, %d без ИНН заказчика — см. охват' % (
             judge, unlabeled, no_inn)
     return judge
@@ -264,7 +278,7 @@ h2{font-size:16px;margin:24px 0 6px}
 %s
 <h2>Охват лент</h2><p>Не учтено: %s</p>
 <div class="wrap"><table style="min-width:520px"><tr><th>Лента</th><th class="n">Договоров</th><th class="n">С даты</th>
-<th class="n">Без ИНН</th><th class="n">Без оценки</th></tr>%s</table></div>
+<th class="n">Без ИНН (кроме ИП)</th><th class="n">Без оценки</th></tr>%s</table></div>
 </body></html>""" % (len(result['entities']), today.isoformat(), result['total_entities'],
                      esc(status_line(cov, metrics if metrics is not None else judge_metrics())),
                      esc(bitrix_line(bitrix, today)), len(open_merge), len(open_bitrix), ''.join(rows),

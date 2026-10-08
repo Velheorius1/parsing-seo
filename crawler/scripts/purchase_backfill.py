@@ -301,6 +301,53 @@ def collect_details(client, limit, dry_run, deadline, pause, get=None):
             'rows': done, 'failed': failed, 'pending_seen': len(pending)}
 
 
+def fix_branch_inns(client, dry_run, pause, get=None):
+    # type: (Any, bool, float, Optional[Callable[..., Any]]) -> Dict[str, Any]
+    """Проставить ИНН головной компании строкам ebirja, чей филиал пришёл 14 цифрами.
+
+    До 08.10 такой tin отбрасывался (L.buyer_inn_of). Перечитывать все карточки
+    незачем: заказчик — одно имя, поэтому карточка на имя, а если строк с ним
+    больше одной — вторая для сверки; разошлись — имя пропускаем и называем.
+    ИП (YATT) не трогаем: их 14 цифр — ПИНФЛ.
+    """
+    get = get or httpx.get
+    rows, last = [], 0  # type: List[Dict[str, Any]], int
+    while True:
+        page = client.table(TABLE).select('id,feed,business_id,buyer_name').like('feed', 'ebirja_%') \
+            .is_('buyer_inn', 'null').not_.is_('details_fetched_at', 'null').is_('deleted_at', 'null') \
+            .gt('id', last).order('id').limit(1000).execute().data or []
+        rows.extend(page)
+        if len(page) < 1000:
+            break
+        last = page[-1]['id']
+    by_name = {}  # type: Dict[Tuple[str, str], List[Dict[str, Any]]]
+    for r in rows:
+        if r.get('buyer_name') and not L.is_individual(r['buyer_name']):
+            by_name.setdefault((r['feed'], r['buyer_name']), []).append(r)
+    fixed, updated, conflicts, unresolved = [], 0, [], []
+    for (feed, name), items in sorted(by_name.items()):
+        inns = set()
+        for r in items[:2]:
+            try:
+                inns.add(_fetch_details(r, get).get('buyer_inn'))
+            except Exception as exc:
+                logger.warning('branch inn %s/%s: %s', feed, r['business_id'], str(exc)[:100])
+                inns.add(None)
+            time.sleep(pause)
+        if len(inns) != 1 or None in inns:
+            (conflicts if len(inns - {None}) > 1 else unresolved).append(name)
+            continue
+        inn = inns.pop()
+        fixed.append({'feed': feed, 'name': name, 'inn': inn, 'rows': len(items)})
+        if not dry_run:
+            res = client.table(TABLE).update({'buyer_inn': inn, 'updated_at': datetime.now(timezone.utc).isoformat()}) \
+                .eq('feed', feed).eq('buyer_name', name).is_('buyer_inn', 'null').execute()
+            updated += len(res.data or [])
+    return {'feed': 'branch_inn', 'names': len(by_name), 'fixed_names': len(fixed), 'rows_updated': updated,
+            'rows_matched': sum(f['rows'] for f in fixed), 'conflicts': conflicts, 'unresolved': unresolved,
+            'fixed': fixed}
+
+
 def main():
     # type: () -> int
     parser = argparse.ArgumentParser(description='Сбор журнала закупок по ИНН заказчика')
@@ -311,7 +358,12 @@ def main():
     parser.add_argument('--max-minutes', type=float, default=90)
     parser.add_argument('--pause', type=float, default=2.0, help='секунд между запросами')
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--fix-branch-inn', action='store_true',
+                        help='проставить ИНН головной компании строкам ebirja с филиальным tin (разово)')
     args = parser.parse_args()
+    if args.fix_branch_inn:
+        print(json.dumps(fix_branch_inns(_client(), args.dry_run, args.pause), ensure_ascii=False))
+        return 0
 
     today = date.today()
     if args.incremental:

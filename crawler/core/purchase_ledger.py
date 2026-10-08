@@ -252,6 +252,34 @@ def _dedup(items):
     return out
 
 
+# ИП: «YATT …» (узб.), «ЯТТ …», «ИП …». Их 14 цифр в tin — ПИНФЛ физлица, не филиал.
+_INDIVIDUAL = re.compile(r'^\W*(yatt|ятт|ип)\b', re.I)
+
+
+def is_individual(name):
+    # type: (Any) -> bool
+    return bool(_INDIVIDUAL.match(str(name or '')))
+
+
+def buyer_inn_of(tin, name):
+    # type: (Any, Any) -> Optional[str]
+    """ИНН заказчика из tin карточки ebirja.
+
+    9 цифр — ИНН. 14 цифр у организации — филиал: ИНН головной компании и код
+    филиала («20724339001140» = Агробанк 207243390 + МФО 01140). Нормализатор
+    принимал только 9 цифр, и 6 447 договоров э-магазина — филиалы Агробанка,
+    железной дороги, ГЭС — лежали без заказчика; наших среди них 208 на 3,9 млрд
+    (найдено 08.10). У ИП 14 цифр — ПИНФЛ физлица: его начало ничьим ИНН не является.
+    """
+    inn = normalize_inn(tin)
+    if inn:
+        return inn
+    digits = str(tin or '').strip()
+    if re.fullmatch(r'\d{14}', digits) and not is_individual(name):
+        return normalize_inn(digits[:9])
+    return None
+
+
 def ebirja_card_details(source_key, card):
     # type: (str, Dict[str, Any]) -> Dict[str, Any]
     """Колонки, которые даёт публичная карточка договора ebirja.
@@ -283,7 +311,7 @@ def ebirja_card_details(source_key, card):
         titles.append(norm_text(proc.get('title')))
     subject = '; '.join(_dedup(titles))[:1000] or None
     return {
-        'buyer_inn': normalize_inn(customer.get('tin')),
+        'buyer_inn': buyer_inn_of(customer.get('tin'), customer.get('title')),
         'winner_inn': normalize_inn(producer.get('tin')),
         'subject': subject,
         'subject_codes': _dedup(codes) or None,
