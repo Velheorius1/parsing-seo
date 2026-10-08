@@ -307,3 +307,21 @@ def test_empty_ai_answer_is_reported_not_silent(monkeypatch):
     dropped = {}
     out = asyncio.run(P.propose_words(None, [_miss(1, 'нашр', 1e8)], ['печать'], _hit, ask=ask, dropped=dropped))
     assert out == [] and dropped == {'—': 'AI не дал ни одного кандидата'}
+
+
+def test_general_word_is_not_proposed_and_reasons_survive_every_word(monkeypatch):
+    """08.10: «xarid» (закупка) ≈150 лотов/нед на AI, 0 из 10 взято — предложено с «≈0 алертов».
+    И причины отсева терялись после первого слова: локальный Counter затирал словарь."""
+    misses = [_miss(1, 'нашр хизмати xarid', 576e6), _miss(2, 'чоп этиш', 90e6, ai=False)]
+    window = {'нашр': [{'id': 'w1', 'title': 'нашр'}],
+              'xarid': [{'id': 'x%d' % i, 'title': 'xarid %d' % i} for i in range(60)]}
+    replay = _Replay()
+    monkeypatch.setattr(P, '_replay', replay)
+    monkeypatch.setattr(P, 'window_rows', lambda client, word, since: (window.get(word, []), False))
+    dropped = {}
+    out = asyncio.run(P.propose_words(None, misses, ['печать'], _hit, words=['нашр', 'xarid', 'чоп'],
+                                      ai_cap=150, judge=10, days=14, dropped=dropped))
+    assert [p['key'] for p in out] == ['нашр']
+    assert dropped['xarid'].startswith('слишком общее: ≈30 лотов')
+    assert dropped['чоп'].startswith('пойманное (1)'), 'причина после первого слова не потерялась'
+    assert out[0]['backtest']['dropped'] == {}
