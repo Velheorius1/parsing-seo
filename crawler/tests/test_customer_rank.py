@@ -76,3 +76,23 @@ if __name__ == "__main__":
             failures += 1
     print("\n%d/%d passed" % (len(tests) - failures, len(tests)))
     sys.exit(1 if failures else 0)
+
+
+def test_three_stray_rows_do_not_make_the_list_a_draft():
+    """08.10: после починки филиалов «черновиком» список держали 2 строки без оценки
+    и 1 без ИНН из 163 тыс. Черновик — когда дыра больше 0,1% журнала."""
+    measured = {"prompt": P.PROMPT_VERSION, "precision": 0.98, "recall": 0.96, "items": 140}
+    big = [{"feed": "deals", "total": 163000, "no_inn": 1, "unlabeled": 2}]
+    assert "черновик" not in R.status_line(big, measured)
+    assert "черновик" in R.status_line([dict(big[0], no_inn=400)], measured)
+
+
+def test_display_name_comes_from_official_feeds_not_an_ebirja_branch():
+    """С 08.10 договоры филиала ebirja идут на ИНН головной; имя филиала
+    («01140 - Агробанк … бошқармаси») не должно становиться именем заказчика."""
+    branch = dict(_row("207243390", 50e6, "2026-09-01", name="01140 - \"Агробанк\" АТБ"), feed="ebirja_shop")
+    head = _row("207243390", 40e6, "2026-09-01", name="\"AGROBANK\" ATB")
+    result = R.rank([branch, dict(branch), head], date(2026, 10, 8), 10)
+    assert result["entities"][0]["name"] == "\"AGROBANK\" ATB"
+    only_branch = R.rank([branch], date(2026, 10, 8), 10)
+    assert only_branch["entities"][0]["name"] == "01140 - \"Агробанк\" АТБ", "других имён нет — берём что есть"
