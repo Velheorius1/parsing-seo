@@ -248,10 +248,10 @@ def messages(proposals):
                 out.append((text, rows, ids))
                 text, rows, ids = HEADERS[kind], [], []
             text += '\n\n' + item
-            label = p['key'] if kind == 'keyword' else CHANNEL_TEXT.get(p['key'], (p['key'], ''))[0]
+            label = L.button_label(kind, p['key'])
             pid = int(p.get('id') or 0)     # 0 — сухой прогон, строки в базе ещё нет
-            rows.append([{'text': '✅ %s' % label[:24], 'callback_data': L.callback_data(pid, 'ok')},
-                         {'text': '❌ %s' % label[:24], 'callback_data': L.callback_data(pid, 'no')}])
+            rows.append([{'text': '✅ %s' % label, 'callback_data': L.callback_data(pid, 'ok')},
+                         {'text': '❌ %s' % label, 'callback_data': L.callback_data(pid, 'no')}])
             ids.append(p.get('id'))
         if ids:
             out.append((text, rows, ids))

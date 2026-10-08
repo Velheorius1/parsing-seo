@@ -139,6 +139,16 @@ def edit_message_markup(chat_id, message_id, label_info, seq, old_rows=None, pre
         logger.debug("Failed to edit markup: %s", str(exc))
 
 
+def set_markup(chat_id, message_id, keyboard):
+    # type: (int, int, list) -> None
+    if not keyboard:
+        return
+    httpx.post(BOT_URL + "/editMessageReplyMarkup",
+               json={"chat_id": chat_id, "message_id": message_id,
+                     "reply_markup": {"inline_keyboard": keyboard}},
+               timeout=10)
+
+
 def parse_callback(data):
     # type: (str) -> tuple
     """'out:123:bid' -> ('out', 123, 'bid'). Чистая функция.
@@ -217,21 +227,25 @@ def process_learning(cq, db=None):
         answer_callback(callback_id, "Решать может только владелец чата алертов")
         return
     try:
-        status, row = learning.decide(db if db is not None else _learning_db(), pid, label, learning.who(user))
+        db = db if db is not None else _learning_db()
+        status, row = learning.decide(db, pid, label, learning.who(user))
     except Exception as exc:
         logger.error("Learning: запись решения #%d упала: %s", pid, str(exc)[:200])
         answer_callback(callback_id, "Ошибка записи")
         return
-    if status is None:
-        answer_callback(callback_id, "Уже решено")
-        return
-    answer_callback(callback_id, learning.ack_text(status, row))
+    answer_callback(callback_id, learning.ack_text(status, row) if status else "Уже решено")
     msg = cq.get("message", {})
     chat_id = msg.get("chat", {}).get("id")
     message_id = msg.get("message_id")
     if chat_id and message_id:
-        old_rows = (msg.get("reply_markup") or {}).get("inline_keyboard")
-        edit_message_markup(chat_id, message_id, learning.MARKS[status], pid, old_rows, prefix=learning.PREFIX)
+        # Клавиатура — из базы, а не из разметки клика: быстрые клики иначе
+        # затирают друг друга (08.10). Заодно «Уже решено» чинит устаревшее сообщение.
+        try:
+            set_markup(chat_id, message_id, learning.keyboard_for(learning.message_rows(db, message_id)))
+        except Exception as exc:
+            logger.warning("Learning: клавиатура #%d не обновлена: %s", pid, str(exc)[:200])
+    if status is None:
+        return
     logger.info("Learning: #%d -> %s", pid, status)
 
 

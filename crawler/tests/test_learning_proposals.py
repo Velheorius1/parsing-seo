@@ -39,17 +39,23 @@ def test_only_private_chat_owner_or_explicit_list_may_decide():
 
 
 class _Q(object):
-    """Минимальный клиент Supabase: запоминает фильтры UPDATE, отдаёт заданные строки."""
+    """Минимальный клиент Supabase: запоминает фильтры, отдаёт заданные строки."""
 
-    def __init__(self, rows):
-        self.rows, self.calls = rows, []
+    def __init__(self, rows, listing=None):
+        self.rows, self.listing, self.calls, self._select = rows, listing, [], False
 
     def table(self, name):
         self.calls.append(('table', name))
+        self._select = False
         return self
 
     def update(self, fields):
         self.calls.append(('update', fields))
+        return self
+
+    def select(self, cols):
+        self.calls.append(('select', cols))
+        self._select = True
         return self
 
     def eq(self, col, value):
@@ -57,6 +63,8 @@ class _Q(object):
         return self
 
     def execute(self):
+        if self._select and self.listing is not None:
+            return SimpleNamespace(data=self.listing)
         return SimpleNamespace(data=self.rows)
 
 
@@ -88,7 +96,7 @@ def _bot(monkeypatch, chat_id):
     answers, edits = [], []
     monkeypatch.setattr(B, 'settings', SimpleNamespace(telegram_alert_chat_id=chat_id))
     monkeypatch.setattr(B, 'answer_callback', lambda cid, text: answers.append(text))
-    monkeypatch.setattr(B, 'edit_message_markup', lambda *a, **k: edits.append((a, k)))
+    monkeypatch.setattr(B, 'set_markup', lambda chat, mid, kb: edits.append((chat, mid, kb)))
     monkeypatch.delenv('LEARNING_APPROVER_IDS', raising=False)
     return B, answers, edits
 
@@ -108,26 +116,34 @@ def test_bot_refuses_a_stranger_without_touching_the_db(monkeypatch):
     assert db.calls == [] and edits == []
 
 
-def test_bot_records_owner_decision_and_marks_the_message(monkeypatch):
+def test_bot_records_owner_decision_and_rebuilds_keyboard_from_db(monkeypatch):
     B, answers, edits = _bot(monkeypatch, '42')
-    db = _Q([{'id': 5, 'kind': 'keyword', 'key': 'нашр', 'status': 'approved'}])
+    listing = [{'id': 5, 'kind': 'keyword', 'key': 'нашр', 'status': 'approved'},
+               {'id': 6, 'kind': 'channel', 'key': 'ebirja_shop', 'status': 'proposed'},
+               {'id': 4, 'kind': 'keyword', 'key': 'чоп', 'status': 'rejected'}]
+    db = _Q([{'id': 5, 'kind': 'keyword', 'key': 'нашр', 'status': 'approved'}], listing)
     monkeypatch.setattr(B, '_learning_db', lambda: db)
     B.process_callback(_cq(user_id=42))
-    assert ('update', {'status': 'approved', 'decided_by': '42 dan',
-                       'decided_at': db.calls[1][1]['decided_at'],
-                       'updated_at': db.calls[1][1]['updated_at']}) in db.calls
+    update = [c for c in db.calls if c[0] == 'update'][0][1]
+    assert update['status'] == 'approved' and update['decided_by'] == '42 dan'
+    assert ('eq', 'telegram_message_id', 9) in db.calls, 'клавиатура — по всем предложениям этого сообщения'
     assert 'коммитом' in answers[0]
-    (args, kwargs), = edits
-    assert args[2] == L.MARKS['approved'] and args[3] == 5 and kwargs['prefix'] == 'lp'
-    rows = B.remaining_keyboard(args[4], 5, L.MARKS['approved'], 'lp')
-    assert rows == [[{'text': '✅ Одобрено #005', 'callback_data': 'done'}]]
+    (chat, mid, kb), = edits
+    assert (chat, mid) == (42, 9)
+    assert kb == [[{'text': '❌ Отклонено · чоп', 'callback_data': 'done'}],
+                  [{'text': '✅ Одобрено · нашр', 'callback_data': 'done'}],
+                  [{'text': '✅ Э-магазин ebirja', 'callback_data': 'lp:6:ok'},
+                   {'text': '❌ Э-магазин ebirja', 'callback_data': 'lp:6:no'}]]
 
 
-def test_bot_second_click_says_already_decided(monkeypatch):
+def test_stale_message_is_repaired_even_when_already_decided(monkeypatch):
+    """08.10: быстрые клики затёрли друг друга — в базе одобрено, в чате кнопки."""
     B, answers, edits = _bot(monkeypatch, '42')
-    monkeypatch.setattr(B, '_learning_db', lambda: _Q([]))
+    db = _Q([], [{'id': 5, 'kind': 'channel', 'key': 'ebirja_shop', 'status': 'approved'}])
+    monkeypatch.setattr(B, '_learning_db', lambda: db)
     B.process_callback(_cq(user_id=42, data='lp:5:no'))
-    assert answers == ['Уже решено'] and edits == []
+    assert answers == ['Уже решено']
+    assert edits[0][2] == [[{'text': '✅ Одобрено · Э-магазин ebirja', 'callback_data': 'done'}]]
 
 
 # ── кандидаты и бэктест ──────────────────────────────────────────────────────

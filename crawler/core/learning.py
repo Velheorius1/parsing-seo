@@ -19,7 +19,24 @@ DECISIONS = {'ok': 'approved', 'no': 'rejected'}
 MARKS = {
     'approved': {'emoji': '✅', 'text': 'Одобрено'},
     'rejected': {'emoji': '❌', 'text': 'Отклонено'},
+    'applied': {'emoji': '✅', 'text': 'Включено'},
+    'retired': {'emoji': '⏹', 'text': 'Снято'},
 }
+
+
+# Короткие имена площадок для кнопок (полный текст — в propose_fixes.CHANNEL_TEXT).
+CHANNEL_NAMES = {
+    'ebirja_shop': 'Э-магазин ebirja',
+    'direct': 'Прямые договоры UZEX',
+    'ebirja_selection': 'Отборы ebirja',
+    'ebirja_auction': 'Аукционы ebirja',
+    'ebirja_tender': 'Тендеры ebirja',
+}
+
+
+def button_label(kind, key):
+    # type: (str, str) -> str
+    return (key if kind == 'keyword' else CHANNEL_NAMES.get(key, key))[:24]
 
 
 def callback_data(pid, label):
@@ -66,6 +83,34 @@ def who(user):
     # type: (Dict[str, Any]) -> str
     name = user.get('username') or user.get('first_name') or ''
     return ('%s %s' % (user.get('id'), name)).strip()
+
+
+def keyboard_for(rows):
+    # type: (Iterable[Dict[str, Any]]) -> list
+    """Клавиатура сообщения по СОСТОЯНИЮ В БАЗЕ: ждущее — две кнопки, решённое — подпись.
+
+    Раньше бот правил разметку, пришедшую вместе с кликом. При быстрых кликах
+    она уже устаревшая, и правки затирали друг друга: 08.10 «Э-магазин» был
+    одобрен в базе, а в чате у него остались кнопки. Строить из базы — значит
+    последняя правка всегда несёт полную правду."""
+    out = []
+    for row in sorted(rows, key=lambda r: r['id']):
+        label = button_label(row.get('kind'), row.get('key'))
+        if row.get('status') == 'proposed':
+            out.append([{'text': '✅ %s' % label, 'callback_data': callback_data(row['id'], 'ok')},
+                        {'text': '❌ %s' % label, 'callback_data': callback_data(row['id'], 'no')}])
+        else:
+            mark = MARKS.get(row.get('status'), {'emoji': '·', 'text': str(row.get('status'))})
+            out.append([{'text': '%s %s · %s' % (mark['emoji'], mark['text'], label), 'callback_data': 'done'}])
+    return out
+
+
+def message_rows(client, message_id):
+    # type: (Any, Any) -> list
+    if not message_id:
+        return []
+    return client.table(TABLE).select('id,kind,key,status').eq('telegram_message_id', message_id) \
+        .execute().data or []
 
 
 def decide(client, pid, label, by, now=None):
