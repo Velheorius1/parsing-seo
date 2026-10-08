@@ -145,6 +145,16 @@ def _reminder_url(t):
     return t.get("source_url")
 
 
+def _strip_md(text) -> str:
+    """Убрать знаки разметки Markdown. Заголовок их терял всегда, а имя заказчика —
+    нет: «Заказчик: ООО_ТЕХ*СЕРВИС» ломал разметку, Telegram отвечал 400, и
+    напоминание о дедлайне пропадало целиком."""
+    text = str(text or "")
+    for ch in ("*", "_", "`", "["):
+        text = text.replace(ch, "")
+    return text
+
+
 def _format_reminder(tender: dict, reminder_type: str) -> str:
     """Format a deadline reminder message."""
     emoji = "⏰" if reminder_type == "1_day" else "📅"
@@ -153,14 +163,10 @@ def _format_reminder(tender: dict, reminder_type: str) -> str:
     parts = []
     parts.append("%s *Дедлайн %s!*" % (emoji, days_text))
     parts.append("")
-    title = (tender.get("title") or "")[:200]
-    # Escape markdown
-    for ch in ("*", "_", "`", "["):
-        title = title.replace(ch, "")
-    parts.append(title)
+    parts.append(_strip_md((tender.get("title") or "")[:200]))
     org = tender.get("organization")
     if org:
-        parts.append("Заказчик: %s" % org)
+        parts.append("Заказчик: %s" % _strip_md(org))
     price = tender.get("price")
     if price:
         currency = tender.get("currency", "UZS")
@@ -182,9 +188,7 @@ def _format_digest(tenders: List[dict], reminder_type: str) -> str:
     parts = ["%s *Дедлайн %s — %d тендеров:*" % (emoji, days_text, len(tenders)), ""]
     shown = tenders[:25]
     for t in shown:
-        title = (t.get("title") or "")[:80]
-        for ch in ("*", "_", "`", "["):
-            title = title.replace(ch, "")
+        title = _strip_md((t.get("title") or "")[:80])
         url = _reminder_url(t)
         parts.append("• %s%s" % (title, ("\n  " + url) if url else ""))
     if len(tenders) > len(shown):

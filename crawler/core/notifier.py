@@ -1162,6 +1162,7 @@ def prefilter(
     tnved_scope: Optional[List[str]] = None,
     now: Optional[datetime] = None,
     tnved_scope_loader=None,
+    vip_index: Optional[dict] = None,
 ) -> PrefilterResult:
     """Deterministic filter stages of the alert pipeline, side-effect-free.
 
@@ -1180,6 +1181,11 @@ def prefilter(
     code — including the known quirk that the "below price threshold" counter
     is cumulative from the ORIGINAL input, not per-stage. Prod-log diffing
     relies on this; do not "fix" the wording here.
+
+    ``vip_index`` (⭐-полоса топ-100, core/vip_lane): лот заказчика из топа без
+    ключевого слова проходит стадию слов с matched_kw="vip:<сущность>" и идёт в
+    AI; мимо AI (UZEX-bypass) такой лот не пускается. None — поведение и логи
+    прежние, байт в байт.
     """
     total_input = len(new_tenders)
     verdicts = [
@@ -1304,6 +1310,7 @@ def prefilter(
 
     # Stage: keyword match, with ТНВЭД-prefix fallback (language-agnostic recall)
     matched_idx = []
+    vip_count = 0
     for i in alive:
         t = new_tenders[i]
         kw = _find_matching_keyword(t, keywords)
@@ -1311,6 +1318,12 @@ def prefilter(
             _tn = str((t.extra_info or {}).get("tnved") or (t.extra_info or {}).get("code") or "")
             if _tn and any(_tn.startswith(p) for p in tnved_scope):
                 kw = "тнвэд:%s" % _tn[:4]
+        if not kw and vip_index:
+            from crawler.core.vip_lane import KW_PREFIX, match as _vip_match
+            _eid = _vip_match(t, vip_index)
+            if _eid:
+                kw = KW_PREFIX + _eid
+                vip_count += 1
         if kw:
             verdicts[i].matched_kw = kw
             matched_idx.append(i)
@@ -1322,6 +1335,8 @@ def prefilter(
         return _result([], [])
 
     logger.info("[Alerts] %d tenders match keywords (out of %d new)", len(matched_idx), total_input)
+    if vip_count:
+        logger.info("[VIP] %d lots of top-100 customers without keyword → AI", vip_count)
 
     # Stage: fast reject by title
     before_reject = len(matched_idx)
@@ -1341,7 +1356,8 @@ def prefilter(
     for i in kept:
         t = new_tenders[i]
         title_l = (t.title or "").lower()
-        if t.source in _UZEX_PASSTHROUGH_SOURCES and any(h in title_l for h in _UZEX_NICHE_HINTS):
+        _vip_only = (verdicts[i].matched_kw or "").startswith("vip:")
+        if not _vip_only and t.source in _UZEX_PASSTHROUGH_SOURCES and any(h in title_l for h in _UZEX_NICHE_HINTS):
             verdicts[i].uzex_bypass = True
             bypass_idx.append(i)
         else:
@@ -1364,8 +1380,11 @@ def _format_alert(
     extra_sources: Optional[List[str]] = None,
     alert_seq: Optional[int] = None,
     db_id: Optional[str] = None,
+    vip: Optional[dict] = None,
 ) -> str:
-    """Format a single tender alert message for Telegram."""
+    """Format a single tender alert message for Telegram.
+
+    vip — сущность реестра топ-100 (core/vip_lane): строка ⭐ под заголовком."""
     parts = []
     # Alert number + prefix by message type
     prefix = ""
@@ -1388,6 +1407,9 @@ def _format_alert(
     if tender.bid_count and tender.bid_count > 0:
         parts.append("🔨 *Уже торгуются: %d* — спрос есть" % tender.bid_count)
     parts.append("*%s*" % _escape_md(tender.title[:200]))
+    if vip:
+        from crawler.core.vip_lane import star_line as _star_line
+        parts.append(_escape_md(_star_line(vip)))
     if tender.organization:
         # E-shop sources map organization to producer COUNTRY (УЗБЕКИСТАН/КИТАЙ),
         # not a buyer — «Заказчик: КИТАЙ» misled (2026-07-03). Label honestly.
@@ -1500,7 +1522,8 @@ def _format_alert(
         parts.append("")
         parts.extend(submission_lines)
 
-    parts.append("#%s" % matched_kw.replace(" ", "_"))
+    # «vip:c-123» хэштегом не читается (Telegram режет на двоеточии) — пишем по-человечески.
+    parts.append("#топ100" if matched_kw.startswith("vip:") else "#%s" % matched_kw.replace(" ", "_"))
     return "\n".join(parts)
 
 
@@ -1509,6 +1532,17 @@ def _format_alert(
 # ranked DIGEST. Fixes the bimodal-job/unimodal-channel mismatch that drowned the
 # few winnable orders in ~200 equal-weight pushes.
 _PUSH_PRICE_FLOOR = 100_000_000  # 100M UZS — big-ticket always pushes
+
+
+def _split_routing(matching, to_push, vip_mode="off"):
+    # type: (List[Tuple[RawTender, str]], object, str) -> Tuple[List[Tuple[RawTender, str]], List[RawTender]]
+    """(пуш, дайджест). В режиме ⭐-полосы digest лоты «только по ⭐» (matched_kw
+    vip:…) идут в дайджест, сколько бы ни стоили: полоса доказывает себя там,
+    прежде чем получить право будить пушем."""
+    def _push_ok(t, kw):
+        return to_push(t) and not (vip_mode == "digest" and (kw or "").startswith("vip:"))
+    return ([(t, kw) for t, kw in matching if _push_ok(t, kw)],
+            [t for t, kw in matching if not _push_ok(t, kw)])
 
 
 def _route_to_push(t: RawTender, mutes: set) -> bool:
@@ -1593,7 +1627,8 @@ def _rank_digest(tenders: List[RawTender]) -> List[RawTender]:
     return sorted(tenders, key=lambda t: -_digest_score(t))
 
 
-def _build_digest_text(tenders: List[RawTender], archive: Optional[dict] = None) -> str:
+def _build_digest_text(tenders: List[RawTender], archive: Optional[dict] = None,
+                       stars: Optional[dict] = None) -> str:
     from crawler.core.snap import is_broken_spa
     ranked = _rank_digest(tenders)
     n = len(tenders)
@@ -1608,6 +1643,8 @@ def _build_digest_text(tenders: List[RawTender], archive: Optional[dict] = None)
         # большинство планов уходит именно дайджестом, и клик по строке — это
         # и есть тот случай, на который жаловался Данияр («там не тендер»).
         tag = "\U0001f4cb ПЛАН " if is_plan_source(t.source) else ""
+        if stars and (t.external_id, t.source) in stars:
+            tag = "⭐ " + tag
         line = "*%d.* %s*%s* — %s" % (i, tag, _escape_md((t.title or "").strip()[:48]), price)
         # Ссылка строки (24.08): у битых SPA её раньше НЕ БЫЛО ВООБЩЕ — код
         # убирал платформенную, а архивную взамен не ставил, и лот из дайджеста
@@ -1679,7 +1716,7 @@ def _build_digest_keyboard(tenders: List[RawTender], start_seq: int) -> dict:
     return {"inline_keyboard": rows}
 
 
-async def _send_digest(tenders: List[RawTender], start_seq: int) -> bool:
+async def _send_digest(tenders: List[RawTender], start_seq: int, stars: Optional[dict] = None) -> bool:
     """Send ONE compact ranked digest message. Returns True on HTTP 200.
 
     `start_seq` выделяется ДО отправки: иначе номер алерта неизвестен на момент
@@ -1703,7 +1740,7 @@ async def _send_digest(tenders: List[RawTender], start_seq: int) -> bool:
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.post(url, json={
             "chat_id": settings.telegram_alert_chat_id,
-            "text": _build_digest_text(tenders, archive),
+            "text": _build_digest_text(tenders, archive, stars),
             "parse_mode": "Markdown",
             "disable_web_page_preview": True,
             "protect_content": True,
@@ -1746,9 +1783,26 @@ async def send_alerts(
     # TNVED scope consult (shadow-promoted recall layer) goes in as a lazy
     # loader so its SELECT keeps its historical position in the log stream; it
     # is empty until a shadow candidate is promoted, so a safe no-op by default.
-    pf = prefilter(new_tenders, keywords, tnved_scope_loader=_load_tnved_scope)
+    # ⭐-полоса топ-100 (core/vip_lane): режим и индекс — файлы в data/private.
+    # Нет файла — 'off', и prefilter зовётся ровно как раньше (без лишних логов).
+    from crawler.core import vip_lane as _vip
+    _vip_mode = _vip.mode()
+    _vip_index = _vip.load_index() if _vip_mode != "off" else None
+    if _vip_index is None:
+        _vip_mode = "off"
+    pf = prefilter(new_tenders, keywords, tnved_scope_loader=_load_tnved_scope, vip_index=_vip_index)
     matching = pf.matching
     uzex_bypass = pf.uzex_bypass
+    if _vip_mode == "shadow":
+        # Тень: лоты «только по ⭐» не идут ни в AI, ни в Telegram — в журнал замера.
+        _shadow = [(t, kw) for t, kw in matching if _vip.is_vip_kw(kw)]
+        if _shadow:
+            matching = [(t, kw) for t, kw in matching if not _vip.is_vip_kw(kw)]
+            _now = datetime.now(timezone.utc).isoformat()
+            _vip.log_shadow([{"at": _now, "entity": kw[len(_vip.KW_PREFIX):], "source": t.source,
+                              "external_id": t.external_id, "title": (t.title or "")[:200],
+                              "organization": t.organization, "price": t.price} for t, kw in _shadow])
+            logger.info("[VIP] shadow: %d lots of top-100 logged, not sent", len(_shadow))
 
     if not matching and not uzex_bypass:
         # prefilter already logged which gate emptied the batch
@@ -1856,8 +1910,16 @@ async def send_alerts(
     def _to_push(t):
         return _route_to_push(t, _mutes)
 
-    digest_tenders = [t for t, _kw in matching if not _to_push(t)]
-    matching = [(t, kw) for t, kw in matching if _to_push(t)]
+    # ⭐ на всё, что идёт к Данияру, — и по слову, и «только по ⭐». В режиме
+    # digest лоты «только по ⭐» в пуш не идут, сколько бы ни стоили.
+    _stars = {}  # type: Dict[Tuple[str, str], dict]
+    if _vip_index is not None:
+        for _t, _kw in matching:
+            _eid = _vip.match(_t, _vip_index)
+            if _eid and _eid in _vip_index.get("entities", {}):
+                _stars[(_t.external_id, _t.source)] = _vip_index["entities"][_eid]
+
+    matching, digest_tenders = _split_routing(matching, _to_push, _vip_mode)
     # Always log routing (even 0 digest): a crawl that pushes everything with "0 muted
     # sources" is the silent mute-read failure that leaked muted sources to push — now visible.
     logger.info("[Route] %d push / %d digest (%d muted sources)",
@@ -1907,7 +1969,8 @@ async def send_alerts(
             try:
                 db_id = _lookup_tender_uuid(tender.external_id, tender.source)
                 text = _format_alert(tender, kw, extra_sources=extra,
-                                     alert_seq=seq, db_id=db_id)
+                                     alert_seq=seq, db_id=db_id,
+                                     vip=_stars.get((tender.external_id, tender.source)))
             except Exception as exc:
                 logger.warning("[Alerts] Failed preparing alert #%d (%s/%s); skipping one: %s",
                                seq, tender.source, tender.external_id, str(exc)[:160])
@@ -1998,7 +2061,7 @@ async def send_alerts(
             # в ТОМ ЖЕ порядке, в каком дайджест отранжирован: кнопка «3» обязана
             # указывать на лот, стоящий в тексте третьим.
             _dstart = get_next_seq(len(digest_tenders))
-            if await _send_digest(digest_tenders, _dstart):
+            if await _send_digest(digest_tenders, _dstart, _stars):
                 for _j, _t in enumerate(_rank_digest(digest_tenders)):
                     save_alert_seq(_t.external_id, _t.source, _dstart + _j)
         except Exception as _exc:
