@@ -244,18 +244,30 @@ def main(argv=None):
         print(json.dumps(stats, ensure_ascii=False))
         return 0
     since = args.since or str(coverage(client)['deals'] or (today - timedelta(days=365)))
+    summary, _rows, _per_customer = run(client, registry, since, today, not args.no_ai, args.ai_calls, args.dry_run)
+    print(json.dumps(summary, ensure_ascii=False))
+    return 0
+
+
+def run(client, registry, since, today, use_ai=True, ai_calls=AI_CAP, dry_run=False):
+    # type: (Any, Dict[str, Any], str, date, bool, int, bool) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]
+    """Разобрать покупки, записать вид пропуска и полноту. Зовёт и недельный отчёт.
+    -> (сводка, покупки с miss_type/root_stage, полнота по заказчикам)."""
     rows = candidates(client, registry, since, today)
-    stats = asyncio.run(analyse(client, rows, not args.no_ai, args.ai_calls))
-    written = write(client, rows, args.dry_run)
+    stats = asyncio.run(analyse(client, rows, use_ai, ai_calls))
+    written = write(client, rows, dry_run)
     per_customer = recall(rows, registry)
     known = sum(1 for r in rows if r['miss_type'] in KNOWN)
     missed = sum(1 for r in rows if r['miss_type'] in MISSES)
+    announced = [r for r in rows if r['miss_type'] in KNOWN + MISSES and r['miss_type'] != 'B_no_announcement']
     summary = {'generated_at': datetime.now(timezone.utc).isoformat(), 'since': since, 'purchases': len(rows),
                'known': known, 'missed': missed, 'excluded': len(rows) - known - missed,
                'recall': round(known / (known + missed), 3) if known + missed else None,
+               'recall_announced': round(known / float(len(announced)), 3) if announced else None,
+               'recall_announced_uzs': _share_uzs(announced),
                'types': {k: sum(1 for r in rows if r['miss_type'] == k) for k in KNOWN + MISSES + EXCLUDED},
                'written': written, **stats}
-    if not args.dry_run:
+    if not dry_run:
         PRIVATE_DIR.mkdir(parents=True, exist_ok=True)
         (PRIVATE_DIR / ('customer_miss_%s.json' % today.isoformat())).write_text(json.dumps(
             dict(summary, customers=per_customer, purchases_detail=[
@@ -265,8 +277,15 @@ def main(argv=None):
         with open(str(PRIVATE_DIR / 'customer_recall_history.jsonl'), 'a', encoding='utf-8') as fh:
             fh.write(json.dumps(dict(summary, customers=[{k: c[k] for k in ('id', 'recall', 'recall_uzs', 'purchases')}
                                                          for c in per_customer]), ensure_ascii=False) + '\n')
-    print(json.dumps(summary, ensure_ascii=False))
-    return 0
+    return summary, rows, per_customer
+
+
+def _share_uzs(rows):
+    # type: (List[Dict[str, Any]]) -> Optional[float]
+    """Доля «знали» по деньгам."""
+    total = sum(float(r.get('amount_uzs') or 0) for r in rows)
+    known = sum(float(r.get('amount_uzs') or 0) for r in rows if r['miss_type'] in KNOWN)
+    return round(known / total, 3) if total else None
 
 
 if __name__ == '__main__':

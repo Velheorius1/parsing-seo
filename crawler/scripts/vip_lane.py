@@ -78,6 +78,14 @@ def build(client, registry):
     return index
 
 
+def write_index(index):
+    # type: (Dict[str, Any]) -> None
+    V.INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = V.INDEX_PATH.with_suffix('.tmp')
+    tmp.write_text(json.dumps(index, ensure_ascii=False), encoding='utf-8')
+    tmp.replace(V.INDEX_PATH)
+
+
 def window_lots(client, index, since):
     # type: (Any, Dict[str, Any], str) -> Tuple[List[Dict[str, Any]], int]
     """Лоты окна по ИНН и по точному имени из журнала; дубли — по id. -> (лоты, запросов)."""
@@ -203,10 +211,7 @@ def main(argv=None):
     client, registry = _client(), CR.load()
     index = build(client, registry)
     if args.cmd == 'build':
-        V.INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = V.INDEX_PATH.with_suffix('.tmp')
-        tmp.write_text(json.dumps(index, ensure_ascii=False), encoding='utf-8')
-        tmp.replace(V.INDEX_PATH)
+        write_index(index)
         print(json.dumps({'entities': len(index['entities']), 'inns': len(index['inns']),
                           'aliases': len(index['aliases']), 'with_winners': sum(
                               1 for e in index['entities'].values() if e['winners'])}, ensure_ascii=False))
