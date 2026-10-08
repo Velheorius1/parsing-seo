@@ -335,24 +335,20 @@ async def _replay(rows, use_ai, keywords):
 
 async def _openrouter(prompt):
     # type: (str) -> str
-    """Кандидаты от модели с рассуждением. 07.10 рассуждение съело весь лимит
-    (4000 токенов) и вернуло пустой ответ — прогон тихо дал ноль слов. Поэтому
-    лимит с запасом, а пустой ответ — повтор без рассуждения, не «кандидатов нет»."""
+    """Кандидаты слов. Рассуждение выключено (инвариант test_reasoning_disabled):
+    07.10 с ним модель съела весь лимит в 4000 токенов и вернула пустой ответ —
+    прогон тихо дал ноль слов. Пустой ответ вызывающий пишет в dropped, не молчит."""
     import os
     import httpx
     from crawler.config.settings import settings
-    model = os.getenv('PROPOSE_MODEL') or GEN_MODEL
-    async with httpx.AsyncClient(timeout=300) as cl:
-        for extra in ({'max_tokens': 20000}, {'max_tokens': 4000, 'reasoning': {'enabled': False}}):
-            r = await cl.post('https://openrouter.ai/api/v1/chat/completions',
-                              headers={'Authorization': 'Bearer %s' % settings.openrouter_api_key},
-                              json=dict(extra, model=model, temperature=0.2,
-                                        messages=[{'role': 'user', 'content': prompt}]))
-            r.raise_for_status()
-            content = (((r.json().get('choices') or [{}])[0]).get('message') or {}).get('content') or ''
-            if content.strip():
-                return content
-    return ''
+    async with httpx.AsyncClient(timeout=180) as cl:
+        r = await cl.post("https://openrouter.ai/api/v1/chat/completions",
+                          headers={"Authorization": "Bearer %s" % settings.openrouter_api_key},
+                          json={"model": os.getenv("PROPOSE_MODEL") or GEN_MODEL, "max_tokens": 4000,
+                                "temperature": 0.2, "reasoning": {"enabled": False},
+                                "messages": [{"role": "user", "content": prompt}]})
+        r.raise_for_status()
+        return (((r.json().get("choices") or [{}])[0]).get("message") or {}).get("content") or ""
 
 
 async def propose_words(client, misses, current, hit, words=None, ask=None, use_ai=True,

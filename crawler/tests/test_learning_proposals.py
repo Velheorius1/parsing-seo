@@ -137,7 +137,8 @@ def test_word_already_covered_by_the_live_dictionary_is_not_proposed():
     assert 'kitob' in current
     assert P.normalize_word('Kitobi', current, hit) is None, '«kitobi» ловит стоящее «kitob»'
     assert P.normalize_word('печать', current, hit) is None
-    assert P.normalize_word('  НАШР ', current, hit) == 'нашр'
+    assert P.normalize_word('  МАТБАА ', current, hit) == 'матбаа'
+    assert P.normalize_word('нашри', current, hit) is None, '«нашр» в словаре с 08.10'
     for junk in ('ab', '2026', 'нашр,чоп', 'x' * 31, 'нашр;drop', ''):
         assert P.normalize_word(junk, current, hit) is None, junk
 
