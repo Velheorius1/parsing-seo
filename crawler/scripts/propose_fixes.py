@@ -50,6 +50,10 @@ JUDGE_PER_WORD = 10         # AI-проверок на слово в окне
 AI_CAP = 150                # AI-вызовов replay за прогон (пропуски + окна)
 MAX_WORDS = 10
 NOISY_WEEK = 10             # ≈ алертов в неделю, после которых слово помечается шумным
+# Лотов в неделю, которые слово добавит на AI-гейт. Выше — слово общее, не предлагается:
+# 08.10 AI предложил «xarid» (закупка, ≈150/нед) и «mahsulot» (продукция, ≈42/нед) —
+# AI не взял из них ни одного, и оценка «≈0 алертов» прятала нагрузку и риск ложных.
+MAX_LOAD_WEEK = 20
 GEN_MODEL = 'deepseek/deepseek-v4-pro'   # раз в прогон, один вызов: модель не экономим
 LEDGER_COLS = ('feed,business_id,buyer_inn,buyer_name,winner_name,subject,amount_uzs,awarded_on,'
                'lot_key,source_url,miss_type,root_stage')
@@ -406,7 +410,13 @@ async def propose_words(client, misses, current, hit, words=None, ask=None, use_
                and r.get('id') not in missed_ids]
         pf = await _replay(new, False, current + [kw])
         passed = [r for r, v in zip(new, pf) if v.passed_prefilter]
-        dropped = Counter(v.dropped_at_stage or 'prefilter' for v in pf if not v.passed_prefilter)
+        load_week = len(passed) / float(days) * 7 if days else 0.0
+        if load_week > MAX_LOAD_WEEK:
+            dropped[kw] = 'слишком общее: ≈%d лотов в неделю на AI' % round(load_week)
+            continue
+        # Не «dropped»: то имя — словарь причин вызывающего; затёртое Counter'ом (до 08.10)
+        # оно молча теряло причины отсева всех слов после первого.
+        stages = Counter(v.dropped_at_stage or 'prefilter' for v in pf if not v.passed_prefilter)
         n_judge = min(judge, len(passed), budget) if use_ai else 0
         sample = random.Random(kw).sample(passed, n_judge) if n_judge else []
         ai_v = await _replay(sample, True, current + [kw]) if sample else []
@@ -426,7 +436,7 @@ async def propose_words(client, misses, current, hit, words=None, ask=None, use_
                                             key=lambda mv: -float(mv[0]['purchase'].get('amount_uzs') or 0))]},
             'backtest': {
                 'window_days': days, 'since': since[:10], 'matched': len(matched), 'new': len(new),
-                'passed_prefilter': len(passed), 'dropped': dict(dropped), 'judged': len(ok_ai),
+                'passed_prefilter': len(passed), 'dropped': dict(stages), 'judged': len(ok_ai),
                 'accepted': len(accepted), 'ai_errors': len(sample) - len(ok_ai),
                 'est_alerts_week': estimate_week(len(passed), len(ok_ai), len(accepted), days),
                 'truncated': truncated,
