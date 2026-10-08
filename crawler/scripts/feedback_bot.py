@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from crawler.config.settings import settings
 from crawler.core.feedback import record_feedback
 from crawler.core import outcome as outcome_mod
+from crawler.core import learning
 
 logging.basicConfig(
     level=logging.INFO,
@@ -190,6 +191,50 @@ def process_outcome(cq, seq, label_key):
     logger.info("Outcome: #%03d -> %s", seq, info["text"])
 
 
+def _learning_db():
+    from crawler.core.db import _get_client
+    return _get_client()
+
+
+def process_learning(cq, db=None):
+    # type: (dict, object) -> None
+    """Клик «да / нет» под предложением правки фильтра (фаза 5, core/learning).
+
+    В отличие от кнопок релевантности, клик здесь меняет фильтр, поэтому
+    сначала — кто нажал: не из списка → отказ без записи.
+    """
+    callback_id = cq.get("id", "")
+    parsed = learning.parse(cq.get("data"))
+    if parsed is None:
+        answer_callback(callback_id, "Ошибка формата")
+        return
+    pid, label = parsed
+    user = cq.get("from") or {}
+    allowed = learning.approvers(settings.telegram_alert_chat_id,
+                                 os.getenv("LEARNING_APPROVER_IDS", ""))
+    if user.get("id") not in allowed:
+        logger.warning("Learning: lp:%d:%s отклонён — нажал не владелец (%s)", pid, label, user.get("id"))
+        answer_callback(callback_id, "Решать может только владелец чата алертов")
+        return
+    try:
+        status, row = learning.decide(db if db is not None else _learning_db(), pid, label, learning.who(user))
+    except Exception as exc:
+        logger.error("Learning: запись решения #%d упала: %s", pid, str(exc)[:200])
+        answer_callback(callback_id, "Ошибка записи")
+        return
+    if status is None:
+        answer_callback(callback_id, "Уже решено")
+        return
+    answer_callback(callback_id, learning.ack_text(status, row))
+    msg = cq.get("message", {})
+    chat_id = msg.get("chat", {}).get("id")
+    message_id = msg.get("message_id")
+    if chat_id and message_id:
+        old_rows = (msg.get("reply_markup") or {}).get("inline_keyboard")
+        edit_message_markup(chat_id, message_id, learning.MARKS[status], pid, old_rows, prefix=learning.PREFIX)
+    logger.info("Learning: #%d -> %s", pid, status)
+
+
 def process_callback(update):
     # type: (dict) -> None
     """Process a single callback_query update."""
@@ -199,6 +244,10 @@ def process_callback(update):
 
     data = cq.get("data", "")
     callback_id = cq.get("id", "")
+
+    if data.startswith(learning.PREFIX + ":"):
+        process_learning(cq)
+        return
 
     if data.startswith("out:"):
         kind, seq, label_key = parse_callback(data)
