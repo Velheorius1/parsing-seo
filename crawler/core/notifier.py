@@ -1406,7 +1406,9 @@ def _format_alert(
     # actually wants this now (deep-think 2026-07-01); absent on passive e-shop lots.
     if tender.bid_count and tender.bid_count > 0:
         parts.append("🔨 *Уже торгуются: %d* — спрос есть" % tender.bid_count)
-    parts.append("*%s*" % _escape_md(tender.title[:200]))
+    from crawler.core.prequal_detail import headline as _headline
+    parts.append("*%s*" % _escape_md(
+        _headline(tender.title, tender.source, tender.extra_info)[:200]))
     if vip:
         from crawler.core.vip_lane import star_line as _star_line
         parts.append(_escape_md(_star_line(vip)))
@@ -1630,6 +1632,7 @@ def _rank_digest(tenders: List[RawTender]) -> List[RawTender]:
 def _build_digest_text(tenders: List[RawTender], archive: Optional[dict] = None,
                        stars: Optional[dict] = None) -> str:
     from crawler.core.snap import is_broken_spa
+    from crawler.core.prequal_detail import headline as _headline
     ranked = _rank_digest(tenders)
     n = len(tenders)
     parts = ["📋 *Дайджест* — %d менее срочных лотов (не требуют мгновенной реакции)" % n, ""]
@@ -1645,7 +1648,8 @@ def _build_digest_text(tenders: List[RawTender], archive: Optional[dict] = None,
         tag = "\U0001f4cb ПЛАН " if is_plan_source(t.source) else ""
         if stars and (t.external_id, t.source) in stars:
             tag = "⭐ " + tag
-        line = "*%d.* %s*%s* — %s" % (i, tag, _escape_md((t.title or "").strip()[:48]), price)
+        title = _headline(t.title, t.source, t.extra_info, limit=48)
+        line = "*%d.* %s*%s* — %s" % (i, tag, _escape_md(title.strip()[:48]), price)
         # Ссылка строки (24.08): у битых SPA её раньше НЕ БЫЛО ВООБЩЕ — код
         # убирал платформенную, а архивную взамен не ставил, и лот из дайджеста
         # было негде посмотреть в принципе. Теперь архив (uuid добывает

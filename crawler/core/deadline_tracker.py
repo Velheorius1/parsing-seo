@@ -155,6 +155,38 @@ def _strip_md(text) -> str:
     return text
 
 
+def _title(tender, limit=200):
+    # type: (dict, int) -> str
+    """Предмет лота вместо рубрики — как в алерте (prequal_detail.headline)."""
+    from crawler.core.prequal_detail import headline
+    return headline(tender.get("title"), tender.get("source"),
+                    tender.get("extra_info"), limit=limit)
+
+
+def _attach_lots(client, tenders):
+    # type: (object, List[dict]) -> None
+    """Позиции предквалификаций — только для тех, кому напоминание уходит.
+
+    Общая выборка (~3,8 тыс. строк, 09.10) идёт без extra_info: позиции и
+    `_detail_text` раздули бы её и кэш в разы. Сбой — заголовок останется
+    рубрикой, напоминание не теряется.
+    """
+    from crawler.core.prequal_detail import PREQUAL_SOURCE
+    ids = [t["id"] for t in tenders if t.get("source") == PREQUAL_SOURCE and t.get("id")]
+    if not ids:
+        return
+    try:
+        resp = (client.table("tenders").select("id,lots:extra_info->lots")
+                .in_("id", ids).execute())
+    except Exception as exc:
+        logger.warning("[Deadlines] lots fetch failed (%s) — category titles", str(exc)[:80])
+        return
+    lots = {r.get("id"): r.get("lots") for r in (resp.data or [])}
+    for t in tenders:
+        if isinstance(lots.get(t.get("id")), list):
+            t["extra_info"] = {"lots": lots[t["id"]]}
+
+
 def _format_reminder(tender: dict, reminder_type: str) -> str:
     """Format a deadline reminder message."""
     emoji = "⏰" if reminder_type == "1_day" else "📅"
@@ -163,7 +195,7 @@ def _format_reminder(tender: dict, reminder_type: str) -> str:
     parts = []
     parts.append("%s *Дедлайн %s!*" % (emoji, days_text))
     parts.append("")
-    parts.append(_strip_md((tender.get("title") or "")[:200]))
+    parts.append(_strip_md(_title(tender)[:200]))
     org = tender.get("organization")
     if org:
         parts.append("Заказчик: %s" % _strip_md(org))
@@ -188,7 +220,7 @@ def _format_digest(tenders: List[dict], reminder_type: str) -> str:
     parts = ["%s *Дедлайн %s — %d тендеров:*" % (emoji, days_text, len(tenders)), ""]
     shown = tenders[:25]
     for t in shown:
-        title = _strip_md((t.get("title") or "")[:80])
+        title = _strip_md(_title(t, limit=80)[:80])
         url = _reminder_url(t)
         parts.append("• %s%s" % (title, ("\n  " + url) if url else ""))
     if len(tenders) > len(shown):
@@ -269,9 +301,11 @@ async def check_deadlines(dry_run: bool = False) -> int:
             len(to_remind), reminder_type, len(candidates),
         )
 
+        _attach_lots(client, to_remind)
+
         if dry_run:
             for t in to_remind:
-                logger.info("[Deadlines] DRY RUN: would remind: %s", t["title"][:60])
+                logger.info("[Deadlines] DRY RUN: would remind: %s", _title(t)[:60])
             sent += len(to_remind)
             continue
 

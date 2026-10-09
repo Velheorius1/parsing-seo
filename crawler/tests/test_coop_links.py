@@ -154,6 +154,49 @@ def test_reminder_strips_markdown_from_customer_too():
     assert "Заказчик: OOOTEXSERVIS UZ]" in text and "Печать бланков" in text
 
 
+class _LotsClient(object):
+    """Отвечает на select("id,lots:extra_info->lots").in_("id", ids)."""
+
+    def __init__(self, rows, fail=False):
+        self.rows, self.fail, self.asked = rows, fail, None
+
+    def table(self, name):
+        return self
+
+    def select(self, cols):
+        assert "extra_info->lots" in cols, "тянуть только позиции, не весь extra_info"
+        return self
+
+    def in_(self, col, ids):
+        self.asked = list(ids)
+        return self
+
+    def execute(self):
+        if self.fail:
+            raise RuntimeError("57014")
+        return types.SimpleNamespace(data=self.rows)
+
+
+def test_reminder_headline_is_the_subject_for_prequal():
+    """#9638 (09.10): «Одежда» вместо «Сувениры с логотипом» — и в напоминаниях."""
+    rows = [{"id": "u1", "title": "Одежда", "source": "UZEX Предквалификации",
+             "deadline": "2026-10-10"},
+            {"id": "u2", "title": "Печать", "source": "ETender UZEX", "deadline": "2026-10-10"}]
+    client = _LotsClient([{"id": "u1", "lots": [{"productName": "Сувениры с логотипом"}]}])
+    D._attach_lots(client, rows)
+    assert client.asked == ["u1"], "позиции нужны только предквалификациям"
+    assert "Сувениры с логотипом" in D._format_reminder(rows[0], "1_day")
+    assert "Одежда" not in D._format_reminder(rows[0], "1_day")
+    assert "Сувениры с логотипом" in D._format_digest(rows * 4, "1_day")
+    assert "Печать" in D._format_reminder(rows[1], "1_day")
+
+
+def test_reminder_lots_failure_keeps_category():
+    rows = [{"id": "u1", "title": "Одежда", "source": "UZEX Предквалификации"}]
+    D._attach_lots(_LotsClient([], fail=True), rows)
+    assert "Одежда" in D._format_reminder(rows[0], "3_days")
+
+
 def test_both_reminder_formats_use_the_helper():
     src = io.open(os.path.join(_ROOT, "crawler/core/deadline_tracker.py"), encoding="utf-8").read()
     assert src.count("_reminder_url(") >= 3, "хелпер должен стоять в одиночном И в сводном формате"

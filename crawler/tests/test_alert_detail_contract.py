@@ -34,7 +34,7 @@ def test_structured_lots_are_not_rendered_and_do_not_crash_formatter():
     })
     text = _format_alert(tender, "печать")
     assert "Регион: Ташкент" in text
-    assert "Подарочная корзина" not in text
+    assert "productName" not in text and "Фрукты" not in text, "структура попала в текст"
 
 
 def test_scalar_extra_info_values_are_rendered_without_crashing():
@@ -50,7 +50,23 @@ def test_scalar_extra_info_values_are_rendered_without_crashing():
     assert "Количество: 100" in text
     assert "Срочный: True" in text
     assert "Примечание: None" in text
-    assert "Служебная позиция" not in text
+    assert "productName" not in text and "lots:" not in text
+
+
+def test_headline_shows_subject_in_alert_and_digest():
+    """#9638 (09.10): заголовок «Одежда», а покупали сувениры с логотипом."""
+    from crawler.core.notifier import _build_digest_text
+    tender = _tender(title="Одежда", extra_info={
+        "lots": [{"productName": "Сувениры с логотипом", "description": "Сервиз"}]})
+    text = _format_alert(tender, "сувенир")
+    assert "*Сувениры с логотипом*" in text, text
+    assert "Одежда" not in text
+    assert "*Сувениры с логотипом*" in _build_digest_text([tender])
+
+
+def test_headline_without_lots_keeps_category():
+    text = _format_alert(_tender(title="Одежда"), "сувенир")
+    assert "*Одежда*" in text
 
 
 def test_raw_tender_accepts_structured_detail_for_replay_contract():
