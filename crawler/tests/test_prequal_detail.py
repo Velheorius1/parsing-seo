@@ -43,7 +43,7 @@ if "crawler.config.settings" not in sys.modules:
     sys.modules["crawler.config.settings"] = _m
 
 from crawler.core.prequal_detail import (
-    PREQUAL_SOURCE, enrich, lot_id, merged_search_text, positions_from_detail,
+    PREQUAL_SOURCE, enrich, headline, lot_id, merged_search_text, positions_from_detail,
 )
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -207,6 +207,38 @@ def test_enrichment_failure_does_not_stop_alerts():
     i = src.index("_enrich_prequal")
     block = src[i - 200:i + 400]
     assert "try:" in block and "except Exception" in block
+
+
+# --- заголовок для человека ---------------------------------------------------
+# #9638 (09.10): «Одежда» в заголовке, а покупали сувениры с логотипом.
+
+_SOUVENIR = "Сувениры с национальном орнаментом с нанесенным логотипом"
+
+
+def test_headline_is_the_subject_not_the_category():
+    lots = [{"productName": _SOUVENIR, "description": "Мисгарлик сервиз"},
+            {"productName": _SOUVENIR + "\xa0", "description": "Сопол лаган"}]
+    assert headline("Одежда", PREQUAL_SOURCE, {"lots": lots}) == _SOUVENIR
+
+
+def test_headline_lists_several_subjects_within_limit():
+    lots = [{"productName": n} for n in
+            ("Бумажный пакет", "Журнал учета", "Папка", "Планшетный компьютер")]
+    text = headline("Кожа и изделия из кожи", PREQUAL_SOURCE, {"lots": lots}, limit=40)
+    assert text == "Бумажный пакет, Журнал учета, Папка и ещё 1", text
+
+
+def test_headline_falls_back_to_category():
+    """Деталь не пришла — рубрика лучше пустоты."""
+    assert headline("Одежда", PREQUAL_SOURCE, {}) == "Одежда"
+    assert headline("Одежда", PREQUAL_SOURCE, {"lots": "[{...}]"}) == "Одежда"
+    assert headline("Одежда", PREQUAL_SOURCE, {"lots": [{"id": 1}]}) == "Одежда"
+    assert headline(None, PREQUAL_SOURCE, None) == ""
+
+
+def test_headline_leaves_other_sources_alone():
+    lots = [{"productName": "Буклет"}]
+    assert headline("Печать", "ETender UZEX", {"lots": lots}) == "Печать"
 
 
 if __name__ == "__main__":

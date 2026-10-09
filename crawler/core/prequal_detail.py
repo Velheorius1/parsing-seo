@@ -101,6 +101,49 @@ def positions_from_detail(data):
     return out
 
 
+def headline(title, source, extra_info, limit=200):
+    # type: (Optional[str], Optional[str], Any, int) -> str
+    """Заголовок для человека: наименования позиций вместо рубрики площадки.
+
+    Алерт #9638 (09.10) пришёл с заголовком «Одежда» — это `categoryName`,
+    а покупали «Сувениры с национальным орнаментом с нанесенным логотипом».
+    Предмет уже лежит в `extra_info.lots` (enrich), но в текст шла только
+    рубрика. Меняем лишь показ: `title` в базе остаётся рубрикой — на нём
+    стоит дедуп (source, org, слова заголовка), и upsert каждый краул пишет
+    его заново.
+
+    Нет позиций (деталь не пришла) — рубрика, как раньше. Несколько разных
+    наименований — через запятую, не длиннее `limit`, остаток — «и ещё N».
+    """
+    title = title or ""
+    if source != PREQUAL_SOURCE or not isinstance(extra_info, dict):
+        return title
+    lots = extra_info.get("lots")
+    if not isinstance(lots, list):
+        return title
+    names = []  # type: List[str]
+    seen = set()
+    for item in lots:
+        if not isinstance(item, dict):
+            continue
+        name = " ".join(str(item.get("productName") or item.get("name")
+                            or item.get("description") or "").split())
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            names.append(name)
+    if not names:
+        return title
+    shown = []  # type: List[str]
+    for name in names:
+        if shown and len(", ".join(shown + [name])) > limit:
+            break
+        shown.append(name)
+    text = ", ".join(shown)
+    if len(names) > len(shown):
+        text += " и ещё %d" % (len(names) - len(shown))
+    return text
+
+
 def merged_search_text(existing, positions):
     # type: (Optional[str], List[str]) -> Optional[str]
     """Категория + предметы. None, если дописывать нечего.
