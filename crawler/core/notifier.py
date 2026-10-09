@@ -1412,6 +1412,72 @@ def prefilter(
     return _result(rest_idx, bypass_idx)
 
 
+# Служебные ключи extra_info → подпись для человека (09.10). Латинские ключи
+# площадок шли в алерт как есть, а _escape_md выкидывает «_»: «displayid»,
+# «customerinn», «maxpart», «refsuppliertin» — 3 строки у предквалификаций и
+# до 13 у Cooperation.uz Лоты. Русские подписи источников не трогаем.
+_EXTRA_LABELS = {
+    "address": "Адрес",
+    "display_id": "Номер лота",
+    "customer_inn": "ИНН заказчика",
+    "offer": "Оферта",
+    "tnved": "ТН ВЭД",
+    "unit_price": "Цена за ед.",
+    "certificate": "Сертификат",
+}
+# Склеиваются в соседние строки (количество + единица, поставщик + ИНН) или
+# живут для карточки архива и скриншота — в Telegram отдельной строкой не идут.
+_EXTRA_FOLDED = {"measure", "min_part", "max_part", "ref_supplier", "ref_supplier_tin",
+                 "photo", "screenshot_url", "screenshot_at"}
+
+
+def _extra_info_lines(extra):
+    # type: (dict) -> List[str]
+    """Строки «подпись: значение» для скалярных полей extra_info."""
+    lines = []  # type: List[str]
+    unit = extra.get("measure") or ""
+    for label, value in extra.items():
+        # `extra_info` also carries structured source detail for replay
+        # and the tender page (not a Telegram display field). Rendering a
+        # list/dict through _escape_md used to raise and abort the whole
+        # crawl after the first such alert.
+        if str(label).startswith("_") or isinstance(value, (dict, list, tuple, set)):
+            continue
+        if label in _EXTRA_FOLDED:
+            continue
+        if label == "quantity":
+            text = "Количество: %s %s" % (value, unit)
+            lo, hi = extra.get("min_part"), extra.get("max_part")
+            if lo is not None or hi is not None:
+                text += " (партия от %s до %s)" % (lo if lo is not None else "?",
+                                                    hi if hi is not None else "?")
+            lines.append(_escape_md(text.strip()))
+            continue
+        # Из базы (recheck, row_to_raw_tender) скаляры приходят строкой.
+        if label == "unit_price":
+            try:
+                value = "{:,.0f}".format(float(value))
+            except (TypeError, ValueError):
+                pass
+        if label == "certificate" and str(value) in ("True", "False", "true", "false"):
+            value = "да" if str(value).lower() == "true" else "нет"
+        name = _EXTRA_LABELS.get(label, str(label).replace("_", " "))
+        lines.append("%s: %s" % (_escape_md(name), _escape_md(str(value))))
+    if extra.get("ref_supplier"):
+        # Карточка, к которой заказчик привязал лот: её цену и надо перебивать.
+        sup = str(extra["ref_supplier"])
+        if extra.get("ref_supplier_tin"):
+            sup += " (ИНН %s)" % extra["ref_supplier_tin"]
+        lines.append("Поставщик-ориентир: %s" % _escape_md(sup))
+    if extra.get("photo"):
+        # Пробел в пути рвал ссылку; «_» quote не кодирует, а одиночное «_»
+        # ломает Markdown-разбор (400 = алерт потерян) — %5F тот же адрес.
+        from urllib.parse import quote
+        url = quote(str(extra["photo"]), safe=":/?=&%#").replace("_", "%5F")
+        lines.append("Фото оферты: %s" % url)
+    return lines
+
+
 def _format_alert(
     tender: RawTender,
     matched_kw: str,
@@ -1462,14 +1528,7 @@ def _format_alert(
         parts.append("Дедлайн: %s" % tender.deadline)
     # Extra per-source info (region, delivery days, etc.)
     if tender.extra_info:
-        for label, value in tender.extra_info.items():
-            # `extra_info` also carries structured source detail for replay
-            # and the tender page (not a Telegram display field). Rendering a
-            # list/dict through _escape_md used to raise and abort the whole
-            # crawl after the first such alert.
-            if str(label).startswith("_") or isinstance(value, (dict, list, tuple, set)):
-                continue
-            parts.append("%s: %s" % (_escape_md(str(label)), _escape_md(str(value))))
+        parts.extend(_extra_info_lines(tender.extra_info))
     # Show all sources if tender found on multiple platforms
     if extra_sources and len(extra_sources) > 1:
         parts.append("Площадки (%d): %s" % (len(extra_sources), ", ".join(extra_sources)))
