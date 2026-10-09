@@ -58,6 +58,48 @@ def test_never_alerted_survives():
     assert len(out) == 1
 
 
+# Предквалификации UZEX (09.10): заголовок = рубрика площадки, поэтому ключ
+# (площадка, заказчик, слова) склеивал РАЗНЫЕ закупки одного заказчика в одной
+# рубрике — до AI. За 60 дней 67 таких закупок не дошли ни до алерта, 65 — даже
+# до AI; бланки Темирйўлинфратузилма на 121 млн легли под #9212 «накладные».
+_PRQ = "UZEX Предквалификации"
+
+
+def test_prequal_distinct_procurements_survive():
+    alerted = _logical_key(_PRQ, "TEMIRYO‘LINFRATUZILMA AJ", "Бумага и изделия из бумаги",
+                           111_000_000, "2026-09-30")
+    out, dropped = dedup_within_source(
+        [_mk(id="115257", source=_PRQ, organization="TEMIRYO‘LINFRATUZILMA AJ",
+             title="Бумага и изделия из бумаги", price=121_500_000)],
+        keep_existing_keys={alerted})
+    assert len(out) == 1 and dropped == 0, "другая закупка в той же рубрике склеена"
+
+
+def test_prequal_relisting_same_amount_still_collapses():
+    """363 из 478 — та же закупка, выложенная заново: та же сумма. Их склеиваем."""
+    alerted = _logical_key(_PRQ, "Ургут туман хокимлиги", "Бумага и изделия из бумаги",
+                           187_000_000, "2026-08-20")
+    out, dropped = dedup_within_source(
+        [_mk(id="r1", source=_PRQ, organization="Ургут туман хокимлиги",
+             title="Бумага и изделия из бумаги", price=187_000_000),
+         _mk(id="r2", source=_PRQ, organization="Ургут туман хокимлиги",
+             title="Бумага и изделия из бумаги", price=187_000_000)],
+        keep_existing_keys={alerted})
+    assert out == [] and dropped == 2
+
+
+def test_prequal_source_name_is_one():
+    from crawler.core import dedup
+    from crawler.core.prequal_detail import PREQUAL_SOURCE
+    assert dedup._PREQUAL_SOURCE == PREQUAL_SOURCE == _PRQ
+
+
+def test_other_sources_keep_price_out_of_the_key():
+    a = _logical_key("ETender UZEX", "Школа 5", "Учебники", 10_000_000, None)
+    b = _logical_key("ETender UZEX", "Школа 5", "Учебники", 12_000_000, None)
+    assert a == b
+
+
 def test_own_lot_suppressed():
     assert _is_own_lot("WINCH GROUP XK")
     assert _is_own_lot("ЧП Винч")

@@ -189,6 +189,16 @@ def _price_bucket(price) -> str:
         return "NA"
 
 
+_PREQUAL_SOURCE = "UZEX Предквалификации"  # = prequal_detail.PREQUAL_SOURCE
+
+
+def _exact_price(price) -> str:
+    try:
+        return str(int(round(float(price)))) if price else "NA"
+    except (TypeError, ValueError):
+        return "NA"
+
+
 def _deadline_day(deadline: Optional[str]) -> str:
     return _parse_deadline_rough(deadline) or "NA"
 
@@ -200,7 +210,15 @@ def _logical_key(source, org, title, price, deadline) -> Tuple[str, str, str]:
     norm_org = _normalize_org(org or "")
     words = _extract_significant_words(title or "")
     if norm_org and words:
-        return (source, norm_org, " ".join(sorted(words)))
+        core = " ".join(sorted(words))
+        if source == _PREQUAL_SOURCE:
+            # Заголовок предквалификации — рубрика площадки («Одежда»), и без
+            # суммы разные закупки одного заказчика в одной рубрике склеивались
+            # ДО AI (09.10: 67 закупок за 60 дней, бланки на 121 млн под
+            # «накладными»). Перевыкладка той же закупки идёт с той же суммой —
+            # её по-прежнему склеиваем.
+            core = "%s|%s" % (core, _exact_price(price))
+        return (source, norm_org, core)
     core = " ".join(sorted(words)) if words else " ".join((title or "").lower().split())
     payload = "%s|%s|%s" % (core, _price_bucket(price), _deadline_day(deadline))
     digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
