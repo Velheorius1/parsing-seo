@@ -242,6 +242,40 @@ def test_deadline_expired_default_now_unchanged():
     assert _is_deadline_expired(t2) is False
 
 
+# ── срок со временем (09.10) ─────────────────────────────────────────────────
+# Досылка 09.10 в 10:35 UTC прислала три лота, чей срок истёк в 07:31–09:01
+# того же дня: разборщик брал только дату, и лот жил до конца дня срока.
+
+_MORNING = datetime(2026, 10, 9, 10, 35, 0)  # naive UTC, как в проде
+
+
+def test_deadline_with_time_expires_at_that_time():
+    assert _is_deadline_expired(_mk(deadline="2026-10-09T07:31:23"), now=_MORNING) is True
+    assert _is_deadline_expired(_mk(deadline="2026-10-09T20:36:24"), now=_MORNING) is False
+
+
+def test_deadline_with_explicit_zone_is_converted():
+    # 17:42 по Ташкенту = 12:42 UTC: в 10:35 UTC ещё живой, в 13:00 — нет.
+    t = _mk(deadline="2026-10-09T17:42:06+05:00")
+    assert _is_deadline_expired(t, now=_MORNING) is False
+    assert _is_deadline_expired(t, now=datetime(2026, 10, 9, 13, 0)) is True
+    z = _mk(deadline="2026-10-09T05:13:00.674000Z")
+    assert _is_deadline_expired(z, now=_MORNING) is True
+
+
+def test_date_only_and_midnight_keep_the_day():
+    """Без времени (или полночь-заглушка) срок — весь день, как раньше."""
+    for dl in ("09.10.2026", "2026-10-09", "2026-10-09T00:00:00"):
+        assert _is_deadline_expired(_mk(deadline=dl), now=_MORNING) is False, dl
+        assert _is_deadline_expired(_mk(deadline=dl), now=datetime(2026, 10, 10, 1, 0)) is True, dl
+
+
+def test_time_of_another_date_does_not_hijack_the_deadline():
+    """Время берём только у той даты, которую разборщик счёл сроком."""
+    t = _mk(deadline="опубл. 2026-10-01T09:00 Истекает 15.10.2026")
+    assert _is_deadline_expired(t, now=_MORNING) is False
+
+
 # ── batch-level parity ───────────────────────────────────────────────────────
 
 def test_matching_preserves_input_order():

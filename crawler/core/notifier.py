@@ -763,12 +763,47 @@ def _parse_deadline(deadline_str: Optional[str]) -> Optional[datetime]:
     return last_dt
 
 
+_ISO_TIME_RE = re.compile(
+    r"(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?")
+
+
+def _deadline_exact(deadline_str: Optional[str], day: datetime) -> Optional[datetime]:
+    """Срок с точным временем, naive UTC. None — времени нет, судим по дню.
+
+    Досылка 09.10 прислала три лота, срок которых истёк утром того же дня:
+    `_parse_deadline` берёт только дату, и лот жил до конца дня срока.
+    Время берём лишь у той даты, которую разборщик счёл сроком; полночь без
+    пояса — заглушка «весь день» (Xarid Прямые закупки), не время. Без пояса
+    время считаем UTC: для ташкентских сроков это запас в 5 часов, а не потеря.
+    """
+    found = None
+    for m in _ISO_TIME_RE.finditer(deadline_str or ""):
+        if m.group(1) == day.strftime("%Y-%m-%d"):
+            found = m
+    if found is None:
+        return None
+    hh, mm, ss, tz = int(found.group(2)), int(found.group(3)), int(found.group(4) or 0), found.group(5)
+    if not tz and hh == mm == ss == 0:
+        return None
+    try:
+        exact = day.replace(hour=hh, minute=mm, second=ss)
+    except ValueError:
+        return None
+    if tz and tz != "Z":
+        sign = -1 if tz[0] == "-" else 1
+        digits = tz[1:].replace(":", "")
+        exact -= sign * timedelta(hours=int(digits[:2]), minutes=int(digits[2:]))
+    return exact
+
+
 def _is_deadline_expired(tender: RawTender, now: Optional[datetime] = None) -> bool:
     """Check if tender deadline has already passed. Returns False if no deadline.
 
     ``now`` lets replay/benchmark evaluate a HISTORICAL tender as of its own day
     (default None = wall clock, i.e. exactly the old behavior). Naive UTC; an
     aware value is normalized.
+
+    Срок с временем истекает в это время; только дата — в конце дня (grace).
     """
     dt = _parse_deadline(tender.deadline)
     if dt is None:
@@ -779,6 +814,9 @@ def _is_deadline_expired(tender: RawTender, now: Optional[datetime] = None) -> b
         ref = now.astimezone(timezone.utc).replace(tzinfo=None)
     else:
         ref = now
+    exact = _deadline_exact(tender.deadline, dt)
+    if exact is not None:
+        return exact < ref
     return dt < ref - timedelta(days=1)  # 1 day grace period
 
 
