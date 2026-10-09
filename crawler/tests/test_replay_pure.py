@@ -150,8 +150,26 @@ def test_jsonb_list_does_not_explode_the_mapper():
         "source": "UZEX Предквалификации",
         "extra_info": {"lots": [{"id": 338097, "productName": "Публикация статьи"}]},
     })
-    assert isinstance(t.extra_info["lots"], str), "список снова уходит в pydantic как есть"
     assert "Публикация статьи" in t.search_text, "предмет лота потерян"
+
+
+def test_structured_extra_stays_structured():
+    """Алерт #9638 (09.10): «второй шанс» прислал лот с сырым словарём позиций.
+
+    С 22.09 RawTender держит в extra_info структуры, а формат алерта пропускает
+    dict/list — но маппер по-прежнему делал из списка строку, и формат её печатал
+    («lots: {'id': 360884, 'cost': …» на весь экран). Заодно терялись контакты
+    заказчика: формат ждёт dict, а получал строку.
+    """
+    lots = [{"id": 360884, "productName": "Сувениры с логотипом"}]
+    contacts = {"email": "x@y.uz"}
+    t = row_to_raw_tender({
+        "external_id": "115041", "title": "Одежда", "source": "UZEX Предквалификации",
+        "extra_info": {"lots": lots, "customer_contacts": contacts, "customer_inn": 200151400},
+    })
+    assert t.extra_info["lots"] == lots, "список позиций снова превращён в строку"
+    assert t.extra_info["customer_contacts"] == contacts
+    assert t.extra_info["customer_inn"] == "200151400", "скаляры по-прежнему строкой"
 
 
 def test_hot_paths_do_not_import_replay_for_the_mapper():

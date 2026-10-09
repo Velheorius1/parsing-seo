@@ -18,14 +18,16 @@ def row_to_raw_tender(row):
     # type: (dict) -> RawTender
     """DB/platform row -> RawTender, tolerant of the shapes we actually store.
 
-    extra_info arrives as jsonb with int/bool values — RawTender wants
-    Dict[str, str] (same trap investigator hit, af1c155): str-coerce.
+    extra_info arrives as jsonb with int/bool values — скаляры приводим к строке
+    (af1c155). Структуры (позиции предквалификации, контакты заказчика) — как
+    есть: с 22.09 RawTender их держит, а формат алерта пропускает dict/list.
+    Строкой из списка они печатались в алерт целиком (#9638, 09.10).
     """
     extra = {}
     for k, v in (row.get("extra_info") or {}).items():
         if v is None:
             continue
-        extra[str(k)] = v if isinstance(v, str) else str(v)
+        extra[str(k)] = v if isinstance(v, (str, dict, list)) else str(v)
     ext_id = str(row.get("external_id") or row.get("id") or "replay")
 
     # Паритет с продом для предквалификаций (22.08). Прод дотягивает предмет
@@ -34,8 +36,7 @@ def row_to_raw_tender(row):
     # а extra_info.lots при этом переживает — upsert не пишет пустой extra_info.
     # Без этой склейки replay видел бы «Услуги издательские <заказчик>» там, где
     # прод видел «… | Услуга публикации статьи», и бенчмарк мерил бы не тот
-    # конвейер. Берём lots из СЫРОГО extra_info: выше он str-коэрсится, и список
-    # превратился бы в строку.
+    # конвейер.
     search_text = row.get("search_text") or ""
     raw_extra = row.get("extra_info") or {}
     if row.get("source") == "UZEX Предквалификации" and isinstance(raw_extra.get("lots"), list):
