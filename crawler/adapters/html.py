@@ -64,24 +64,30 @@ _MONTHS_EN = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
     "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
 }
+_MONTH_NAMES_EN = (
+    "january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december", "sept",
+)
 _EN_DEADLINE_RE = re.compile(
-    r"(\d{1,2})-([A-Za-z]{3})-(\d{4})"
+    r"(\d{1,2})[- ]([A-Za-z]{3,9})[- ](\d{4})"
     r"(?:\s+(\d{1,2}):(\d{2}))?"
     r"(?:\s*\(GMT\s*([+-]?)(\d{1,2})[.:](\d{2})\))?")
 
 
 def _english_deadline_to_iso(text):
     # type: (str) -> str
-    """«14-Oct-2026 18:00 (GMT 2.00)» → «2026-10-14T18:00+02:00» (UNGM).
+    """«14-Oct-2026 18:00 (GMT 2.00)» → «2026-10-14T18:00+02:00» (UNGM),
+    «20 October 2026» → «2026-10-20» (IsDB).
 
     Разборщик сроков знает только числовые даты, а точное время берёт лишь из
-    ISO: без перевода срок UNGM был бы «нет срока». Не тот формат — строка
-    возвращается как была.
+    ISO: без перевода срок был бы «нет срока», и закрытый лот считался бы
+    живым. Не тот формат — строка возвращается как была.
     """
     m = _EN_DEADLINE_RE.search(text)
-    if not m or m.group(2).lower() not in _MONTHS_EN:
+    token = m.group(2).lower() if m else ""
+    if not m or not (token in _MONTHS_EN or token in _MONTH_NAMES_EN):
         return text
-    day, mon, year = int(m.group(1)), _MONTHS_EN[m.group(2).lower()], m.group(3)
+    day, mon, year = int(m.group(1)), _MONTHS_EN[token[:3]], m.group(3)
     out = "%s-%02d-%02d" % (year, mon, day)
     if m.group(4):
         out += "T%02d:%s" % (int(m.group(4)), m.group(5))
