@@ -775,10 +775,13 @@ sources:
   # это НЕ мёртвый источник, а зеркало. 28.04 общую группу уже разделяли,
   # когда `XT-Xarid тендеры` из-за неё замолчал и это приняли за поломку;
   # чтобы не повторилось, зеркало внесено в `DEDUP_MIRRORS` сторожа.
+  # ВЫКЛЮЧЕНЫ 10.10 оба (лимит площадки, см. блок XT-XARID ниже и
+  # test_dedup_mirrors.py): 31 строка и 0 алертов за 120 дней, всё это видит
+  # RPC-источник «XT-Xarid тендеры», а загрузка SPA съедает минуты общего лимита.
   - id: xt-xarid
     name: "xt-xarid.uz"
     adapter: spa
-    enabled: true
+    enabled: false
     url: "https://xt-xarid.uz/procedure/tender"
     rate_limit: 0.5
     timeout: 45
@@ -799,7 +802,7 @@ sources:
   - id: hayotbirja
     name: "Hayot Birja"
     adapter: spa
-    enabled: true
+    enabled: false
     url: "https://hayotbirja.uz/procedure/tender"
     rate_limit: 0.5
     timeout: 45
@@ -2871,10 +2874,17 @@ sources:
 
   # ===== HAYOTBIRJA.UZ — JSON-RPC 2.0 (публичный API) =====
 
+  # 10.10.2026: с 07.10 площадка пускает с IP нашего VPS ОДИН запрос в минуту на
+  # оба домена (xt-xarid.uz и hayotbirja.uz — один бэкенд, id совпадают на 100%).
+  # Поэтому: дубли выключены, а живые источники бэкенда вынесены из основного
+  # краула в отдельную очередь `lane: xt-backend` (cron */20, crawler.main --lane)
+  # со своей частотой `every_minutes`; запросы всех процессов идут через общую
+  # очередь crawler/core/host_budget.py.
+  # Дубль xt-xarid-reduction (тот же ref, те же id) — выключен 10.10.
   - id: hayotbirja-reduction
     name: "Hayotbirja встречные аукционы"
     adapter: jsonrpc
-    enabled: true
+    enabled: false
     url: "https://api.hayotbirja.uz/rpc"
     rpc_ref: "ref_reduction_object_public"
     rpc_method: "ref"
@@ -2898,10 +2908,11 @@ sources:
       page_size: 100
       max_pages: 5
 
+  # Дубль xt-xarid-tender — выключен 10.10.
   - id: hayotbirja-tender
     name: "Hayotbirja тендеры"
     adapter: jsonrpc
-    enabled: true
+    enabled: false
     url: "https://api.hayotbirja.uz/rpc"
     rpc_ref: "ref_tender_public"
     rpc_method: "ref"
@@ -2929,10 +2940,13 @@ sources:
     item_filter:
       status: { in: [open, check_docs, docs_objections, commercial_checking, objections, tech_check_docs, docs_objections_summary] }
 
+  # Двойника на xt-xarid нет — остаётся на своём домене, но в общей очереди.
   - id: hayotbirja-selection
     name: "Hayotbirja отбор"
     adapter: jsonrpc
     enabled: true
+    lane: xt-backend
+    every_minutes: 120
     url: "https://api.hayotbirja.uz/rpc"
     rpc_ref: "ref_selection_public"
     rpc_method: "ref"
@@ -2999,10 +3013,15 @@ sources:
   # Сортировка ответа = close_at DESC ≈ новейшие первыми; offset capped 3000
   # (~16ч потока, ~4500 объявлений/день) — 30 страниц × 100 покрывают межкраульный
   # промежуток при 3 краулах/день. price = цена/ед × amount (totalcost API не отдаёт).
+  # 10.10: раз в 12 ч и 10 страниц вместо 30 каждые 2 ч. Из алертов источник
+  # убран 01.07 (_NO_PUSH_SOURCES, витрина продавцов), строки нужны только как
+  # справочник, а 30 страниц — это полчаса минутного лимита площадки.
   - id: xt-xarid-shop
     name: "XT-Xarid э-магазин"
     adapter: jsonrpc
     enabled: true
+    lane: xt-backend
+    every_minutes: 720
     url: "https://api.xt-xarid.uz/rpc"
     rpc_ref: "ref_online_shop_public"
     rpc_method: "ref"
@@ -3023,7 +3042,7 @@ sources:
       type: offset
       param: offset
       page_size: 100
-      max_pages: 30
+      max_pages: 10
 
   # П6 (2026-06-11): запросы предложений (RFP) — СПРОС покупателей с перечнем
   # товаров (good_maps), бюджетом и дедлайном. Поток малый (~15 open на всю
@@ -3036,6 +3055,8 @@ sources:
     name: "XT-Xarid запросы предложений"
     adapter: jsonrpc
     enabled: true
+    lane: xt-backend
+    every_minutes: 120
     url: "https://api.xt-xarid.uz/rpc"
     rpc_ref: "ref_request_proposals_public"
     rpc_method: "ref"
@@ -3060,10 +3081,12 @@ sources:
     item_filter:
       status: { in: [open, check_proposals] }
 
+  # Встречный аукцион живёт около часа — каждый прогон очереди (cron */20).
   - id: xt-xarid-reduction
     name: "XT-Xarid встречные аукционы"
     adapter: jsonrpc
     enabled: true
+    lane: xt-backend
     url: "https://api.xt-xarid.uz/rpc"
     rpc_ref: "ref_reduction_object_public"
     rpc_method: "ref"
@@ -3091,6 +3114,8 @@ sources:
     name: "XT-Xarid тендеры"
     adapter: jsonrpc
     enabled: true
+    lane: xt-backend
+    every_minutes: 120
     url: "https://api.xt-xarid.uz/rpc"
     rpc_ref: "ref_tender_public"
     rpc_method: "ref"

@@ -9,9 +9,15 @@ import httpx
 
 from crawler.adapters.api import _apply_item_filter
 from crawler.adapters.base import BaseAdapter
+from crawler.core import host_budget
 from crawler.core.models import RawTender, SourceConfig
 
 logger = logging.getLogger(__name__)
+
+# Сколько странице ждать слота в общей очереди к бэкенду (см. host_budget).
+# В отдельной очереди XT (cron */20) двадцать страниц — это двадцать минут; дольше
+# ждать нет смысла: следующий прогон всё равно возьмёт своё.
+_BUDGET_MAX_WAIT_S = 900.0
 
 
 def _safe_str(value):
@@ -80,6 +86,10 @@ class JsonRpcAdapter(BaseAdapter):
         all_items = []  # type: List[Dict[str, Any]]
         page_size = 100
         max_pages = 10
+        # Общая очередь на все процессы VPS, если хост делит лимит с другими
+        # (xt-xarid/hayotbirja: 1 запрос в минуту с IP с 07.10). Иначе — прежний
+        # ограничитель внутри процесса.
+        backend = host_budget.backend_for(cfg.url)
         if cfg.pagination:
             page_size = cfg.pagination.page_size
             max_pages = cfg.pagination.max_pages
@@ -90,7 +100,15 @@ class JsonRpcAdapter(BaseAdapter):
         ) as client:
             offset = 0
             for page_num in range(max_pages):
-                await self.rate_limit()
+                if backend:
+                    if not await host_budget.acquire(backend, max_wait=_BUDGET_MAX_WAIT_S):
+                        self.last_error = (
+                            "очередь к %s длиннее %d с: страница %d не запрошена, собрано %d"
+                            % (backend, _BUDGET_MAX_WAIT_S, page_num + 1, len(all_items)))
+                        logger.warning("[%s] %s", cfg.name, self.last_error)
+                        break
+                else:
+                    await self.rate_limit()
 
                 body = {
                     "jsonrpc": "2.0",
@@ -104,8 +122,15 @@ class JsonRpcAdapter(BaseAdapter):
                     },
                 }
 
-                data = await self._make_request(client, body)
+                data = await self._make_request(client, body, backend)
                 if data is None:
+                    if backend:
+                        # Не роняем источник целиком: страницы, уже собранные
+                        # до отказа, идут в работу, а ошибка видна в прогоне.
+                        self.last_error = (
+                            "площадка не пустила после повторов (429): страница %d, собрано %d"
+                            % (page_num + 1, len(all_items)))
+                        logger.warning("[%s] %s", cfg.name, self.last_error)
                     break
 
                 # JSON-RPC response: {"result": [...], "jsonrpc": "2.0", "id": N}
@@ -145,9 +170,16 @@ class JsonRpcAdapter(BaseAdapter):
         tenders = self._convert_all(all_items)
         return tenders
 
-    async def _make_request(self, client, body):
-        # type: (httpx.AsyncClient, Dict[str, Any]) -> Optional[Dict[str, Any]]
-        """POST JSON-RPC request with retry/backoff."""
+    async def _make_request(self, client, body, backend=None):
+        # type: (httpx.AsyncClient, Dict[str, Any], Optional[str]) -> Optional[Dict[str, Any]]
+        """POST JSON-RPC request with retry/backoff.
+
+        Для хоста из общей очереди (`backend`) 429 значит «окно уже занято»:
+        ждём следующий слот очереди, а не 2-4 с — при лимите раз в минуту такие
+        повторы были обречены (07-10.10 все до одного получали 429). Исчерпав
+        повторы, возвращаем None вместо исключения, чтобы вызывающий сохранил
+        уже собранные страницы.
+        """
         cfg = self.config
         max_retries = 3
 
@@ -158,6 +190,18 @@ class JsonRpcAdapter(BaseAdapter):
                     json=body,
                     headers={"Content-Type": "application/json"},
                 )
+
+                if backend and resp.status_code == 429:
+                    host_budget.penalize(backend)
+                    if attempt == max_retries - 1:
+                        return None
+                    logger.warning(
+                        "[%s] HTTP 429 — жду следующий слот общей очереди %s",
+                        cfg.name, backend,
+                    )
+                    if not await host_budget.acquire(backend, max_wait=_BUDGET_MAX_WAIT_S):
+                        return None
+                    continue
 
                 if resp.status_code in (429, 503) and attempt < max_retries - 1:
                     wait = min(2 ** (attempt + 1), 30)
@@ -172,6 +216,14 @@ class JsonRpcAdapter(BaseAdapter):
                 return resp.json()
 
             except (httpx.ConnectError, httpx.ReadTimeout) as exc:
+                if backend and attempt < max_retries - 1:
+                    # Повтор — тоже запрос: идёт через очередь, иначе отнимет
+                    # окно у соседнего процесса.
+                    logger.warning("[%s] %s, повтор в следующем слоте %s",
+                                   cfg.name, type(exc).__name__, backend)
+                    if not await host_budget.acquire(backend, max_wait=_BUDGET_MAX_WAIT_S):
+                        raise
+                    continue
                 if attempt < max_retries - 1:
                     wait = 2 ** (attempt + 1)
                     logger.warning(

@@ -14,6 +14,15 @@
     разделяли, когда молчание `XT-Xarid тендеры` приняли за поломку. Чтобы не
     повторилось, зеркало внесено в `DEDUP_MIRRORS` сторожа — и это тоже пин.
 
+10.10.2026 — обе SPA-пары ВЫКЛЮЧЕНЫ, осознанно. С 07.10 площадка пускает с
+IP нашего VPS один запрос в минуту на оба домена (замер 10.10: 429 через 48 с
+после успешного запроса, 200 через 61 с), а SPA-страница в браузере делает
+несколько запросов к API за одну загрузку и отнимает минуты у живых
+RPC-источников. Вклад SPA за 120 дней — 31 строка и 0 алертов; всё это видит
+«XT-Xarid тендеры» (RPC, тот же ref_tender_public). Резерв по домену при общем
+лимите на IP больше ничего не резервирует. Пины порядка и группы оставлены:
+если пару включат обратно, ловушка первого встреченного источника та же.
+
 Run: python3 -m crawler.tests.test_dedup_mirrors   (exit 1 on any failure)
 """
 import os
@@ -64,10 +73,14 @@ def test_primary_comes_first_in_config():
         "и cross-source дедуп оставляет первый встреченный источник")
 
 
-def test_both_stay_enabled():
-    """Зеркало держим включённым — это резерв по домену, а не мусор."""
-    assert BY_ID[PRIMARY].get("enabled") is True
-    assert BY_ID[MIRROR].get("enabled") is True
+def test_both_disabled_while_backend_is_rate_limited():
+    """10.10: выключены обе — каждая загрузка SPA съедает минуты общего лимита.
+
+    Включать обратно только вместе: основной без зеркала теряет смысл пары, а
+    зеркало без основного становится победителем дедупа.
+    """
+    assert BY_ID[PRIMARY].get("enabled") is False
+    assert BY_ID[MIRROR].get("enabled") is False
 
 
 def test_group_is_not_shared_with_anyone_else():
@@ -81,10 +94,14 @@ def test_mirror_is_known_to_the_watchdog():
     assert BY_ID[MIRROR]["name"] in W.DEDUP_MIRRORS
 
 
-def test_primary_is_not_muted_by_mistake():
-    """Основной источник глушить нельзя — он и есть носитель данных."""
+def test_primary_is_retired_not_mirrored():
+    """Основной выведен осознанно (10.10), а не спрятан как зеркало.
+
+    Включат обратно — убрать имя из KNOWN_RETIRED, иначе его молчание
+    сторож будет прощать.
+    """
     assert BY_ID[PRIMARY]["name"] not in W.DEDUP_MIRRORS
-    assert BY_ID[PRIMARY]["name"] not in W.KNOWN_RETIRED
+    assert BY_ID[PRIMARY]["name"] in W.KNOWN_RETIRED
 
 
 def test_mirrors_and_retired_do_not_overlap():

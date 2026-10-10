@@ -39,6 +39,13 @@ def main() -> None:
         help="Only run specific source IDs (space-separated)",
     )
     parser.add_argument(
+        "--lane",
+        default=None,
+        metavar="NAME",
+        help="Run only sources of this lane that are due by their every_minutes "
+             "(sources.yaml `lane:`). The main crawl skips lane sources.",
+    )
+    parser.add_argument(
         "--lite",
         action="store_true",
         default=False,
@@ -131,6 +138,23 @@ def main() -> None:
         logger.info("Deadline reminders sent: %d", sent)
         return
 
+    source_ids = args.sources
+    lane_state = None
+    lane_started = None
+    if args.lane:
+        import time
+        from crawler.core import lanes
+        from crawler.core.runner import load_sources
+
+        lane_started = time.time()
+        in_lane = lanes.lane_sources(load_sources(args.config), args.lane)
+        lane_state = lanes.load_state(args.lane)
+        source_ids = lanes.due_ids(in_lane, lane_state, now=lane_started)
+        logger.info("LANE %s: %d sources, due now: %s", args.lane, len(in_lane), source_ids)
+        if not source_ids:
+            logger.info("LANE %s: nothing due", args.lane)
+            return
+
     if args.lite:
         logger.info("LITE mode — crawl+alerts only, post-crawl analytics skipped")
     logger.info("Starting tender crawler...")
@@ -138,10 +162,13 @@ def main() -> None:
         run(
             config_path=args.config,
             dry_run=dry_run,
-            source_ids=args.sources,
+            source_ids=source_ids,
             lite=args.lite,
         )
     )
+    if args.lane and not dry_run:
+        # Отмечаем момент СТАРТА: долгий прогон не сдвигает расписание.
+        lanes.save_state(args.lane, lanes.mark_ran(lane_state, source_ids, now=lane_started))
 
     # Print summary
     total = sum(stats.values())
