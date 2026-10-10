@@ -60,6 +60,36 @@ def _ca_bundle(cfg: SourceConfig) -> Any:
     return True
 
 
+_MONTHS_EN = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+_EN_DEADLINE_RE = re.compile(
+    r"(\d{1,2})-([A-Za-z]{3})-(\d{4})"
+    r"(?:\s+(\d{1,2}):(\d{2}))?"
+    r"(?:\s*\(GMT\s*([+-]?)(\d{1,2})[.:](\d{2})\))?")
+
+
+def _english_deadline_to_iso(text):
+    # type: (str) -> str
+    """«14-Oct-2026 18:00 (GMT 2.00)» → «2026-10-14T18:00+02:00» (UNGM).
+
+    Разборщик сроков знает только числовые даты, а точное время берёт лишь из
+    ISO: без перевода срок UNGM был бы «нет срока». Не тот формат — строка
+    возвращается как была.
+    """
+    m = _EN_DEADLINE_RE.search(text)
+    if not m or m.group(2).lower() not in _MONTHS_EN:
+        return text
+    day, mon, year = int(m.group(1)), _MONTHS_EN[m.group(2).lower()], m.group(3)
+    out = "%s-%02d-%02d" % (year, mon, day)
+    if m.group(4):
+        out += "T%02d:%s" % (int(m.group(4)), m.group(5))
+        if m.group(7):
+            out += "%s%02d:%s" % (m.group(6) or "+", int(m.group(7)), m.group(8))
+    return out
+
+
 class HtmlAdapter(BaseAdapter):
     """Adapter for HTML scraping sources (httpx + BeautifulSoup)."""
 
@@ -94,6 +124,12 @@ class HtmlAdapter(BaseAdapter):
             proxy=proxy_url,
             verify=_ca_bundle(cfg),
         ) as client:
+            if cfg.antiforgery_page:
+                token = await self._antiforgery_token(client)
+                if not token:
+                    self.last_error = self._fetch_error
+                    return []
+                client.headers["RequestVerificationToken"] = token
             html = await self._fetch_page(client, cfg.url)
             if not html:
                 # Раньше это был тихий ноль: «0 строк, ошибок нет» читалось как
@@ -170,6 +206,27 @@ class HtmlAdapter(BaseAdapter):
                 found = "%02d.%02d.%s" % (int(dm.group(1)), int(dm.group(2)), dm.group(3))
             t.deadline = found
             t.date_end = found
+
+    async def _antiforgery_token(self, client):
+        # type: (httpx.AsyncClient) -> Optional[str]
+        """Токен ASP.NET со страницы `antiforgery_page` (см. SourceConfig)."""
+        page = self.config.antiforgery_page
+        self._fetch_error = None
+        try:
+            await self.rate_limit()
+            resp = await client.get(page)
+            resp.raise_for_status()
+        except Exception as exc:
+            self._fetch_error = ("антифорджери-страница: %s: %s" % (
+                type(exc).__name__, str(exc)))[:200]
+            return None
+        el = BeautifulSoup(resp.text, "html.parser").select_one(
+            'input[name="__RequestVerificationToken"]')
+        value = el.get("value") if el is not None else None
+        if not value:
+            self._fetch_error = "на %s нет __RequestVerificationToken" % page
+            return None
+        return str(value)
 
     async def _fetch_page(
         self, client: httpx.AsyncClient, url: str
@@ -270,6 +327,8 @@ class HtmlAdapter(BaseAdapter):
         deadline = self._extract_field(container, selectors.deadline) if selectors.deadline else None
         if deadline == "":
             deadline = None
+        if deadline:
+            deadline = _english_deadline_to_iso(deadline)
 
         # Дата публикации не должна попадать в срок подачи — см. HtmlSelectors.
         published = None  # type: Optional[str]

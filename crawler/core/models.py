@@ -159,6 +159,12 @@ class SourceConfig(BaseModel):
     # отключается — меняется только набор доверенных корней, и только там, где
     # это явно прописано в конфиге.
     use_system_ca: bool = False
+    # Страница, с которой сначала берётся антифорджери-токен ASP.NET (10.10, UNGM).
+    # Поиск UNGM — POST, и без токена сервер отвечает 400/403: источник не дал
+    # ни одной строки за всю историю. Адаптер открывает эту страницу (cookie
+    # остаются в клиенте), берёт скрытое поле __RequestVerificationToken и шлёт
+    # его заголовком RequestVerificationToken — так делает сам сайт.
+    antiforgery_page: Optional[str] = None
     # П7: двухшаговый detail-fetch (см. DetailFetchConfig)
     detail_fetch: Optional[DetailFetchConfig] = None
     # Keep a previously fetched specification across repeat list-crawls. Opt-in
