@@ -69,6 +69,8 @@ class HtmlAdapter(BaseAdapter):
             raise ValueError(
                 "html_selectors required for HTML adapter (source: %s)" % config.id
             )
+        self._fetch_error = None  # type: Optional[str]
+        self._no_title = 0
 
     async def _fetch_items(self) -> List[RawTender]:
         """Fetch and parse HTML pages."""
@@ -94,6 +96,10 @@ class HtmlAdapter(BaseAdapter):
         ) as client:
             html = await self._fetch_page(client, cfg.url)
             if not html:
+                # Раньше это был тихий ноль: «0 строк, ошибок нет» читалось как
+                # «площадка ничего не публикует» (10.10: Tashkent Steel с
+                # истёкшим сертификатом, Ипотека-банк и UNGM — каждый прогон).
+                self.last_error = self._fetch_error or "страница не загрузилась"
                 return []
 
             items = self._parse_page(html, cfg.url)
@@ -139,6 +145,7 @@ class HtmlAdapter(BaseAdapter):
         # 2 попытки: корп-сайты (agmk.uz) интермиттентно рвут соединение
         # (RemoteProtocolError с пустым str()) — одиночный фейл ронял весь прогон.
         last_exc = None  # type: Optional[Exception]
+        self._fetch_error = None  # type: Optional[str]
         for attempt in range(2):
             await self.rate_limit()
             try:
@@ -150,6 +157,7 @@ class HtmlAdapter(BaseAdapter):
                 resp.raise_for_status()
                 text = resp.text
                 if not text or len(text) < 50:
+                    self._fetch_error = "пустой ответ %s (%d байт)" % (url, len(text or ""))
                     return None
                 return text
             except Exception as exc:
@@ -158,6 +166,7 @@ class HtmlAdapter(BaseAdapter):
                     await asyncio.sleep(2)
         logger.warning("[%s] Failed to fetch %s: %s: %s", cfg.name, url,
                        type(last_exc).__name__, str(last_exc))
+        self._fetch_error = ("%s: %s" % (type(last_exc).__name__, str(last_exc)))[:200]
         return None
 
     def _parse_page(self, html: str, page_url: str) -> List[RawTender]:
@@ -179,6 +188,7 @@ class HtmlAdapter(BaseAdapter):
             return []
 
         results = []  # type: List[RawTender]
+        self._no_title = 0
         for idx, container in enumerate(containers):
             try:
                 tender = self._parse_container(container, page_url, idx)
@@ -188,6 +198,17 @@ class HtmlAdapter(BaseAdapter):
                 logger.debug(
                     "[%s] Skipping container %d: %s", cfg.name, idx, str(exc)
                 )
+
+        if not results and self._no_title == len(containers):
+            # Карточки на странице есть, а заголовка нет ни у одной — значит,
+            # селекторы полей отстали от вёрстки. Так с июня молчал Tashkent
+            # Steel: 9 карточек находились, заголовок искался по старому классу
+            # Elementor, и каждая отбрасывалась без звука (10.10.2026). Отсев
+            # фильтром страны — другое: заголовки там есть, это не ошибка.
+            self.last_error = (
+                "селекторы устарели: %d карточек по «%s», ни одна не разобрана "
+                "(заголовок «%s»)" % (len(containers), selectors.container, selectors.title))
+            logger.warning("[%s] %s", cfg.name, self.last_error)
 
         return results
 
@@ -203,6 +224,7 @@ class HtmlAdapter(BaseAdapter):
         # Extract title
         title = self._extract_field(container, selectors.title)
         if not title or len(title) < 3:
+            self._no_title += 1
             return None
 
         # Extract optional fields
