@@ -72,7 +72,7 @@ def test_excuse_lookup_prefers_the_strongest_reason():
     assert SH.silence_excuse("Hayot Birja")["category"] == SH.EXCUSE_MIRROR
     assert SH.silence_excuse("TG: Фонд предпринимательства")["category"] == SH.EXCUSE_EMPTY_OK
     assert SH.silence_excuse("TG: Мин сельхоз")["category"] == SH.EXCUSE_ALERTS_OFF
-    assert SH.silence_excuse("UN Global Marketplace")["category"] == SH.EXCUSE_WHITELIST
+    assert SH.silence_excuse("Ипотека-банк")["category"] == SH.EXCUSE_WHITELIST
     assert SH.silence_excuse("Живой источник") is None
 
 
