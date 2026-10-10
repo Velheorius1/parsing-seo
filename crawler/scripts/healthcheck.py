@@ -94,6 +94,17 @@ ALERT_MAX_BACKOFF_SECONDS = 24 * 3600
 # Источник со своим скриптом (`collected_by` в sources.yaml) идёт дважды в сутки:
 # три пропущенных прогона подряд — поломка (см. check_scripted_sources).
 SCRIPTED_STALE_HOURS = 36
+# Источники своей очереди (`lane:` в sources.yaml) в основной прогон не входят:
+# их гонит cron `crawler.main --lane` раз в 20 мин под `flock -n`, и долгий
+# прогон пропускает следующий тик (первый полный прогон xt-backend шёл 24 мин).
+# Норма — до двух интервалов источника плюс час на сам прогон.
+LANE_TICK_MINUTES = 20
+LANE_SLACK_MINUTES = 60
+
+
+def lane_stale_after_minutes(every_minutes):
+    # type: (Optional[int]) -> int
+    return 2 * max(int(every_minutes or 0), LANE_TICK_MINUTES) + LANE_SLACK_MINUTES
 # Supabase FAIL collapses the alert body; these components are treated as
 # UNKNOWN (not FAIL) in the rendered body so the alert signature stays stable.
 SUPABASE_DEPENDENT_COMPONENTS = (
@@ -353,9 +364,14 @@ class HealthCheck:
         try:
             with open(config_path, "r", encoding="utf-8") as fh:
                 raw = yaml.safe_load(fh) or {}
+            # Тот же отбор, что у `run_crawl.sh --no-telegram`: без Telegram и
+            # без источников своей очереди. 10.10 очередь xt-backend вынесли из
+            # основного прогона, а здесь её ждали — совпадения не стало, и FAIL
+            # «нет полного прогона» висел при живом краулере.
             expected = set(
                 item.get("id") for item in (raw.get("sources") or [])
-                if item.get("id") and item.get("enabled", True) and item.get("adapter") != "telegram"
+                if item.get("id") and item.get("enabled", True)
+                and item.get("adapter") != "telegram" and not item.get("lane")
             )
         except Exception as exc:
             self._add("freshness.full_api", WARN,
@@ -389,6 +405,55 @@ class HealthCheck:
         else:
             self._add("freshness.full_api", FAIL,
                       "Full API crawl %.1fh ago (STALE!)" % age_hours)
+
+    def check_lane_freshness(self, now=None, state_dir=None):
+        # type: (Optional[float], Optional[str]) -> None
+        """Свежесть источников своих очередей — по отметкам самой очереди.
+
+        В `freshness.full_api` они не входят, а `sources.dead_7d` заметит
+        остановку только через неделю. Отметка ставится после прогона
+        (`crawler/core/lanes.py`), так что упавший прогон её не обновит.
+        """
+        from crawler.core import lanes
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "sources.yaml")
+        try:
+            with open(config_path, "r", encoding="utf-8") as fh:
+                raw = yaml.safe_load(fh) or {}
+        except Exception as exc:
+            self._add("freshness.lane", WARN, "Cannot load sources.yaml: %s" % str(exc)[:80])
+            return
+        by_lane = {}  # type: Dict[str, List[Dict[str, Any]]]
+        for item in raw.get("sources") or []:
+            if item.get("id") and item.get("enabled", True) and item.get("lane"):
+                by_lane.setdefault(item["lane"], []).append(item)
+        t = time.time() if now is None else now
+        for lane in sorted(by_lane):
+            state = lanes.load_state(lane, state_dir)
+            if not state:
+                self._add("freshness.lane", WARN,
+                          "Очередь %s: нет отметок прогонов (%s)" % (
+                              lane, lanes.state_path(lane, state_dir)))
+                continue
+            stale = []  # type: List[str]
+            never = []  # type: List[str]
+            for item in by_lane[lane]:
+                sid = item["id"]
+                if sid not in state:
+                    never.append(sid)
+                    continue
+                age_min = (t - state[sid]) / 60.0
+                limit = lane_stale_after_minutes(item.get("every_minutes"))
+                if age_min > limit:
+                    stale.append("%s %.0f мин (норма до %d)" % (sid, age_min, limit))
+            if stale:
+                self._add("freshness.lane", FAIL,
+                          "Очередь %s стоит: %s" % (lane, "; ".join(stale)))
+            elif never:
+                self._add("freshness.lane", WARN,
+                          "Очередь %s: ещё не запускались %s" % (lane, ", ".join(never)))
+            else:
+                self._add("freshness.lane", OK,
+                          "Очередь %s: %d источников в норме" % (lane, len(by_lane[lane])))
 
     # ── Check 3: Source Health ──
 
@@ -1592,6 +1657,7 @@ def main():
     # Run all checks
     hc.check_supabase()
     hc.check_freshness()
+    hc.check_lane_freshness()
     hc.check_sources()
     hc.check_dead_sources()
     hc.check_feedback_bot()
