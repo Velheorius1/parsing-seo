@@ -1785,9 +1785,17 @@ sources:
       source_url_template: "https://www.ipotekabank.uz{link}"  # www: apex всегда 301-редиректит
     keywords_fields: [title]
 
-  # 2026-06-11: сайт за F5/TSPD антибот-защитой (интермиттентно отдаёт
-  # challenge-страницу вместо HTML, источник молчит с 07.05). С VPS-IP может
-  # проходить — оставлен enabled. Если и там TSPD — нужен spa-адаптер (рендер).
+  # 10.10.2026: переписан. Антибот-защиты уже нет — с Мака и с VPS страница
+  # отдаётся целиком (200, 138 КБ), но вёрстка новая: карточки — прямые ссылки
+  # в div.grid, href относительный («press-center/tenders/<slug>/» от <base>),
+  # класса div.wraps больше нет. Старые селекторы не находили ничего, и источник
+  # молчал с мая. Профиль у банка бывает: «Брендированные корпоративные
+  # подарочные наборы» 13-19.11.2025 (ежедневник, ручка, картхолдер, флэшка,
+  # коробка), «Welcome Pack для банковских карт», униформа.
+  #
+  # На карточке только дата публикации; срок подачи («Крайний срок подачи
+  # предложений: до 29.09.2026») — на странице лота, её дотягиваем. Окно у банка
+  # короткое — 6-11 дней, поэтому без срока закрытые конкурсы шли бы в алерты.
   - id: hamkorbank
     name: "Хамкорбанк"
     adapter: html
@@ -1800,14 +1808,19 @@ sources:
     timeout: 20
     id_prefix: "hmkbnk"
     html_selectors:
-      container: "div.wraps"
-      title: "a[href*='/press-center/tenders/'] span:nth-match(2)"
-      deadline: ""
-      link: "a[href*='/press-center/tenders/']@href"
+      container: "div.grid > a[href*='press-center/tenders/']"
+      title: "div.font-medium"
+      deadline: "div.text-size-s.text-gray"
+      deadline_is_publication_date: true
+      link: "@href"
+      external_id_regex: "tenders/([^/]+)/"
+      detail_deadline_regex: "срок подачи предложений\\D{0,20}?(\\d{1,2}\\.\\d{1,2}\\.\\d{4})"
+      detail_max: 10
     field_map:
       title: title
       organization: "Хамкорбанк"
       deadline: deadline
+      currency: "UZS"
       source_url_template: "https://hamkorbank.uz{link}"
     keywords_fields: [title]
 
