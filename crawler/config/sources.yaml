@@ -697,23 +697,38 @@ sources:
     enabled: true
     url: "https://www.ungm.org/Public/Notice/Search"
     method: POST
+    # 10.10: за всю историю 0 строк — поиск без антифорджери-токена отвечает
+    # 400/403, а бот-UA режется уже на GET. Тело — как у самого сайта
+    # (UNGM.NoticeSearch.BuildOptions): PageSize только 15 (50 → 400), активные,
+    # страна Узбекистан (2510). 15 свежих на прогон хватает: всего активных по
+    # Узбекистану ~66, новых — единицы в день.
+    antiforgery_page: "https://www.ungm.org/Public/Notice"
     headers:
       Content-Type: "application/json"
       X-Requested-With: "XMLHttpRequest"
-      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"
     body:
       PageIndex: 0
-      PageSize: 50
+      PageSize: 15
       Title: ""
       Description: ""
       Reference: ""
+      PublishedFrom: ""
+      PublishedTo: ""
+      DeadlineFrom: ""
+      DeadlineTo: ""
+      Countries: ["2510"]
+      Agencies: []
+      UNSPSCs: []
+      NoticeTypes: []
       SortField: "DatePublished"
       SortAscending: false
-      isPagingReset: false
-      NoticeTypes: []
-      UNSPSCs: []
-      Countries: []
-      Agencies: []
+      isPicker: false
+      IsSustainable: false
+      IsActive: true
+      NoticeDisplayType: null
+      NoticeSearchTotalLabelId: "lblNoticeSearchTotal"
+      TypeOfCompetitions: []
     rate_limit: 0.5
     timeout: 15
     id_prefix: "ungm"
@@ -729,7 +744,7 @@ sources:
       currency: ""
       deadline: deadline
       external_id: ""
-      source_url_template: "https://www.ungm.org/Public/Notice/{id}"
+      source_url_template: "https://www.ungm.org/Public/Notice{id}"  # адаптер сам ставит «/» перед id
     keywords_fields: [title]
 
   - id: uz-airways
