@@ -9,10 +9,13 @@ div.short-item, ссылка стала пустым <a> поверх карто
 
 Здесь держится: карточки, заголовок, заказчик, ссылка и id в прежнем виде
 (tender-NNNNN → NNNNN, старые строки не задвоятся), срок — дата после
-«Истекает», закрытый лот отсекается префильтром.
+«Истекает», закрытый лот отсекается префильтром. И листание: открытых лотов
+~70 на 6 страницах, главная — только последние сутки; «Типографские услуги»
+10.10 лежали на 3-й странице.
 
 Run: .venv/bin/python3 -m pytest crawler/tests/test_tenderweek.py -q
 """
+import asyncio
 import os
 import sys
 import types
@@ -36,14 +39,23 @@ from crawler.core.models import SourceConfig  # noqa: E402
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(os.path.dirname(_HERE))
-HOME = open(os.path.join(_HERE, "fixtures", "tenderweek_home_2026-10-10.html"), encoding="utf-8").read()
+def _fixture(name):
+    return open(os.path.join(_HERE, "fixtures", name), encoding="utf-8").read()
+
+
+HOME = _fixture("tenderweek_home_2026-10-10.html")
+PAGE2 = _fixture("tenderweek_page2_2026-10-10.html")
+LAST = _fixture("tenderweek_last_2026-10-10.html")  # стр. 6: 11 карточек, стрелки нет
 URL = "https://tenderweek.com/"
 
 
-def _items():
+def _config():
     raw = yaml.safe_load(open(os.path.join(_REPO, "crawler", "config", "sources.yaml")))["sources"]
-    cfg = [s for s in raw if s["id"] == "tenderweek"][0]
-    adapter = HtmlAdapter(SourceConfig(**cfg))
+    return SourceConfig(**[s for s in raw if s["id"] == "tenderweek"][0])
+
+
+def _items():
+    adapter = HtmlAdapter(_config())
     adapter.last_error = None
     items = adapter._parse_page(HOME, URL)
     return items, adapter
@@ -83,3 +95,28 @@ def test_closed_lot_is_cut_by_prefilter():
 def test_ids_keep_the_old_numeric_form():
     items, _ = _items()
     assert all(x.external_id.isdigit() and len(x.external_id) == 5 for x in items)
+
+
+def test_all_pages_are_read_until_there_is_no_next_arrow():
+    # Стрелка со страницы 2 ведёт на ?page=3; подставляем туда последнюю
+    # страницу (без стрелки) — листание должно на ней и закончиться.
+    pages = {URL: HOME, URL + "?page=2": PAGE2, URL + "?page=3": LAST}
+    asked = []
+
+    async def fake_fetch(client, url):
+        asked.append(url)
+        return pages.get(url)
+
+    async def no_wait():
+        return None
+
+    adapter = HtmlAdapter(_config())
+    adapter._fetch_page = fake_fetch
+    adapter.rate_limit = no_wait
+    items = asyncio.run(adapter._fetch_items())
+
+    assert asked == [URL, URL + "?page=2", URL + "?page=3"]
+    ids = [x.external_id for x in items]
+    assert len(ids) == 12 + 12 + 11
+    assert len(set(ids)) == len(ids)
+    assert "36628" in ids  # стр. 2: «Информационное сопровождение и продвижение»

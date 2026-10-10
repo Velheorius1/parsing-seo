@@ -2774,12 +2774,18 @@ sources:
     # div.tender-card вместо div.short-item, ссылка — пустой a.tender-card__link
     # поверх карточки. Срок — весь блок дат: «Опубликовано 09.10.2026 Истекает
     # 19.10.2026», разборщик берёт дату после «Истекает» (как и в старом формате).
+    # Листаем все страницы (10.10): открытых лотов ~70 на 6 страницах по 12, а
+    # одна главная — это только последние сутки. С одной страницей при первом
+    # сборе ушли бы мимо «Типографские услуги» (стр. 3) и ещё ~60 открытых
+    # лотов, а после простоя сбора — всё, что за это время уехало со страницы 1.
+    # На последней странице стрелки «Вперёд» нет — листание останавливается.
     html_selectors:
       container: "div.tender-card"
       title: "h3.tender-card__title"
       organization: ".tender-card__org-name"
       deadline: ".tender-card__dates"
       link: "a.tender-card__link@href"
+      next_page: 'a.pagination__btn--arrow[aria-label="Вперёд"]'
     field_map:
       title: title
       organization: ""
