@@ -68,6 +68,14 @@ class HtmlSelectors(BaseModel):
     # только для карточек без срока и не больше `detail_max` за прогон.
     detail_deadline_regex: Optional[str] = None
     detail_max: int = 10
+    # Описание с карточки (10.10.2026, TenderWeek «p.tender-card__desc»).
+    # Дописывается в search_text после заголовка и заказчика: его видят и
+    # словарь, и AI-гейт (первые 320 символов search_text).
+    description: Optional[str] = None
+    # Рубрики площадки: ВСЕ совпавшие элементы → RawTender.categories. В
+    # search_text НЕ идут: «Промышленное оборудование» ловится словом «промо» —
+    # на 71 карточке TenderWeek 7 мусорных совпадений против 0 полезных.
+    categories: Optional[str] = None
 
 
 class PaginationConfig(BaseModel):
