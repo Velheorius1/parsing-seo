@@ -450,6 +450,11 @@ class HtmlAdapter(BaseAdapter):
             search_parts.append(description)
         search_text = " ".join(search_parts)[:2000]
 
+        extra_info = {}  # type: Dict[str, Any]
+        lane = [c for c in categories if c in cfg.ai_lane_categories]
+        if lane:
+            extra_info["ai_lane"] = lane[0]
+
         return RawTender(
             id=tender_id,
             external_id=ext_id,
@@ -466,6 +471,7 @@ class HtmlAdapter(BaseAdapter):
             source_url=source_url,
             status="active",
             search_text=search_text,
+            extra_info=extra_info,
         )
 
     def _extract_field(self, container: Tag, selector: str) -> str:

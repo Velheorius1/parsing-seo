@@ -173,6 +173,12 @@ class SourceConfig(BaseModel):
     # остаются в клиенте), берёт скрытое поле __RequestVerificationToken и шлёт
     # его заголовком RequestVerificationToken — так делает сам сайт.
     antiforgery_page: Optional[str] = None
+    # Рубрики площадки, лоты которых идут в AI даже без слова из словаря
+    # (10.10, TenderWeek). Рубрика — сигнал площадки, а не наше слово: в словарь
+    # её не кладём (ловит мусор), а отдаём решение AI-гейту. Адаптер помечает
+    # такой лот extra_info["ai_lane"] = рубрика; префильтр даёт ему
+    # matched_kw="рубрика:…". Сравнение — точное, по полному тексту рубрики.
+    ai_lane_categories: List[str] = Field(default_factory=list)
     # П7: двухшаговый detail-fetch (см. DetailFetchConfig)
     detail_fetch: Optional[DetailFetchConfig] = None
     # Keep a previously fetched specification across repeat list-crawls. Opt-in
