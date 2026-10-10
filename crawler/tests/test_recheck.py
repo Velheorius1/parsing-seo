@@ -185,6 +185,80 @@ def test_ranking_survives_batch_without_any_price():
     batch = [_mk(price=None), _mk(price=None)]
     assert all(R._rank_price(t, batch) == 0.0 for t in batch)
 
+
+# ── 5. близнецы отправленного (10.10) ─────────────────────────────────────────
+# SQB «Сувенир макети», 190 млн: 8 строк одного плана легли одним прогоном
+# 21.05, ушли 6 раз — второй шанс подбирал близнецов, выкинутых дедупом.
+
+_SQB = dict(source="Cooperation.uz Закупочные планы (filtered)",
+            organization='"O`ZBEKISTON SANOAT-QURILISH BANK" ATB',
+            title="Сувенир макети", price=190000000.0, deadline=None)
+
+
+def _twin(created, **k):
+    row = dict(_SQB, created_at=created)
+    row.update(k)
+    return row
+
+
+def test_twin_of_an_alerted_plan_row_is_dropped():
+    alerted = [_twin("2026-05-21T14:12:45.10+00:00")]
+    rows = [_twin("2026-05-21T14:12:45.20+00:00", external_id="bf5994c2")]
+    keep, twins = R.drop_alerted_twins(rows, alerted)
+    assert keep == [] and len(twins) == 1
+
+
+def test_same_position_a_year_later_is_a_new_purchase():
+    alerted = [_twin("2025-05-21T14:12:45+00:00")]
+    rows = [_twin("2026-05-21T14:12:45+00:00", external_id="new")]
+    keep, twins = R.drop_alerted_twins(rows, alerted)
+    assert len(keep) == 1 and twins == []
+
+
+def test_other_customer_or_item_is_not_a_twin():
+    alerted = [_twin("2026-05-21T14:12:45+00:00")]
+    rows = [_twin("2026-05-21T14:12:45+00:00", organization="АО Узбектелеком"),
+            _twin("2026-05-21T14:12:45+00:00", title="Календарь настенный")]
+    keep, twins = R.drop_alerted_twins(rows, alerted)
+    assert len(keep) == 2 and twins == []
+
+
+def test_run_stops_without_sending_when_alerted_list_fails():
+    import asyncio
+    called = []
+    saved = (R.fetch_candidates, R.fetch_alerted, R.survivors)
+    R.fetch_candidates = lambda days, min_price: [_twin("2026-10-01T00:00:00+00:00", external_id="x")]
+
+    def boom():
+        raise RuntimeError("JSON could not be generated")
+    R.fetch_alerted = boom
+    R.survivors = lambda rows: called.append(rows) or ([], {})
+    try:
+        try:
+            asyncio.run(R.run(10, 5_000_000, 40, True))
+            raise AssertionError("run не остановился")
+        except SystemExit as exc:
+            assert exc.code == 1
+        assert called == []          # до префильтра и отправки не дошло
+    finally:
+        R.fetch_candidates, R.fetch_alerted, R.survivors = saved
+
+
+def test_twins_are_dropped_before_prefilter_in_run():
+    import asyncio
+    seen = []
+    saved = (R.fetch_candidates, R.fetch_alerted, R.survivors)
+    R.fetch_candidates = lambda days, min_price: [
+        _twin("2026-05-21T14:12:45+00:00", external_id="bf5994c2"),
+        _twin("2026-05-21T14:12:45+00:00", external_id="other", title="Блокнот")]
+    R.fetch_alerted = lambda: [_twin("2026-05-21T14:12:45+00:00")]
+    R.survivors = lambda rows: seen.extend(rows) or ([], {})
+    try:
+        asyncio.run(R.run(10, 5_000_000, 40, True))
+    finally:
+        R.fetch_candidates, R.fetch_alerted, R.survivors = saved
+    assert [r["external_id"] for r in seen] == ["other"]
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

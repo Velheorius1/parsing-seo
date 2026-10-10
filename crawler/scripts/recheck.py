@@ -21,6 +21,15 @@
 («Услуги издательские» — по две строки на лот), и без `group_for_alerts` второй
 шанс превращается в рассылку дублей уже отправленного.
 
+Почему ещё и сверка с близнецами (10.10). Основной прогон из N строк одного
+лота шлёт одну, остальные выкидывает дедупом — и они остаются «не отправлялись,
+AI не видел», то есть кандидатами сюда. Продовый дедуп сверяет только с
+отправленным, что СОБИРАЛОСЬ последние 14 дней; выпала отправленная строка из
+выдачи площадки — сверка её не видит, и уходит повтор. SQB «Сувенир макети» на
+190 млн: 8 строк одного плана легли одним прогоном 21.05, ушли 6 раз. С июля так
+ушло 73 повтора (тот же заказчик, название и сумма). Близнец — строка с тем же
+ключом лота, что у отправленной, появившаяся в пределах `TWIN_DAYS` от неё.
+
 Границы, снятые замером 30.07 (14 дней, цена ≥ 5 млн, снятые источники прочь):
 22 799 кандидатов → 2 076 проходят префильтр, из них 1 115 — фид завершённых
 сделок (алерты по нему ошибка сами по себе, отсюда `_SKIP_SOURCES`).
@@ -54,7 +63,13 @@ logger = logging.getLogger("recheck")
 
 FIELDS = ("external_id,source,title,organization,search_text,price,currency,"
           "deadline,date_start,date_end,collected_at,message_type,bid_count,"
-          "status,extra_info,source_url,alert_seq,relevance_score,group_id")
+          "status,extra_info,source_url,alert_seq,relevance_score,group_id,created_at")
+
+# Близнецы отправленного: тот же ключ лота, строка появилась не дальше этого
+# от отправленной (в обе стороны). Год спустя тот же заказчик с той же позицией —
+# это новая закупка, её не глушим.
+TWIN_DAYS = 14
+ALERTED_FIELDS = "source,title,organization,price,deadline,created_at"
 
 # Фиды, по которым алерт не имеет смысла в принципе: это не спрос, а история.
 # «E-Birja завершённые сделки» — уже закрытые сделки (нужны трекеру результатов);
@@ -244,6 +259,58 @@ def dedup_against_sent(tenders):
     return deduped, len(tenders) - len(deduped)
 
 
+def _row_key(row):
+    # type: (Dict) -> Tuple[str, str, str]
+    from crawler.core.dedup import _logical_key
+    return _logical_key(row.get("source") or "", row.get("organization"),
+                        row.get("title"), row.get("price"), row.get("deadline"))
+
+
+def _created(row):
+    # type: (Dict) -> Optional[datetime]
+    raw = str(row.get("created_at") or "")[:19].replace("T", " ")
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def fetch_alerted():
+    # type: () -> List[Dict]
+    """Все когда-либо отправленные строки: ключ лота + когда строка появилась.
+
+    Ошибка не глотается: без этого списка второй шанс шлёт повторы, а молча
+    пустой список выглядел бы как «повторов нет» (продовый загрузчик так и
+    делает — 10.09 он полдня отдавал пустоту, и дедуп пропускал всё).
+    """
+    from crawler.core.db import iter_rows
+    rows = []  # type: List[Dict]
+    for page in iter_rows("tenders", ALERTED_FIELDS, filters=[("gt", ("alert_seq", 0))],
+                          label="recheck alerted", max_pages=100):
+        rows.extend(page)
+    return rows
+
+
+def drop_alerted_twins(rows, alerted, days=TWIN_DAYS):
+    # type: (List[Dict], List[Dict], int) -> Tuple[List[Dict], List[Dict]]
+    """Убирает кандидатов, у которых есть отправленный близнец: тот же ключ лота
+    (`dedup._logical_key`, как у продового дедупа), строка появилась не дальше
+    `days` от отправленной. Возвращает (оставшиеся, убранные)."""
+    sent = collections.defaultdict(list)  # type: Dict[Tuple[str, str, str], List[datetime]]
+    for a in alerted:
+        ts = _created(a)
+        if ts is not None:
+            sent[_row_key(a)].append(ts)
+    window = timedelta(days=days).total_seconds()
+    keep, twins = [], []  # type: List[Dict], List[Dict]
+    for r in rows:
+        ts = _created(r)
+        near = ts is not None and any(
+            abs((s - ts).total_seconds()) <= window for s in sent.get(_row_key(r), ()))
+        (twins if near else keep).append(r)
+    return keep, twins
+
+
 def _fmt(n):
     # type: (Optional[float]) -> str
     return "{:,.0f}".format(n or 0).replace(",", " ")
@@ -258,6 +325,18 @@ async def run(days, min_price, cap, execute, manifest=None, prefilter_only=False
     else:
         logger.info("кандидатов (не отправлялись, AI не видел, цена ≥ %s, %d дн): %d",
                     _fmt(min_price), days, len(rows))
+    if not rows:
+        return 0
+
+    try:
+        alerted = fetch_alerted()
+    except Exception as exc:
+        logger.error("СТОП: не загрузился список отправленного (%s) — без него второй "
+                     "шанс шлёт повторы, ничего не досылаю", str(exc)[:150])
+        raise SystemExit(1)
+    rows, twins = drop_alerted_twins(rows, alerted)
+    logger.info("близнецы отправленного (тот же лот, строка ±%d дн от отправленной): "
+                "убрано %d, осталось %d", TWIN_DAYS, len(twins), len(rows))
     if not rows:
         return 0
 
