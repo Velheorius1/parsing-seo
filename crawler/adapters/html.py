@@ -434,10 +434,20 @@ class HtmlAdapter(BaseAdapter):
             if cfg.country_filter.upper() not in container_text:
                 return None
 
+        description = self._extract_field(container, selectors.description) if selectors.description else ""
+        categories = []  # type: List[str]
+        if selectors.categories:
+            for el in container.select(selectors.categories):
+                cat = el.get_text(" ", strip=True)
+                if cat and cat not in categories:
+                    categories.append(cat)
+
         # Search text
         search_parts = [title]
         if organization:
             search_parts.append(organization)
+        if description:
+            search_parts.append(description)
         search_text = " ".join(search_parts)[:2000]
 
         return RawTender(
@@ -451,7 +461,7 @@ class HtmlAdapter(BaseAdapter):
             date_start=published,
             date_end=deadline,
             region="",
-            categories=[],
+            categories=categories,
             source=cfg.name,
             source_url=source_url,
             status="active",

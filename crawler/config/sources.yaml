@@ -2786,6 +2786,10 @@ sources:
       deadline: ".tender-card__dates"
       link: "a.tender-card__link@href"
       next_page: 'a.pagination__btn--arrow[aria-label="Вперёд"]'
+      # Описание карточки (~220 символов) — в search_text: контекст для AI.
+      # Рубрики площадки — в categories, мимо словаря (см. HtmlSelectors).
+      description: "p.tender-card__desc"
+      categories: ".tender-card__cat"
     field_map:
       title: title
       organization: ""

@@ -120,3 +120,26 @@ def test_all_pages_are_read_until_there_is_no_next_arrow():
     assert len(ids) == 12 + 12 + 11
     assert len(set(ids)) == len(ids)
     assert "36628" in ids  # стр. 2: «Информационное сопровождение и продвижение»
+
+
+def test_card_description_goes_into_search_text_after_title():
+    # AI видит первые 320 символов search_text: заголовок, заказчик, описание.
+    items, _ = _items()
+    t = [x for x in items if x.external_id == "36638"][0]
+    assert t.search_text.startswith("Сумки из спанбонда с нанесением логотипа ISTIQBOLLI AVLOD РСИЦ ")
+    assert "ОБЪЯВЛЕНИЕ О КОНКУРСЕ на изготовление и поставку сумок" in t.search_text[:320]
+
+
+def test_platform_categories_are_kept_but_not_matched_as_words():
+    items, _ = _items()
+    bags = [x for x in items if x.external_id == "36638"][0]
+    assert bags.categories == [
+        "Разное",
+        "Печатные услуги и продукция, издательские услуги, канцтовары, бумажные изделия",
+    ]
+    # «Промышленное и производственное оборудование…» в search_text поймало бы
+    # слово «промо» — рубрика туда не попадает.
+    geo = [x for x in items if x.external_id == "36642"][0]
+    assert geo.categories == ["Промышленное и производственное оборудование, запасные части"]
+    assert "Промышленное" not in geo.search_text
+    assert all(x.categories for x in items)
