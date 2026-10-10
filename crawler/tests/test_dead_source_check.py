@@ -178,13 +178,21 @@ def test_whitelist_is_a_mapping_with_reasons_not_a_bare_set():
 def test_todays_seven_are_listed_with_a_dated_reason():
     """Каждая из разобранных 11.08 записей обязана нести дату и факт.
 
-    Tashkent Steel из этой семёрки снят 10.10 — см. следующий тест.
+    Tashkent Steel и Хамкорбанк из этой семёрки сняты 10.10 — см. тесты ниже.
     """
     b = _whitelist_block()
     for name in ("OSCE Uzbekistan", "TG: Beeline Tenders", "TG: UNDP UZB Tenders",
-                 "Хамкорбанк", "TenderWeek.com", "Ипотека-банк"):
+                 "TenderWeek.com", "Ипотека-банк"):
         assert "'%s'" % name in b, name
-    assert b.count("(11.08)") >= 6, "у каждой новой записи должна быть дата"
+    assert b.count("(11.08)") >= 5, "у каждой новой записи должна быть дата"
+
+
+def test_hamkorbank_is_no_longer_excused():
+    """10.10: «покрытие даёт TG-канал» не держится — алерты канала выключены, а
+    на сайте был наш профиль (брендированные подарки 11.2025). Источник
+    переписан; его молчание снова должно звенеть."""
+    b = _whitelist_block()
+    assert "    'Хамкорбанк':" not in b
 
 
 def test_tashkent_steel_is_no_longer_excused():

@@ -134,7 +134,42 @@ class HtmlAdapter(BaseAdapter):
                     all_items.extend(page_items)
                     current_url = next_url
 
+            if selectors.detail_deadline_regex and all_items:
+                await self._fill_deadlines_from_detail(client, all_items)
+
         return all_items
+
+    async def _fill_deadlines_from_detail(self, client, items):
+        # type: (httpx.AsyncClient, List[RawTender]) -> None
+        """Срок подачи со страницы лота — для карточек, где его нет (см. HtmlSelectors).
+
+        Без срока лот считается живым вечно, и закрытые конкурсы шли бы в
+        алерты; со сроком их отсекает префильтр, а живые получают точную дату.
+        Не нашли — срок остаётся пустым, как и было.
+        """
+        sel = self.config.html_selectors
+        rx = re.compile(sel.detail_deadline_regex, re.I)
+        budget = max(0, sel.detail_max)
+        for t in items:
+            if t.deadline or not t.source_url:
+                continue
+            if budget <= 0:
+                break
+            budget -= 1
+            page = await self._fetch_page(client, t.source_url)
+            if not page:
+                continue
+            text = re.sub(r"\s+", " ", BeautifulSoup(page, "html.parser").get_text(" "))
+            m = rx.search(text)
+            if not m:
+                continue
+            found = m.group(1).strip()
+            # «5.10.2026» → «05.10.2026»: разборщик сроков ждёт две цифры.
+            dm = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", found)
+            if dm:
+                found = "%02d.%02d.%s" % (int(dm.group(1)), int(dm.group(2)), dm.group(3))
+            t.deadline = found
+            t.date_end = found
 
     async def _fetch_page(
         self, client: httpx.AsyncClient, url: str
@@ -405,4 +440,7 @@ class HtmlAdapter(BaseAdapter):
             val = el.get(attr_name)
             return _safe_str(val)
 
-        return el.get_text(strip=True)
+        # Неразрывный пробел (&nbsp;) — обычный пробел: сайты на CMS ставят его
+        # после предлогов («на&nbsp;услуги», Хамкорбанк 10.10), и фраза словаря
+        # с обычным пробелом мимо такого заголовка промахивалась.
+        return el.get_text(strip=True).replace("\xa0", " ")
