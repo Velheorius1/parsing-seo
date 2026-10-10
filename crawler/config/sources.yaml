@@ -561,6 +561,12 @@ sources:
     enabled: true
     url: "https://www.isdb.org/project-procurement/tenders"
     method: GET
+    # 10.10: без параметров страница отдаёт «No results for your specified
+    # filters» — список рендерится сервером только с фильтром формы. Фильтр
+    # страны тот же, что у country_filter ниже: ~6 карточек вместо 50.
+    params:
+      loc: "UZ"
+      status: "active"
     headers:
       User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
     rate_limit: 0.5
@@ -570,8 +576,11 @@ sources:
     html_selectors:
       container: "article.teaser.type-tender"
       title: "h2 a"
-      deadline: "time"
+      deadline: "time"  # field-close-date: срок подачи, «20 October 2026»
       link: "a@href"
+      # Ссылка /tenders/2025/gpn/<slug>: «первое число» давало id = ГОД, и все
+      # тендеры года ложились в одну строку (в БД были id «2024» и «2025»).
+      external_id_regex: "([^/?#]+)/?$"
     field_map:
       title: title
       organization: "IsDB"
