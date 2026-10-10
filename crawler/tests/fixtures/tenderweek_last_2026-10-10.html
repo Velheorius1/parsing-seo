@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TENDERWEEK.com - Тендеры в Узбекистане, Закупки в Узбекистане</title>
+<meta name="keywords" content="TENDERWEEK.com - Тендеры в Узбекистане, Закупки в Узбекистане">
+<meta name="description" content="TENDERWEEK.com - Тендеры в Узбекистане, Закупки в Узбекистане">
+    <link rel="stylesheet" href="/templates/tenderweek_2026/style/main.css?v=2">
+            <link rel="shortcut icon" href="/favicon.ico">
+</head>
+<body class="page">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <!-- Спрайт иконок. ВНИМАНИЕ: формы пока приближённые (стандартные 24-сетка,
+       stroke=currentColor); заменяются на точные SVG из Figma (канвас Icons 10:9)
+       на шаге pixel-perfect. Учёт: reports/issues.md -->
+  <symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chevron-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-xmark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-circle-xmark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></symbol>
+  <symbol id="i-circle-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 5-5.5"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></symbol>
+  <symbol id="i-briefcase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></symbol>
+  <symbol id="i-bookmark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21 12 16 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-message" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-slash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7c1.8 0 3.4.5 4.8 1.2M22 12s-3.5 7-10 7c-1.8 0-3.4-.5-4.8-1.2"/><path d="m3 3 18 18"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-credit-card" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></symbol>
+  <symbol id="i-check-double" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 13 4 4L14 8.5"/><path d="m10.5 15.5 2 1.5L21 8"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7"/><path d="M16 8l4 4-4 4M10 12h10"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5v14M8 5 5 8m3-3 3 3"/><path d="M16 19V5m0 14-3-3m3 3 3-3"/></symbol>
+  <symbol id="i-arrow-up-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m3 0v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7"/><path d="M10 11v6M14 11v6"/></symbol>
+  <symbol id="i-printer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/></symbol>
+  <symbol id="i-map-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0 4 4m-4-4-4 4"/><path d="M4 20h16"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12m0 0 4-4m-4 4-4-4"/><path d="M4 20h16"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></symbol>
+  <symbol id="i-fax" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="16" height="11" rx="2"/><path d="M8 9V4h8v5M8 13h.01M12 13h.01M16 13h.01M8 16.5h8"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></symbol>
+  <symbol id="i-calendar-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/><path d="m10 14 4 4m0-4-4 4"/></symbol>
+  <symbol id="i-building" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="1"/><path d="M9 7h2m2 0h2M9 11h2m2 0h2M9 15h2m2 0h2"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V4"/><path d="M4 20h16"/><path d="m7 14 4-4 3 3 5-6"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5m0 0 6-6m-6 6 6 6"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+</svg>
+
+<header class="header">
+    <div class="header__inner">
+        <div class="header__left">
+            <a class="header__logo" href="/" aria-label="Tenderweek">
+                <img src="/templates/tenderweek_2026/img/figma-assets/header-logo.svg" alt="Tenderweek" width="148" height="36">
+            </a>
+            <div class="segmented header__segmented" style="width:240px">
+                                    <a class="segmented__item segmented__item--active" href="/">Тендеры</a>
+                    <a class="segmented__item" href="/company/buyers/">Закупщики</a>
+                            </div>
+        </div>
+        <div class="header__right">
+            <nav class="header__nav">
+                <span class="dropdown">
+                    <button class="header__nav-item" type="button" data-dropdown="lang">
+                        <svg class="icon"><use href="#i-globe"/></svg>Русский<svg class="icon"><use href="#i-chevron-down"/></svg>
+                    </button>
+                    <div class="dropdown__menu" data-dropdown-panel="lang" hidden>
+                        <a class="dropdown__item dropdown__item--active" href="/">Русский</a>
+                        <a class="dropdown__item" href="/en/">English</a>
+                    </div>
+                </span>
+                            </nav>
+
+                            <a class="button button--md button--brand button--secondary header__cta" href="/add.html">Стать закупщиком</a>
+            
+            <span class="header__divider"></span>
+            <button class="header__lang" type="button" data-dropdown="lang">
+                <svg class="icon"><use href="#i-globe"/></svg>Русский<svg class="icon icon--chevron"><use href="#i-chevron-down"/></svg>
+            </button>
+            <button class="header__burger" type="button" data-burger-open aria-label="Меню"><svg class="icon"><use href="#i-menu"/></svg></button>
+                            <a class="button button--md button--brand header__login" href="/login">Войти</a>
+                    </div>
+    </div>
+</header>
+
+
+<!-- Бургер-меню (мобильное) -->
+<div class="burger" data-burger hidden>
+    <div class="burger__panel">
+        <div class="burger__top">
+            <span class="burger__title">Меню</span>
+            <button class="burger__close" type="button" data-burger-close aria-label="Закрыть"><svg class="icon"><use href="#i-xmark"/></svg></button>
+        </div>
+        <a class="burger__item" href="/"><span class="burger__item-text">Тендеры</span><svg class="burger__chevron"><use href="#i-chevron-right"/></svg></a>
+        <a class="burger__item" href="/company/buyers/"><span class="burger__item-text">Закупщики</span><svg class="burger__chevron"><use href="#i-chevron-right"/></svg></a>
+                            <div class="burger__actions">
+                <a class="button button--lg button--brand" href="/login">Войти</a>
+                <a class="button button--lg button--brand button--secondary" href="/add.html">Стать закупщиком</a>
+            </div>
+            </div>
+</div>
+<div class="subhead">
+    <div class="subhead__inner">
+        <div class="subhead__title-row">
+            <h1 class="subhead__title">Тендеры</h1>
+                    </div>
+
+                <form class="subhead__toolbar search-new-form" method="get" action="/">
+            <div class="subhead__filters">
+                <div class="field subhead__search">
+                    <div class="field__box">
+                        <svg class="field__icon"><use href="#i-search"/></svg>
+                        <input class="field__control" type="text" name="q" value="" placeholder="Поиск по названию">
+                        <button type="button" class="subhead__clear hidden" aria-label="Очистить"><svg class="icon"><use href="#i-xmark"/></svg></button>
+                    </div>
+                </div>
+                <div class="field subhead__category" data-dropdown="category">
+                    <div class="field__box">
+                        <input class="field__control" type="text" placeholder="Все категории" value="" readonly>
+                        <input type="hidden" name="rubrika_id" value="">
+                        <button type="button" class="subhead__clear subhead__cat-clear hidden" aria-label="Очистить"><svg class="icon"><use href="#i-xmark"/></svg></button>
+                        <svg class="field__trailing"><use href="#i-chevron-down"/></svg>
+                    </div>
+                    <div class="dropdown__menu" data-dropdown-panel="category" hidden>
+                        <button type="button" class="dropdown__item dropdown__item--active" data-id="" data-value="">Все категории</button>
+                                                    <button type="button" class="dropdown__item" data-id="68" data-value="Бытовая техника, хозяйственные товары, спорттовары">Бытовая техника, хозяйственные товары, спорттовары</button>
+                                                    <button type="button" class="dropdown__item" data-id="20" data-value="Горношахтное оборудование и техника, уголь ">Горношахтное оборудование и техника, уголь </button>
+                                                    <button type="button" class="dropdown__item" data-id="58" data-value="Государственные и социальные услуги">Государственные и социальные услуги</button>
+                                                    <button type="button" class="dropdown__item" data-id="69" data-value="Жилищно-коммунальные услуги, электро-, водо-, тепло- и газоснабжение">Жилищно-коммунальные услуги, электро-, водо-, тепло- и газоснабжение</button>
+                                                    <button type="button" class="dropdown__item" data-id="61" data-value="Клининг, благоустройство территории, ландшафтный дизайн, садоводство">Клининг, благоустройство территории, ландшафтный дизайн, садоводство</button>
+                                                    <button type="button" class="dropdown__item" data-id="39" data-value="Компьютерное и серверное оборудование, обслуживание оргтехники">Компьютерное и серверное оборудование, обслуживание оргтехники</button>
+                                                    <button type="button" class="dropdown__item" data-id="53" data-value="Консультационные услуги, оценочные услуги, сертификация">Консультационные услуги, оценочные услуги, сертификация</button>
+                                                    <button type="button" class="dropdown__item" data-id="56" data-value="Мебель">Мебель</button>
+                                                    <button type="button" class="dropdown__item" data-id="44" data-value="Медицинское оборудование и товары, услуги, медикаменты">Медицинское оборудование и товары, услуги, медикаменты</button>
+                                                    <button type="button" class="dropdown__item" data-id="24" data-value="Металлопрокат, металлопродукция, продукция из стали">Металлопрокат, металлопродукция, продукция из стали</button>
+                                                    <button type="button" class="dropdown__item" data-id="42" data-value="Нефтепромысловые услуги, геологоразведочные работы, оборудование">Нефтепромысловые услуги, геологоразведочные работы, оборудование</button>
+                                                    <button type="button" class="dropdown__item" data-id="45" data-value="Образование, наука, человеческие ресурсы, искусство">Образование, наука, человеческие ресурсы, искусство</button>
+                                                    <button type="button" class="dropdown__item" data-id="26" data-value="Одежда, спецодежда, обувь, ткани, СИЗ">Одежда, спецодежда, обувь, ткани, СИЗ</button>
+                                                    <button type="button" class="dropdown__item" data-id="66" data-value="Охранное и противопожарное оборудование, видеонаблюдение, услуги ">Охранное и противопожарное оборудование, видеонаблюдение, услуги </button>
+                                                    <button type="button" class="dropdown__item" data-id="47" data-value="Печатные услуги и продукция, издательские услуги, канцтовары, бумажные изделия ">Печатные услуги и продукция, издательские услуги, канцтовары, бумажные изделия </button>
+                                                    <button type="button" class="dropdown__item" data-id="34" data-value="Почтовая и курьерские услуги">Почтовая и курьерские услуги</button>
+                                                    <button type="button" class="dropdown__item" data-id="38" data-value="Программное обеспечение, веб-сайты и мобильные разработки, сопровождение">Программное обеспечение, веб-сайты и мобильные разработки, сопровождение</button>
+                                                    <button type="button" class="dropdown__item" data-id="27" data-value="Продукты питания, вода питьевая, общественное питание (кейтеринг)">Продукты питания, вода питьевая, общественное питание (кейтеринг)</button>
+                                                    <button type="button" class="dropdown__item" data-id="63" data-value="Промышленное и производственное оборудование, запасные части">Промышленное и производственное оборудование, запасные части</button>
+                                                    <button type="button" class="dropdown__item" data-id="57" data-value="Разное">Разное</button>
+                                                    <button type="button" class="dropdown__item" data-id="51" data-value="Реклама, маркетинг, исследования">Реклама, маркетинг, исследования</button>
+                                                    <button type="button" class="dropdown__item" data-id="55" data-value="СМИ и информационные услуги, связи с общественностью">СМИ и информационные услуги, связи с общественностью</button>
+                                                    <button type="button" class="dropdown__item" data-id="28" data-value="Сельское хозяйство, ирригация">Сельское хозяйство, ирригация</button>
+                                                    <button type="button" class="dropdown__item" data-id="60" data-value="Спецтехника, транспортные средства, запчасти, ремонт">Спецтехника, транспортные средства, запчасти, ремонт</button>
+                                                    <button type="button" class="dropdown__item" data-id="36" data-value="Строительные материалы, инструменты, сантехника">Строительные материалы, инструменты, сантехника</button>
+                                                    <button type="button" class="dropdown__item" data-id="35" data-value="Строительство, архитектура, инжиниринг">Строительство, архитектура, инжиниринг</button>
+                                                    <button type="button" class="dropdown__item" data-id="65" data-value="Тепловое и холодильное оборудование, кондиционеры, ремонт">Тепловое и холодильное оборудование, кондиционеры, ремонт</button>
+                                                    <button type="button" class="dropdown__item" data-id="19" data-value="Топливо, ГСМ, масла ">Топливо, ГСМ, масла </button>
+                                                    <button type="button" class="dropdown__item" data-id="37" data-value="Торговое оборудование, услуги по импорту и экспорту">Торговое оборудование, услуги по импорту и экспорту</button>
+                                                    <button type="button" class="dropdown__item" data-id="30" data-value="Транспортные услуги, грузоперевозки, логистика, таможенное оформление и хранение">Транспортные услуги, грузоперевозки, логистика, таможенное оформление и хранение</button>
+                                                    <button type="button" class="dropdown__item" data-id="54" data-value="Туризм, услуги по переводу, организация мероприятий ">Туризм, услуги по переводу, организация мероприятий </button>
+                                                    <button type="button" class="dropdown__item" data-id="33" data-value="Услуги связи, телекоммуникационное и сетевое оборудование">Услуги связи, телекоммуникационное и сетевое оборудование</button>
+                                                    <button type="button" class="dropdown__item" data-id="49" data-value="Финансовые услуги, страхование, банковское оборудование">Финансовые услуги, страхование, банковское оборудование</button>
+                                                    <button type="button" class="dropdown__item" data-id="23" data-value="Химическая продукция, лабораторное оборудование, резинотехнические изделия">Химическая продукция, лабораторное оборудование, резинотехнические изделия</button>
+                                                    <button type="button" class="dropdown__item" data-id="18" data-value="Электроэнергетика, электрооборудование, кабельная продукция">Электроэнергетика, электрооборудование, кабельная продукция</button>
+                                                    <button type="button" class="dropdown__item" data-id="52" data-value="Юридические услуги, нотариальные услуги">Юридические услуги, нотариальные услуги</button>
+                                            </div>
+                </div>
+                <button class="button button--md button--brand" type="submit">Найти</button>
+            </div>
+            <div class="subhead__sort">
+                <span class="subhead__sort-caption">Сортировка по</span>
+                <div class="field subhead__sort-select" data-dropdown="sort">
+                    <div class="field__box">
+                        <svg class="field__icon"><use href="#i-sort"/></svg>
+                        <input class="field__control" type="text" value="дате публикации" readonly>
+                        <svg class="field__trailing"><use href="#i-chevron-down"/></svg>
+                    </div>
+                    <div class="dropdown__menu" data-dropdown-panel="sort" hidden>
+                                                    <a class="dropdown__item dropdown__item--active" href="/?oby=date">дате публикации</a>
+                                                    <a class="dropdown__item" href="/?oby=stop">дате истечения</a>
+                                            </div>
+                </div>
+            </div>
+        </form>
+        
+        <div class="subhead__tabs">
+            <nav class="tabs">
+                                    <a class="tab tab--active" href="/">Последние</a>
+                    <a class="tab" href="/recommended/">Рекомендуемые</a>
+                    <a class="tab" href="/my-buyers-tenders/">Моих закупщиков</a>
+                    <a class="tab" href="/my/tenders/">Сохраненные</a>
+                    <a class="tab" href="/invited">Приглашения от закупщиков</a>
+                    <a class="tab tab--external" target="_blank" href="//atom.tenderweek.com">Закупки Росатом <svg class="icon"><use href="#i-arrow-up-right"/></svg></a>
+                            </nav>
+        </div>
+    </div>
+</div>
+<main class="page-body">
+    <div class="container">
+                    <div class="cards-grid">
+                        <div class="tender-card">
+        <a class="tender-card__link" href="/tender-36567" aria-label="ОБНОВЛЕНИЕ: Поставка оборудования"></a>
+        <div class="tender-card__head">
+            <div class="tender-card__org">
+                <span class="avatar avatar--32 avatar--squircle"><img class="avatar__glyph" src="/templates/tenderweek_2026/img/figma-assets/tender-card-avatar-icon.svg" alt=""></span>
+                <span class="tender-card__org-name">ISTIQBOLLI AVLOD РСИЦ</span>
+            </div>
+            <span class="tender-card__number">&#8470;36567</span>
+        </div>
+        <div class="tender-card__body">
+            <div class="tender-card__text">
+                <h3 class="tender-card__title">ОБНОВЛЕНИЕ: Поставка оборудования</h3>
+                <p class="tender-card__desc">ОБЪЯВЛЕНИЕ О ЗАКУПКЕ Поставка оборудования для учебного Медиацентра Назначение: Оснащение современной учебной медиалаборатории для обучения молодежи созданию аудио-, видео- и графического контента. № Оборудование Зона Ко…</p>                                    <div class="tender-card__categories">
+                                                    <span class="tender-card__cat" title="Компьютерное и серверное оборудование, обслуживание оргтехники">Компьютерное и серверное оборудование, обслуживание оргтехники</span>
+                                            </div>
+                            </div>
+            <div class="tender-card__divider"></div>
+                        <div class="tender-card__dates">
+                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Опубликовано</span>
+                    <span class="tender-card__date-value">28.09.2026</span>
+                </div>
+                                <div class="tender-card__date tender-card__date--mid">
+                    <span class="tender-card__date-caption">Обновлено</span>
+                    <span class="tender-card__date-value">28.09.2026</span>
+                </div>
+                                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Истекает</span>
+                    <span class="tender-card__date-value">10.10.2026</span>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="tender-card">
+        <a class="tender-card__link" href="/tender-36572" aria-label="Аудит интегрированной системы менеджмента по международным стандартам ISO 27001:2022"></a>
+        <div class="tender-card__head">
+            <div class="tender-card__org">
+                <span class="avatar avatar--32 avatar--squircle"><img class="avatar__glyph" src="/templates/tenderweek_2026/img/figma-assets/tender-card-avatar-icon.svg" alt=""></span>
+                <span class="tender-card__org-name">Asia Trans Gas СП ООО</span>
+            </div>
+            <span class="tender-card__number">&#8470;36572</span>
+        </div>
+        <div class="tender-card__body">
+            <div class="tender-card__text">
+                <h3 class="tender-card__title">Аудит интегрированной системы менеджмента по международным стандартам ISO 27001:2022</h3>
+                <p class="tender-card__desc">Оказание услуг по проведению I го Наблюдательного Внешнего аудита Интегрированной системы менеджмента по международным стандартам ISO 27001:2022 Уважаемые господа, СП ООО «Asia Trans Gas» выражает Вам свое почтение и обр…</p>                                    <div class="tender-card__categories">
+                                                    <span class="tender-card__cat" title="Консультационные услуги, оценочные услуги, сертификация">Консультационные услуги, оценочные услуги, сертификация</span>
+                                            </div>
+                            </div>
+            <div class="tender-card__divider"></div>
+                        <div class="tender-card__dates">
+                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Опубликовано</span>
+                    <span class="tender-card__date-value">28.09.2026</span>
+                </div>
+                                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Истекает</span>
+                    <span class="tender-card__date-value">12.10.2026</span>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="tender-card">
+        <a class="tender-card__link" href="/tender-36566" aria-label="Предоставление облачной инфраструктуры (IaaS)"></a>
+        <div class="tender-card__head">
+            <div class="tender-card__org">
+                <span class="avatar avatar--32 avatar--squircle"><img class="avatar__glyph" src="/templates/tenderweek_2026/img/figma-assets/tender-card-avatar-icon.svg" alt=""></span>
+                <span class="tender-card__org-name">Asia Trans Gas СП ООО</span>
+            </div>
+            <span class="tender-card__number">&#8470;36566</span>
+        </div>
+        <div class="tender-card__body">
+            <div class="tender-card__text">
+                <h3 class="tender-card__title">Предоставление облачной инфраструктуры (IaaS)</h3>
+                <p class="tender-card__desc">Оказание услуг по предоставлению облачной инфраструктуры (IaaS) СП ООО «Asia Trans Gas» выражает Вам свое почтение и обращается со следующим. СП ООО «Asia Trans Gas» планирует осуществление изготовление и поставка оказан…</p>                                    <div class="tender-card__categories">
+                                                    <span class="tender-card__cat" title="Услуги связи, телекоммуникационное и сетевое оборудование">Услуги связи, телекоммуникационное и сетевое оборудование</span>
+                                            </div>
+                            </div>
+            <div class="tender-card__divider"></div>
+                        <div class="tender-card__dates">
+                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Опубликовано</span>
+                    <span class="tender-card__date-value">28.09.2026</span>
+                </div>
+                                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Истекает</span>
+                    <span class="tender-card__date-value">12.10.2026</span>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="tender-card">
+        <a class="tender-card__link" href="/tender-36551" aria-label="Компьютерное оборудование"></a>
+        <div class="tender-card__head">
+            <div class="tender-card__org">
+                <span class="avatar avatar--32 avatar--squircle"><img class="avatar__glyph" src="/templates/tenderweek_2026/img/figma-assets/tender-card-avatar-icon.svg" alt=""></span>
+                <span class="tender-card__org-name">Министерство здравоохранения Республики Узбекистан</span>
+            </div>
+            <span class="tender-card__number">&#8470;36551</span>
+        </div>
+        <div class="tender-card__body">
+            <div class="tender-card__text">
+                <h3 class="tender-card__title">Компьютерное оборудование</h3>
+                <p class="tender-card__desc">INVITATION FOR BIDS Country: Republic of UzbekistanProject: Sector Support to Digital Reform in the Health Sector - Elektron Salomatlik (ELSA) projectGood to be procured: Supply Installation Testing &amp; Commissioning of IC…</p>                                    <div class="tender-card__categories">
+                                                    <span class="tender-card__cat" title="Компьютерное и серверное оборудование, обслуживание оргтехники">Компьютерное и серверное оборудование, обслуживание оргтехники</span>
+                                            </div>
+                            </div>
+            <div class="tender-card__divider"></div>
+                        <div class="tender-card__dates">
+                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Опубликовано</span>
+                    <span class="tender-card__date-value">25.09.2026</span>
+                </div>
+                                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Истекает</span>
+                    <span class="tender-card__date-value">02.11.2026</span>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="tender-card">
+        <a class="tender-card__link" href="/tender-36550" aria-label="Программное обеспечение"></a>
+        <div class="tender-card__head">
+            <div class="tender-card__org">
+                <span class="avatar avatar--32 avatar--squircle"><img class="avatar__glyph" src="/templates/tenderweek_2026/img/figma-assets/tender-card-avatar-icon.svg" alt=""></span>
+                <span class="tender-card__org-name">Министерство здравоохранения Республики Узбекистан</span>
+            </div>
+            <span class="tender-card__number">&#8470;36550</span>
+        </div>
+        <div class="tender-card__body">
+            <div class="tender-card__text">
+                <h3 class="tender-card__title">Программное обеспечение</h3>
+                <p class="tender-card__desc">INVITATION FOR BIDS Country: The Republic of UzbekistanProject: Support to Digital Reform in the Health Sector – Elektron SalomatlikContract: Supply, Installation, Testing and commissioning of Picture Archiving and Commu…</p>                                    <div class="tender-card__categories">
+                                                    <span class="tender-card__cat" title="Программное обеспечение, веб-сайты и мобильные разработки, сопровождение">Программное обеспечение, веб-сайты и мобильные разработки, сопровождение</span>
+                                            </div>
+                            </div>
+            <div class="tender-card__divider"></div>
+                        <div class="tender-card__dates">
+                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Опубликовано</span>
+                    <span class="tender-card__date-value">25.09.2026</span>
+                </div>
+                                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Истекает</span>
+                    <span class="tender-card__date-value">02.11.2026</span>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="tender-card">
+        <a class="tender-card__link" href="/tender-36530" aria-label="Закуп запасных частей и ремкомплектов для клапанов и устройств защиты газотопливных систем (MR-ATGBM-TAS-2026-011)"></a>
+        <div class="tender-card__head">
+            <div class="tender-card__org">
+                <span class="avatar avatar--32 avatar--squircle"><img class="avatar__glyph" src="/templates/tenderweek_2026/img/figma-assets/tender-card-avatar-icon.svg" alt=""></span>
+                <span class="tender-card__org-name">Asia Trans Gas СП ООО</span>
+            </div>
+            <span class="tender-card__number">&#8470;36530</span>
+        </div>
+        <div class="tender-card__body">
+            <div class="tender-card__text">
+                <h3 class="tender-card__title">Закуп запасных частей и ремкомплектов для клапанов и устройств защиты газотопливных систем (MR-ATGBM-TAS-2026-011)</h3>
+                <p class="tender-card__desc">Закуп запасных частей и ремкомплектов для клапанов и устройств защиты газотопливных систем (MR-ATGBM-TAS-2026-011) СП ООО «AsiaTransGas» выражает Вам свое почтение и обращается со следующим. СП ООО «Asia Trans Gas» плани…</p>                                    <div class="tender-card__categories">
+                                                    <span class="tender-card__cat" title="Промышленное и производственное оборудование, запасные части">Промышленное и производственное оборудование, запасные части</span>
+                                            </div>
+                            </div>
+            <div class="tender-card__divider"></div>
+                        <div class="tender-card__dates">
+                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Опубликовано</span>
+                    <span class="tender-card__date-value">22.09.2026</span>
+                </div>
+                                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Истекает</span>
+                    <span class="tender-card__date-value">15.10.2026</span>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="tender-card">
+        <a class="tender-card__link" href="/tender-36512" aria-label="Строительство"></a>
+        <div class="tender-card__head">
+            <div class="tender-card__org">
+                <span class="avatar avatar--32 avatar--squircle"><img class="avatar__glyph" src="/templates/tenderweek_2026/img/figma-assets/tender-card-avatar-icon.svg" alt=""></span>
+                <span class="tender-card__org-name">ABU DABI TARAQQIYOT JAMG‘ARMASI ISHTIROKIDA &quot;SAMARQAND SHAHRIDA SUV TA‘MINOTI TIZIMLARI VA&quot; DM</span>
+            </div>
+            <span class="tender-card__number">&#8470;36512</span>
+        </div>
+        <div class="tender-card__body">
+            <div class="tender-card__text">
+                <h3 class="tender-card__title">Строительство</h3>
+                <p class="tender-card__desc">Приглашение к участию в торгах Дата: 21 сентября 2026 года № МКТ: SAM/ICB-08 Лот 1Страна: Республика УзбекистанСрок подачи тендерных предложений: 29 октября 2026 года до 16:00 (по местному времени)Наименование проекта: М…</p>                                    <div class="tender-card__categories">
+                                                    <span class="tender-card__cat" title="Строительство, архитектура, инжиниринг">Строительство, архитектура, инжиниринг</span>
+                                            </div>
+                            </div>
+            <div class="tender-card__divider"></div>
+                        <div class="tender-card__dates">
+                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Опубликовано</span>
+                    <span class="tender-card__date-value">21.09.2026</span>
+                </div>
+                                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Истекает</span>
+                    <span class="tender-card__date-value">29.10.2026</span>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="tender-card">
+        <a class="tender-card__link" href="/tender-36507" aria-label="Промывочное масло"></a>
+        <div class="tender-card__head">
+            <div class="tender-card__org">
+                <span class="avatar avatar--32 avatar--squircle"><img class="avatar__glyph" src="/templates/tenderweek_2026/img/figma-assets/tender-card-avatar-icon.svg" alt=""></span>
+                <span class="tender-card__org-name">Uz-Kor Gas Chemical СП ООО</span>
+            </div>
+            <span class="tender-card__number">&#8470;36507</span>
+        </div>
+        <div class="tender-card__body">
+            <div class="tender-card__text">
+                <h3 class="tender-card__title">Промывочное масло</h3>
+                <p class="tender-card__desc">ПРИГЛАШЕНИЕ К ТЕНДЕРУ№ T-36/2026 CП ООО «Uz-Kor Gas Chemical», именуемое в дальнейшем Заказчик (также – «СП»), объявляет открытый тендер №T-14/2026 сроком на 30 дней с «21» сентября 2026 г. на поставку промывочного масла…</p>                                    <div class="tender-card__categories">
+                                                    <span class="tender-card__cat" title="Топливо, ГСМ, масла ">Топливо, ГСМ, масла </span>
+                                            </div>
+                            </div>
+            <div class="tender-card__divider"></div>
+                        <div class="tender-card__dates">
+                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Опубликовано</span>
+                    <span class="tender-card__date-value">21.09.2026</span>
+                </div>
+                                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Истекает</span>
+                    <span class="tender-card__date-value">21.10.2026</span>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="tender-card">
+        <a class="tender-card__link" href="/tender-36496" aria-label="Поставка глицерилмоностеарата (GMS)"></a>
+        <div class="tender-card__head">
+            <div class="tender-card__org">
+                <span class="avatar avatar--32 avatar--squircle"><img class="avatar__glyph" src="/templates/tenderweek_2026/img/figma-assets/tender-card-avatar-icon.svg" alt=""></span>
+                <span class="tender-card__org-name">Uz-Kor Gas Chemical СП ООО</span>
+            </div>
+            <span class="tender-card__number">&#8470;36496</span>
+        </div>
+        <div class="tender-card__body">
+            <div class="tender-card__text">
+                <h3 class="tender-card__title">Поставка глицерилмоностеарата (GMS)</h3>
+                <p class="tender-card__desc">ПРИГЛАШЕНИЕ К ТЕНДЕРУ№ T-37/2026 CП ООО «Uz-Kor Gas Chemical», именуемое в дальнейшем Заказчик (также – «СП»), объявляет открытый тендер №T-37/2026 сроком на 30 дней с «16» сентября 2026 г. на поставку глицерилмоностеара…</p>                                    <div class="tender-card__categories">
+                                                    <span class="tender-card__cat" title="Химическая продукция, лабораторное оборудование, резинотехнические изделия">Химическая продукция, лабораторное оборудование, резинотехнические изделия</span>
+                                            </div>
+                            </div>
+            <div class="tender-card__divider"></div>
+                        <div class="tender-card__dates">
+                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Опубликовано</span>
+                    <span class="tender-card__date-value">16.09.2026</span>
+                </div>
+                                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Истекает</span>
+                    <span class="tender-card__date-value">16.10.2026</span>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="tender-card">
+        <a class="tender-card__link" href="/tender-36484" aria-label="Строительство"></a>
+        <div class="tender-card__head">
+            <div class="tender-card__org">
+                <span class="avatar avatar--32 avatar--squircle"><img class="avatar__glyph" src="/templates/tenderweek_2026/img/figma-assets/tender-card-avatar-icon.svg" alt=""></span>
+                <span class="tender-card__org-name"> Группа реализации проекта «Развитие сектора животноводства (2-й этап)» с участием МАР и МБРР</span>
+            </div>
+            <span class="tender-card__number">&#8470;36484</span>
+        </div>
+        <div class="tender-card__body">
+            <div class="tender-card__text">
+                <h3 class="tender-card__title">Строительство</h3>
+                <p class="tender-card__desc">INVITIATION FOR BIDS(PROCUREMENT OF WORKS) SECOND LIVESTOCK SECTOR DEVELOPMENT PROJECTIDA Credit No.: 7295-UZ Contract Title: Construction of the Veterinary Clinic and Vivarium Buildings on the Premises of the Nukus Bran…</p>                                    <div class="tender-card__categories">
+                                                    <span class="tender-card__cat" title="Строительство, архитектура, инжиниринг">Строительство, архитектура, инжиниринг</span>
+                                            </div>
+                            </div>
+            <div class="tender-card__divider"></div>
+                        <div class="tender-card__dates">
+                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Опубликовано</span>
+                    <span class="tender-card__date-value">14.09.2026</span>
+                </div>
+                                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Истекает</span>
+                    <span class="tender-card__date-value">14.10.2026</span>
+                </div>
+            </div>
+        </div>
+    </div>
+        <div class="tender-card">
+        <a class="tender-card__link" href="/tender-36472" aria-label="Услуги по предоставлению питания "></a>
+        <div class="tender-card__head">
+            <div class="tender-card__org">
+                <span class="avatar avatar--32 avatar--squircle"><img class="avatar__glyph" src="/templates/tenderweek_2026/img/figma-assets/tender-card-avatar-icon.svg" alt=""></span>
+                <span class="tender-card__org-name">Surhan Gas Chemical Operating Company ИП ООО</span>
+            </div>
+            <span class="tender-card__number">&#8470;36472</span>
+        </div>
+        <div class="tender-card__body">
+            <div class="tender-card__text">
+                <h3 class="tender-card__title">Услуги по предоставлению питания </h3>
+                <p class="tender-card__desc">НОМЕР КОНКУРСНЫХ ТОРГОВ: SGC/TN-2026/003 НАЗВАНИЕ КОНКУРСНЫХ ТОРГОВ: Оказание услуг по предоставлению питания сотрудникам Оператора на площадке «М25». Настоящим, ИП ООО «Surhan Gas Chemical Operating Company» имеет честь…</p>                                    <div class="tender-card__categories">
+                                                    <span class="tender-card__cat" title="Продукты питания, вода питьевая, общественное питание (кейтеринг)">Продукты питания, вода питьевая, общественное питание (кейтеринг)</span>
+                                            </div>
+                            </div>
+            <div class="tender-card__divider"></div>
+                        <div class="tender-card__dates">
+                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Опубликовано</span>
+                    <span class="tender-card__date-value">11.09.2026</span>
+                </div>
+                                <div class="tender-card__date">
+                    <span class="tender-card__date-caption">Истекает</span>
+                    <span class="tender-card__date-value">12.10.2026</span>
+                </div>
+            </div>
+        </div>
+    </div>
+            </div>
+            <nav class="pagination" aria-label="Пагинация">
+    <div class="pagination__pages">
+                    <a class="pagination__btn pagination__btn--arrow" href="/?page=5" aria-label="Назад"><svg class="icon"><use href="#i-chevron-left"/></svg></a>
+        
+                    <a class="pagination__btn" href="/?page=1">1</a>
+            <span class="pagination__ellipsis">…</span>        
+                                    <a class="pagination__btn" href="/?page=3">3</a>
+                                                <a class="pagination__btn" href="/?page=4">4</a>
+                                                <a class="pagination__btn" href="/?page=5">5</a>
+                                                <span class="pagination__btn pagination__btn--active">6</span>
+                    
+        
+            </div>
+</nav>
+            </div>
+</main>
+<footer class="footer">
+    <div class="footer__inner">
+        <div class="footer__left">
+            <a class="footer__logo" href="/" aria-label="Tenderweek">
+                <img src="/templates/tenderweek_2026/img/figma-assets/footer-logo.svg" alt="Tenderweek" width="148" height="36">
+            </a>
+            <p class="footer__copyright">&copy; 2026 Powered by TENDERWEEK.com — Тендеры в Узбекистане, Закупки в Узбекистане</p>
+        </div>
+        <div class="footer__right">
+            <div class="footer__social">
+                <a class="button button--icon button--md button--brand" rel="nofollow" target="_blank" href="https://www.facebook.com/TENDERWEEK/" aria-label="Facebook"><img src="/templates/tenderweek_2026/img/figma-assets/footer-social-1.svg" alt="" width="20" height="20"></a>
+                <a class="button button--icon button--md button--brand" rel="nofollow" target="_blank" href="https://www.linkedin.com/company/689574/" aria-label="LinkedIn"><img src="/templates/tenderweek_2026/img/figma-assets/footer-social-2.svg" alt="" width="20" height="20"></a>
+                <a class="button button--icon button--md button--brand" rel="nofollow" target="_blank" href="https://twitter.com/tenderweek" aria-label="Twitter"><img src="/templates/tenderweek_2026/img/figma-assets/footer-social-3.svg" alt="" width="20" height="20"></a>
+                <a class="button button--icon button--md button--brand" rel="nofollow" target="_blank" href="https://t.me/tenderweekcom" aria-label="Telegram"><img src="/templates/tenderweek_2026/img/figma-assets/footer-social-4.svg" alt="" width="20" height="20"></a>
+            </div>
+            <nav class="footer__links">
+                <a class="footer__link" href="/about.html">О проекте</a>
+                <a class="footer__link ico-mail" data-feedback-open href="/feedback">Написать нам письмо</a>
+                <a class="footer__link" href="/terms.html">Пользовательское соглашение</a>
+            </nav>
+        </div>
+    </div>
+</footer>
+
+<div class="modal" data-modal="contact" hidden>
+    <div class="modal__window">
+                <form id="feedback-form" action="/feedback" method="post">
+            <input type="hidden" name="sendme" value="1">
+            <div class="modal__head">
+                <div>
+                    <div class="modal__title">Написать нам письмо</div>
+                    <div class="modal__subtitle">Опишите ваш вопрос — мы ответим на e-mail в течение одного рабочего дня</div>
+                </div>
+                <button class="modal__close" type="button" data-modal-close aria-label="Закрыть"><svg class="icon"><use href="#i-xmark"/></svg></button>
+            </div>
+            <div class="modal__body">
+                                    <div class="form-grid">
+                        <div class="field"><div class="field__title">Ваше имя</div><div class="field__box"><input class="field__control" name="name" placeholder="Иван Иванов"></div></div>
+                        <div class="field"><div class="field__title">Ваш e-mail</div><div class="field__box"><input class="field__control" name="email" type="email" placeholder="name@company.com"></div></div>
+                        <div class="field"><div class="field__title">Организация</div><div class="field__box"><input class="field__control" name="company" placeholder="ООО «Компания»"></div></div>
+                        <div class="field"><div class="field__title">Тема</div><div class="field__box"><input class="field__control" name="theme" placeholder="Кратко о цели обращения"></div></div>
+                    </div>
+                                <div class="field field--textarea">
+                    <div class="field__title">Введите текст</div>
+                    <div class="field__box"><textarea class="field__control" name="message" placeholder="Опишите ваш вопрос как можно подробнее…"></textarea></div>
+                </div>
+                <div class="modal__captcha">
+                    <div id="feedback-recaptcha"></div>
+                </div>
+                <div class="feedback-form__error" hidden></div>
+            </div>
+            <div class="modal__footer">
+                <button type="submit" class="button button--lg button--brand">Отправить</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal modal--center" data-modal="contact-success" hidden>
+    <div class="modal__window" style="width:auto">
+        <div class="modal__success">
+            <span class="modal__success-icon"><svg class="icon"><use href="#i-circle-check"/></svg></span>
+            <div class="modal__success-title">Письмо отправлено</div>
+            <p class="modal__success-text">Спасибо за обращение! Мы ответим вам на e-mail в течение одного рабочего дня.</p>
+            <button class="button button--md button--brand" type="button" data-modal-close>Понятно</button>
+        </div>
+    </div>
+</div>
+
+<script src="/templates/tenderweek_2026/js/vendor/jquery-3.7.1.min.js"></script>
+<script src="/templates/tenderweek_2026/js/app.js"></script>
+<script type="text/javascript" src="/templates/tenderweek_2026/js/tw-search.js?v=3"></script>
+<script type="text/javascript" src="/templates/tenderweek_2026/js/tw-feedback.js?v=1"></script>
+<!-- Admin footer code -->
+<!-- Global Site Tag (gtag.js) - Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-202983-13"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments)};
+  gtag('js', new Date());
+
+  gtag('config', 'UA-202983-13');
+</script></body>
+</html>
+
+<!-- Время генирациии 0.2285 сек-->
