@@ -13,6 +13,19 @@ For every known exchange/source, run a sequence of probes:
 Final output: markdown report with per-source verdicts (OK / WARN / FAIL).
 Send to Telegram with --telegram flag.
 
+10.10.2026 — аудит 172 ночи подряд писал «Report sent to Telegram», не отправив
+ничего: токен искался в переменных окружения, которых у cron нет, а строка
+«отправлено» стояла после вызова безусловно. Заодно отчёт, дойди он, был бы
+мусором: список источников жил руками и разошёлся с конфигом (из 23 FAIL
+половина — выведенные ленты Cooperation и старые имена вроде «SQB», «MOBIUZ»,
+которые давно собираются под другими). Теперь:
+  • список строится из sources.yaml (включённые, не Telegram) + ленты скриптов;
+  • объяснённое молчание (source_health.silence_excuse) — не FAIL;
+  • «0 алертов при ключевом слове» — WARN: слабый сигнал, полноту меряют
+    recall_audit и shadow_search;
+  • «отправлено» — только после ответа Telegram 200; иначе ошибка и код 2;
+  • с --only-fail отчёт уходит, лишь когда набор FAIL изменился.
+
 Usage:
     python3 -m crawler.scripts.exchanges_audit               # console only
     python3 -m crawler.scripts.exchanges_audit --telegram    # also send to TG
@@ -29,74 +42,59 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import httpx
+import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from crawler.config.settings import settings  # noqa: E402
+from crawler.core.source_health import (  # noqa: E402
+    EXCUSE_EMPTY_OK, EXCUSE_MIRROR, EXCUSE_RETIRED, EXCUSE_WHITELIST, silence_excuse)
 
 logger = logging.getLogger(__name__)
 
 OK, WARN, FAIL = "OK", "WARN", "FAIL"
 
-# Source registry: display_name → check config. Add new sources here.
-# http_url is optional — used for liveness probe (must be GET-able without auth).
-SOURCES: List[Dict] = [
-    # === Ebirja (E-IMZO authed) ===
-    {"name": "Ebirja Электронный магазин",      "http": "https://xarid-api.ebirja.uz/shop/product/announce-list?currentPage=0&perPage=1&platform_display=e-shop", "auth": "ebirja-jwt"},
-    {"name": "Ebirja Национальный магазин",     "http": "https://xarid-api.ebirja.uz/shop/product/announce-list?currentPage=0&perPage=1&platform_display=national-shop", "auth": "ebirja-jwt"},
-    {"name": "Ebirja Аукционы",                 "http": "https://xarid-api.ebirja.uz/auction/auction/active?page=0&size=1", "auth": "ebirja-jwt"},
-    {"name": "E-Birja товары на продажу",       "http": "https://api.ebirja.uz/fond-api/api/external/product/all?page=0&size=1", "auth": None},
-    {"name": "E-Birja завершённые сделки",      "http": "https://api.ebirja.uz/fond-api/api/external/contract/all?page=0&size=1", "auth": None},
-    # === Hayot Birja ===
-    {"name": "Hayot Birja",                    "http": None, "auth": None},
-    {"name": "Hayotbirja тендеры",             "http": None, "auth": None},
-    {"name": "Hayotbirja отбор",               "http": None, "auth": None},
-    {"name": "Hayotbirja встречные аукционы",  "http": None, "auth": None},
-    # === XT-Xarid ===
-    {"name": "xt-xarid.uz",                    "http": None, "auth": None},
-    {"name": "XT-Xarid тендеры",               "http": None, "auth": None},
-    {"name": "XT-Xarid встречные аукционы",    "http": None, "auth": None},
-    # === Xarid (UZEX госзакупки конкурсы) ===
-    {"name": "Xarid Конкурсы",                 "http": None, "auth": None},
-    {"name": "Xarid Прямые закупки",           "http": None, "auth": None},
-    # === UZEX ===
-    {"name": "ETender UZEX",                   "http": None, "auth": None},
-    {"name": "ETender Обсуждения",             "http": None, "auth": None},
-    {"name": "UZEX Предквалификации",          "http": None, "auth": None},
-    {"name": "UZEX Результаты",                "http": None, "auth": None},
-    # === Cooperation.uz ===
-    {"name": "Cooperation.uz Bosma (узб.)",    "http": None, "auth": None},
-    {"name": "Cooperation.uz Полиграфия",      "http": None, "auth": None},
-    {"name": "Cooperation.uz Печать",          "http": None, "auth": None},
-    {"name": "Cooperation.uz Этикетки",        "http": None, "auth": None},
-    {"name": "Cooperation.uz Пакеты",          "http": None, "auth": None},
-    {"name": "Cooperation.uz Конверты",        "http": None, "auth": None},
-    {"name": "Cooperation.uz Календари",       "http": None, "auth": None},
-    {"name": "Cooperation.uz Брошюры/Буклеты", "http": None, "auth": None},
-    {"name": "Cooperation.uz Стикеры/Наклейки","http": None, "auth": None},
-    {"name": "Cooperation.uz Блокноты/Ежедневники","http": None, "auth": None},
-    {"name": "Cooperation.uz Лоты",            "http": None, "auth": None},
-    # === Прочие основные ===
-    {"name": "Beeline UZ Тендеры",             "http": "https://beeline.uz/", "auth": None},
-    {"name": "Tender.mc.uz (Минстрой)",        "http": None, "auth": None},
-    {"name": "B2Biz.uz (Тендеры)",             "http": None, "auth": None},
-    {"name": "B2Biz.uz (Планы закупок)",       "http": None, "auth": None},
-    {"name": "Ucell (COSCOM)",                 "http": None, "auth": None},
-    {"name": "Узбекистон темир йуллари (ЖД)",  "http": None, "auth": None},
-    {"name": "Минэкономики (тендеры)",         "http": None, "auth": None},
-    {"name": "АГМК (Алмалык ГМК)",             "http": None, "auth": None},
-    {"name": "Tashkent Steel",                 "http": None, "auth": None},
-    {"name": "Узбекистон металлургия комбинати","http": None, "auth": None},
-    {"name": "Уз-Кор Газ Кимё",               "http": None, "auth": None},
-    {"name": "SQB",                            "http": None, "auth": None},
-    {"name": "Ипотека-банк",                  "http": None, "auth": None},
-    {"name": "Хамкорбанк",                    "http": None, "auth": None},
-    {"name": "TrustBank",                      "http": None, "auth": None},
-    {"name": "АнорБанк",                      "http": None, "auth": None},
-    {"name": "MOBIUZ",                         "http": None, "auth": None},
-    {"name": "Uzbekistan Airports",            "http": None, "auth": None},
-    {"name": "Uz-airways",                     "http": None, "auth": None},
-]
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_CONFIG = os.path.join(_REPO, "crawler", "config", "sources.yaml")
+_SENT_STATE = os.path.join(_REPO, "logs", "exchanges_audit_sent.json")
+
+# Ленты, которые пишут скрипты, а не адаптеры краула: в sources.yaml их нет или
+# они там выключены. Без явного списка аудит их бы не видел.
+SCRIPT_FEEDS = (
+    "Cooperation.uz Лоты", "Cooperation.uz Аукционы", "Cooperation.uz Э-магазин лоты",
+    "Cooperation.uz Оферты", "Cooperation.uz Контракты",      # run_proxy_fetch.sh
+    "UZEX Результаты",                                         # results_tracker: итоги ВМК-69
+    "Ebirja Договоры (Э-магазин)", "Ebirja Договоры (Аукцион)",
+    "Ebirja Договоры (Отбор)", "Ebirja Договоры (Тендер)",     # fetch_ebirja_contracts
+)
+
+# Проба живости площадки (информационная, в вердикт не входит).
+_HTTP_PROBES = {
+    "Ebirja Электронный магазин": ("https://xarid-api.ebirja.uz/shop/product/announce-list?currentPage=0&perPage=1&platform_display=e-shop", "ebirja-jwt"),
+    "Ebirja Национальный магазин": ("https://xarid-api.ebirja.uz/shop/product/announce-list?currentPage=0&perPage=1&platform_display=national-shop", "ebirja-jwt"),
+    "Beeline UZ Тендеры": ("https://beeline.uz/", None),
+}
+
+# Молчание, которое не поломка: выведен, зеркало, ноль — норма, разобран вручную.
+_SILENCE_OK = (EXCUSE_RETIRED, EXCUSE_MIRROR, EXCUSE_EMPTY_OK, EXCUSE_WHITELIST)
+
+
+def build_sources(config_path=_CONFIG):
+    # type: (str) -> List[Dict]
+    """Что проверять: включённые не-Telegram источники конфига + ленты скриптов."""
+    with open(config_path, encoding="utf-8") as f:
+        raw = (yaml.safe_load(f) or {}).get("sources") or []
+    names = [s["name"] for s in raw
+             if s.get("enabled", True) and s.get("adapter") != "telegram" and s.get("name")]
+    for feed in SCRIPT_FEEDS:
+        if feed not in names:
+            names.append(feed)
+    out = []
+    for name in names:
+        url, auth = _HTTP_PROBES.get(name, (None, None))
+        out.append({"name": name, "http": url, "auth": auth})
+    return out
+
 
 # Niche keywords for "should-have-alerted" detection.
 NICHE_KEYWORDS = [
@@ -178,15 +176,18 @@ def check_alerts_ratio(client, source: str) -> Dict:
         for kw in NICHE_KEYWORDS:
             rkw = client.table("tenders").select("id", count="exact").eq("source", source).gte("collected_at", since_7d).ilike("title", f"%{kw}%").limit(0).execute()
             if (rkw.count or 0) > 0:
-                return {"status": FAIL, "msg": f"SILENT DEATH: 0 alerts on {total} (has '{kw}' keyword inside)", "alerted": 0, "total": total}
+                return {"status": WARN, "msg": f"0 alerts on {total} (has '{kw}' keyword inside)", "alerted": 0, "total": total}
         return {"status": WARN, "msg": f"0 alerts on {total} (no niche keywords found)", "alerted": 0, "total": total}
     pct = alerted * 100 // total
     return {"status": OK, "msg": f"{alerted}/{total} alerted ({pct}%)", "alerted": alerted, "total": total}
 
 
 def check_dups(client, source: str) -> Dict:
+    # По created_at, а не collected_at: collected_at переписывается при каждом
+    # повторном сборе, и старые алерты месячной давности читались как «дубли за
+    # сутки» (10.10: шесть алертов SQB «Сувенир макети» от мая).
     since_24 = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    rs = client.table("tenders").select("title,organization").eq("source", source).gte("collected_at", since_24).not_.is_("alert_seq", "null").limit(500).execute()
+    rs = client.table("tenders").select("title,organization").eq("source", source).gte("created_at", since_24).not_.is_("alert_seq", "null").limit(500).execute()
     if not rs.data:
         return {"status": "skip", "msg": "no alerts in 24h"}
     counter = Counter()
@@ -203,10 +204,10 @@ def check_dups(client, source: str) -> Dict:
 
 
 def check_stale_deadlines(client, source: str) -> Dict:
-    """Count alerts in last 24h with deadline more than 30 days in the past."""
+    """Count alerts on rows created in last 24h with deadline more than 30 days in the past."""
     since_24 = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-    rs = client.table("tenders").select("deadline,alert_seq").eq("source", source).gte("collected_at", since_24).not_.is_("alert_seq", "null").lt("deadline", cutoff[:10]).limit(50).execute()
+    rs = client.table("tenders").select("deadline,alert_seq").eq("source", source).gte("created_at", since_24).not_.is_("alert_seq", "null").lt("deadline", cutoff[:10]).limit(50).execute()
     n = len(rs.data) if rs.data else 0
     if n == 0:
         return {"status": OK, "msg": "no stale deadlines"}
@@ -230,6 +231,11 @@ def audit_source(client, src_def: Dict) -> Dict:
     result = {"name": name, "auth": auth or "—"}
     result["http"] = check_http(src_def.get("http"))
     result["collection"] = check_collection(client, name)
+    if result["collection"].get("status") == FAIL:
+        excuse = silence_excuse(name)
+        if excuse and excuse.get("category") in _SILENCE_OK:
+            result["collection"] = {"status": "skip", "msg": "молчание объяснено: %s" % excuse.get("reason", ""),
+                                    "count_24h": 0, "count_7d": 0}
     result["fields"] = check_fields(client, name)
     result["alerts"] = check_alerts_ratio(client, name)
     result["dups"] = check_dups(client, name)
@@ -252,11 +258,18 @@ def overall_status(result: Dict) -> str:
     return OK
 
 
-def render_report(results: List[Dict]) -> str:
+def render_report(results: List[Dict], prev_fail: Optional[List[str]] = None) -> str:
     lines = []
     by_status = Counter(overall_status(r) for r in results)
     lines.append(f"📊 *Парсинг-SEO Аудит бирж* ({datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')})")
     lines.append(f"Источников: {len(results)} — OK: {by_status[OK]}, WARN: {by_status[WARN]}, FAIL: {by_status[FAIL]}")
+    if prev_fail is not None:
+        cur = {r["name"] for r in results if overall_status(r) == FAIL}
+        new, fixed = sorted(cur - set(prev_fail)), sorted(set(prev_fail) - cur)
+        if new:
+            lines.append("🆕 Новые FAIL: " + ", ".join(new))
+        if fixed:
+            lines.append("✅ Починились: " + ", ".join(fixed))
     lines.append("")
 
     # Group by status: FAIL first, then WARN, then OK summary
@@ -295,13 +308,30 @@ def render_report(results: List[Dict]) -> str:
     return "\n".join(lines)
 
 
-def send_telegram(text: str):
-    """Send via Telegram bot (TELEGRAM_BOT_TOKEN + TELEGRAM_ALERT_CHAT_ID)."""
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    chat = os.environ.get("TELEGRAM_ALERT_CHAT_ID", "")
+def _tg_post(token, payload):
+    # type: (str, Dict) -> bool
+    try:
+        r = httpx.post("https://api.telegram.org/bot%s/sendMessage" % token, json=payload, timeout=15)
+    except Exception as exc:
+        logger.warning("[Audit] TG send error: %s", type(exc).__name__)
+        return False
+    if r.status_code != 200:
+        logger.warning("[Audit] TG HTTP %d: %s", r.status_code, r.text[:150])
+        return False
+    return True
+
+
+def send_telegram(text: str) -> bool:
+    """Отправить отчёт. True — только если Telegram принял КАЖДЫЙ кусок.
+
+    Токен берём из settings (читает .env сам, как остальные скрипты); переменные
+    окружения — запасной путь. Раньше были только они, а cron их не задаёт.
+    """
+    token = getattr(settings, "telegram_bot_token", "") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat = getattr(settings, "telegram_alert_chat_id", "") or os.environ.get("TELEGRAM_ALERT_CHAT_ID", "")
     if not token or not chat:
-        logger.warning("[Audit] TG token/chat not configured, skipping send")
-        return
+        logger.error("[Audit] TG token/chat not configured — отчёт НЕ отправлен")
+        return False
     # Telegram limit 4096 chars — split if needed
     chunks = []
     cur = ""
@@ -313,21 +343,47 @@ def send_telegram(text: str):
     if cur:
         chunks.append(cur)
     for i, chunk in enumerate(chunks):
-        try:
-            r = httpx.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat, "text": chunk, "parse_mode": "Markdown"},
-                timeout=15,
-            )
-            if r.status_code != 200:
-                # Retry without markdown
-                httpx.post(
-                    f"https://api.telegram.org/bot{token}/sendMessage",
-                    json={"chat_id": chat, "text": chunk},
-                    timeout=15,
-                )
-        except Exception as exc:
-            logger.warning("[Audit] TG send failed (chunk %d): %s", i, str(exc)[:80])
+        ok = _tg_post(token, {"chat_id": chat, "text": chunk, "parse_mode": "Markdown"})
+        if not ok:
+            # Markdown мог сломаться на имени источника — повтор простым текстом.
+            ok = _tg_post(token, {"chat_id": chat, "text": chunk})
+        if not ok:
+            logger.error("[Audit] TG: кусок %d из %d не доставлен", i + 1, len(chunks))
+            return False
+    return True
+
+
+def _load_sent(path=_SENT_STATE):
+    # type: (str) -> Optional[List[str]]
+    """Набор FAIL из последнего ДОСТАВЛЕННОГО отчёта; None — отчётов ещё не было."""
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        fail = data.get("fail")
+        return sorted(str(x) for x in fail) if isinstance(fail, list) else None
+    except (IOError, OSError, ValueError, AttributeError):
+        return None
+
+
+def _save_sent(fail_names, path=_SENT_STATE):
+    # type: (List[str], str) -> None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"fail": sorted(fail_names), "sent_at": datetime.now(timezone.utc).isoformat()},
+                  f, ensure_ascii=False)
+
+
+def should_send(fail_names, prev_fail):
+    # type: (List[str], Optional[List[str]]) -> bool
+    """Для --only-fail: слать, только когда набор FAIL изменился.
+
+    Первый отчёт — если есть FAIL. Дальше — при любом изменении, включая
+    «всё починилось». Тот же список каждую ночь — это шум, а не сигнал.
+    """
+    cur = set(fail_names)
+    if prev_fail is None:
+        return bool(cur)
+    return cur != set(prev_fail)
 
 
 def main():
@@ -338,9 +394,12 @@ def main():
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+    # Без этого каждый запрос к базе — строка INFO в логе: 25 МБ к 10.10.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
     client = _get_supabase()
     results = []
-    for src in SOURCES:
+    for src in build_sources():
         try:
             results.append(audit_source(client, src))
         except Exception as exc:
@@ -351,13 +410,21 @@ def main():
         print(json.dumps(results, ensure_ascii=False, indent=2, default=str))
         return 0
 
-    report = render_report(results)
+    fail_names = sorted(r["name"] for r in results if overall_status(r) == FAIL)
+    has_fail = bool(fail_names)
+    prev_fail = _load_sent() if args.telegram else None
+    report = render_report(results, prev_fail=prev_fail)
     print(report)
 
-    has_fail = any(overall_status(r) == FAIL for r in results)
-    if args.telegram and (has_fail or not args.only_fail):
-        send_telegram(report)
-        logger.info("[Audit] Report sent to Telegram")
+    if args.telegram:
+        if args.only_fail and not should_send(fail_names, prev_fail):
+            logger.info("[Audit] Набор FAIL не изменился (%d) — отчёт не отправляю", len(fail_names))
+        elif send_telegram(report):
+            _save_sent(fail_names)
+            logger.info("[Audit] Report sent to Telegram")
+        else:
+            logger.error("[Audit] Отчёт в Telegram НЕ доставлен")
+            return 2
 
     return 1 if has_fail else 0
 

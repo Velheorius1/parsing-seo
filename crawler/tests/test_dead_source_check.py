@@ -176,20 +176,30 @@ def test_whitelist_is_a_mapping_with_reasons_not_a_bare_set():
 
 
 def test_todays_seven_are_listed_with_a_dated_reason():
-    """Каждая из семи разобранных 11.08 записей обязана нести дату и факт."""
+    """Каждая из разобранных 11.08 записей обязана нести дату и факт.
+
+    Tashkent Steel из этой семёрки снят 10.10 — см. следующий тест.
+    """
     b = _whitelist_block()
     for name in ("OSCE Uzbekistan", "TG: Beeline Tenders", "TG: UNDP UZB Tenders",
-                 "Хамкорбанк", "TenderWeek.com", "Tashkent Steel (ТМЗ)", "Ипотека-банк"):
+                 "Хамкорбанк", "TenderWeek.com", "Ипотека-банк"):
         assert "'%s'" % name in b, name
-    assert b.count("(11.08)") >= 7, "у каждой новой записи должна быть дата"
+    assert b.count("(11.08)") >= 6, "у каждой новой записи должна быть дата"
+
+
+def test_tashkent_steel_is_no_longer_excused():
+    """10.10: источник починен (PR #86), довод «не наш профиль» опровергнут — на
+    портале был сувенирный набор с логотипом. Пока запись висела здесь, его
+    молчание прощалось всеми сторожами четыре месяца."""
+    b = _whitelist_block()
+    assert "    'Tashkent Steel (ТМЗ)':" not in b
 
 
 def test_broken_sources_say_they_are_broken():
-    """Два источника внесены СЛОМАННЫМИ — решение не чинить принято по экономике.
-    Причина обязана говорить это прямо, иначе через полгода прочитается как
-    «источник просто тихий»."""
+    """Источник, внесённый СЛОМАННЫМ по экономике, обязан говорить это прямо,
+    иначе через полгода прочитается как «источник просто тихий»."""
     b = _whitelist_block()
-    assert "СЛОМАН У НАС" in b and "СЛОМАНА СВЯЗЬ" in b, b[:200]
+    assert "СЛОМАНА СВЯЗЬ" in b, b[:200]
 
 
 def test_excused_sources_stay_visible():
