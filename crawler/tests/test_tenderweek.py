@@ -143,3 +143,49 @@ def test_platform_categories_are_kept_but_not_matched_as_words():
     assert geo.categories == ["Промышленное и производственное оборудование, запасные части"]
     assert "Промышленное" not in geo.search_text
     assert all(x.categories for x in items)
+
+
+# ── Полоса «рубрика площадки → AI» ────────────────────────────────────────────
+
+def _lane_prefilter(tenders):
+    from crawler.core.notifier import prefilter
+    return prefilter(tenders, ["логотип", "книга", "типография"], tnved_scope=[],
+                     now=datetime(2026, 10, 10, 6, 0))
+
+
+def test_card_in_our_category_is_marked_for_the_ai_lane():
+    items, _ = _items()
+    by_id = dict((x.external_id, x) for x in items)
+    assert by_id["36638"].extra_info["ai_lane"].startswith("Печатные услуги")
+    assert by_id["36637"].extra_info["ai_lane"].startswith("Печатные услуги")
+    assert "ai_lane" not in by_id["36642"].extra_info  # промышленное оборудование
+    assert sum(1 for x in items if x.extra_info.get("ai_lane")) == 2
+
+
+def test_lane_lot_without_keyword_goes_to_ai_not_dropped():
+    from crawler.core.models import RawTender
+    from crawler.core.notifier import DropStage
+    t = RawTender(id="tenderweek-36628", external_id="36628", source="TenderWeek.com",
+                  title="Информационное сопровождение и продвижение", organization="Фонд",
+                  deadline="Опубликовано 08.10.2026 Истекает 21.10.2026",
+                  extra_info={"ai_lane": "Реклама, маркетинг, исследования"})
+    plain = t.model_copy(update={"extra_info": {}})
+    res = _lane_prefilter([t, plain])
+    assert res.matching == [(t, "рубрика:Реклама, маркетинг, исследования")]
+    assert res.uzex_bypass == []
+    assert res.verdicts[1].dropped_at == DropStage.NO_KEYWORD
+
+
+def test_keyword_wins_over_lane():
+    items, _ = _items()
+    bags = [x for x in items if x.external_id == "36638"][0]
+    res = _lane_prefilter([bags])
+    assert res.matching[0][1] == "логотип"
+
+
+def test_lane_alert_says_why_it_came():
+    from crawler.core.notifier import _format_alert
+    items, _ = _items()
+    t = [x for x in items if x.external_id == "36637"][0]
+    text = _format_alert(t, "рубрика:Реклама, маркетинг, исследования")
+    assert text.splitlines()[-1] == "#рубрика — Реклама, маркетинг, исследования"

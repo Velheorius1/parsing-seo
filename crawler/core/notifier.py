@@ -1194,6 +1194,11 @@ class PrefilterResult:
     counters: Dict[str, int]                    # DropStage.* -> dropped; + passed/bypass
 
 
+# Полоса «рубрика площадки → AI» (10.10): адаптер ставит extra_info["ai_lane"]
+# лоту из рубрики, перечисленной в SourceConfig.ai_lane_categories.
+LANE_KW_PREFIX = "рубрика:"
+
+
 def prefilter(
     new_tenders: List[RawTender],
     keywords: List[str],
@@ -1224,6 +1229,10 @@ def prefilter(
     ключевого слова проходит стадию слов с matched_kw="vip:<сущность>" и идёт в
     AI; мимо AI (UZEX-bypass) такой лот не пускается. None — поведение и логи
     прежние, байт в байт.
+
+    Лот без слова, но с extra_info["ai_lane"] (рубрика площадки из
+    SourceConfig.ai_lane_categories) проходит с matched_kw="рубрика:<рубрика>"
+    и тоже только через AI. Нет таких лотов — логи прежние.
     """
     total_input = len(new_tenders)
     verdicts = [
@@ -1349,6 +1358,7 @@ def prefilter(
     # Stage: keyword match, with ТНВЭД-prefix fallback (language-agnostic recall)
     matched_idx = []
     vip_count = 0
+    lane_count = 0
     for i in alive:
         t = new_tenders[i]
         kw = _find_matching_keyword(t, keywords)
@@ -1362,6 +1372,11 @@ def prefilter(
             if _eid:
                 kw = KW_PREFIX + _eid
                 vip_count += 1
+        if not kw:
+            _lane = str((t.extra_info or {}).get("ai_lane") or "")
+            if _lane:
+                kw = LANE_KW_PREFIX + _lane
+                lane_count += 1
         if kw:
             verdicts[i].matched_kw = kw
             matched_idx.append(i)
@@ -1375,6 +1390,8 @@ def prefilter(
     logger.info("[Alerts] %d tenders match keywords (out of %d new)", len(matched_idx), total_input)
     if vip_count:
         logger.info("[VIP] %d lots of top-100 customers without keyword → AI", vip_count)
+    if lane_count:
+        logger.info("[Lane] %d lots by platform category without keyword → AI", lane_count)
 
     # Stage: fast reject by title
     before_reject = len(matched_idx)
@@ -1394,7 +1411,8 @@ def prefilter(
     for i in kept:
         t = new_tenders[i]
         title_l = (t.title or "").lower()
-        _vip_only = (verdicts[i].matched_kw or "").startswith("vip:")
+        # Лот без нашего слова (⭐ или рубрика) мимо AI не пускаем.
+        _vip_only = (verdicts[i].matched_kw or "").startswith(("vip:", LANE_KW_PREFIX))
         if not _vip_only and t.source in _UZEX_PASSTHROUGH_SOURCES and any(h in title_l for h in _UZEX_NICHE_HINTS):
             verdicts[i].uzex_bypass = True
             bypass_idx.append(i)
@@ -1622,7 +1640,13 @@ def _format_alert(
         parts.extend(submission_lines)
 
     # «vip:c-123» хэштегом не читается (Telegram режет на двоеточии) — пишем по-человечески.
-    parts.append("#топ100" if matched_kw.startswith("vip:") else "#%s" % matched_kw.replace(" ", "_"))
+    if matched_kw.startswith("vip:"):
+        parts.append("#топ100")
+    elif matched_kw.startswith(LANE_KW_PREFIX):
+        # Слова из словаря нет — видно, почему лот здесь: рубрика площадки.
+        parts.append("#рубрика — %s" % _escape_md(matched_kw[len(LANE_KW_PREFIX):]))
+    else:
+        parts.append("#%s" % matched_kw.replace(" ", "_"))
     return "\n".join(parts)
 
 
