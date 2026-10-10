@@ -2770,11 +2770,16 @@ sources:
     rate_limit: 0.5
     timeout: 20
     id_prefix: "tenderweek"
+    # 10.10: молчал с 03.07 — новая вёрстка (шаблон tenderweek_2026): карточки
+    # div.tender-card вместо div.short-item, ссылка — пустой a.tender-card__link
+    # поверх карточки. Срок — весь блок дат: «Опубликовано 09.10.2026 Истекает
+    # 19.10.2026», разборщик берёт дату после «Истекает» (как и в старом формате).
     html_selectors:
-      container: "div.short-item"
-      title: "h3 a"
-      deadline: "div.dates"
-      link: "h3 a@href"
+      container: "div.tender-card"
+      title: "h3.tender-card__title"
+      organization: ".tender-card__org-name"
+      deadline: ".tender-card__dates"
+      link: "a.tender-card__link@href"
     field_map:
       title: title
       organization: ""
