@@ -178,13 +178,14 @@ def test_whitelist_is_a_mapping_with_reasons_not_a_bare_set():
 def test_todays_seven_are_listed_with_a_dated_reason():
     """Каждая из разобранных 11.08 записей обязана нести дату и факт.
 
-    Tashkent Steel и Хамкорбанк из этой семёрки сняты 10.10 — см. тесты ниже.
+    Tashkent Steel, Хамкорбанк и TenderWeek из этой семёрки сняты 10.10 — см.
+    тесты ниже.
     """
     b = _whitelist_block()
     for name in ("OSCE Uzbekistan", "TG: Beeline Tenders", "TG: UNDP UZB Tenders",
-                 "TenderWeek.com", "Ипотека-банк"):
+                 "Ипотека-банк"):
         assert "'%s'" % name in b, name
-    assert b.count("(11.08)") >= 5, "у каждой новой записи должна быть дата"
+    assert b.count("(11.08)") >= 4, "у каждой новой записи должна быть дата"
 
 
 def test_hamkorbank_is_no_longer_excused():
@@ -201,6 +202,17 @@ def test_tashkent_steel_is_no_longer_excused():
     молчание прощалось всеми сторожами четыре месяца."""
     b = _whitelist_block()
     assert "    'Tashkent Steel (ТМЗ)':" not in b
+
+
+def test_sources_fixed_today_are_no_longer_excused():
+    """10.10: UNGM (PR #90), IsDB (PR #93) и TenderWeek (PR #94) молчали не «по
+    природе», а потому что были сломаны: 0 строк за всю историю, id = год,
+    смена вёрстки. Пока записи висели здесь, их молчание прощалось."""
+    from crawler.core import source_health as SH
+    b = _whitelist_block()
+    for name in ("UN Global Marketplace", "Islamic Development Bank (IsDB)", "TenderWeek.com"):
+        assert "    '%s':" % name not in b, name
+        assert SH.silence_excuse(name) is None, name
 
 
 def test_broken_sources_say_they_are_broken():

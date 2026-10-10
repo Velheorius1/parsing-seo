@@ -767,9 +767,11 @@ class TestExcusedSilence:
                            "config", "sources.yaml")
         ids = excused_source_ids(cfg)
         assert len(ids) >= 15, "перевод имён в id перестал находить источники"
-        # hamkorbank снят из реестра 10.10 (источник починен) — пример заменён.
-        assert {"ungm", "osce-uz", "ipoteka-bank"} <= ids
-        assert "hamkorbank" not in ids
+        # hamkorbank, ungm, isdb, tenderweek сняты из реестра 10.10 (источники
+        # починены) — примеры заменены.
+        assert {"osce-uz", "ipoteka-bank"} <= ids
+        for sid in ("hamkorbank", "ungm", "isdb", "tenderweek"):
+            assert sid not in ids, sid
         assert len(DEAD_SOURCES_WHITELIST) >= 30
 
     def test_broken_config_path_is_not_fatal(self):
