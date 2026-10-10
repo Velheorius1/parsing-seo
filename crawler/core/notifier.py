@@ -875,6 +875,13 @@ _FALSE_POSITIVES = {
     "календар": [" кун", "кун ", " дн", " день"],  # "календарных дней/кун" = time, not product
 }
 
+# Ключи, которые НЕ обрезаются стеммером — ищется начало слова целиком.
+# «промо» → стем «пром» ловил «промышленн…», «промежуточн…», «промывочн…»
+# (10.10.2026, 60 дней прода: 169 лотов прошли словарь только через «промо»,
+# 162 из них — такой мусор, 55 дошли до AI зря). Настоящие 7 — промостойки,
+# «промо-стойка», «промо форма», проморолик — начинаются с «промо» и остаются.
+_NO_STEM = frozenset({"промо"})
+
 # Слабые ключи (стемы): высокочастотные омонимы, которые на мультилотовых
 # reverse-аукционах ловят чужую отрасль. Матч ТОЛЬКО по слабому ключу проходит
 # лишь если рядом нет дисквалификатора (_NEGATIVE_STEMS). Сильные ключи
@@ -919,7 +926,7 @@ def _find_matching_keyword(tender: RawTender, keywords: List[str]) -> Optional[s
     text = (tender.search_text + " " + tender.title).lower()
     has_negative = _has_negative_context(text)
     for kw in keywords:
-        stem = _stem(kw) if len(kw) > _MIN_STEM else kw
+        stem = _stem(kw) if len(kw) > _MIN_STEM and kw not in _NO_STEM else kw
 
         if len(stem) < _MIN_STEM:
             # Short keywords: exact match only
