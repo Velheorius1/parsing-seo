@@ -32,13 +32,14 @@ import glob
 import json
 import logging
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -105,6 +106,48 @@ LANE_SLACK_MINUTES = 60
 def lane_stale_after_minutes(every_minutes):
     # type: (Optional[int]) -> int
     return 2 * max(int(every_minutes or 0), LANE_TICK_MINUTES) + LANE_SLACK_MINUTES
+
+
+# Ошибки полного прогона, которые известны и ждут внешнего события (10.10).
+# Без этого один вечный сбой держит freshness.full_api красным круглосуточно,
+# а новая поломка другого источника тонет в том же алерте: подпись дедупа —
+# имя проверки, не источник. До даты `until` известная ошибка — WARN со
+# списком, после — снова FAIL: запись не может молча жить вечно.
+# Ключ — id источника в sources.yaml, значение — (until YYYY-MM-DD, причина).
+KNOWN_CRAWL_ERRORS = {
+    "tashkent-steel": (
+        "2026-10-17",
+        "сертификат tashkentsteel.uz истёк 09.10, ждём продления; "
+        "лот №481-2026 (до 14.10) подаётся вручную"),
+    "ipoteka-bank": (
+        "2026-11-10",
+        "сайт не пускает IP дата-центра: с VPS таймаут, с Мака 301 → 200. "
+        "11.08 решено не чинить (20 строк и 0 алертов за историю); "
+        "лечится резидентным прокси"),
+}
+_ERROR_SOURCE_RE = re.compile(r"^\[([^\]]+)\]")
+
+
+def split_crawl_errors(messages, errors_count, today, known=None):
+    # type: (List[Any], int, str, Optional[Dict[str, Tuple[str, str]]]) -> Tuple[List[str], List[str], List[str]]
+    """id источников из ошибок прогона: (известные, неизвестные, с истёкшей записью).
+
+    Неразобранное сообщение и ошибки сверх списка сообщений — неизвестные.
+    """
+    table = KNOWN_CRAWL_ERRORS if known is None else known
+    known_ids, unknown, expired = [], [], []  # type: List[str], List[str], List[str]
+    for msg in messages:
+        m = _ERROR_SOURCE_RE.match(str(msg))
+        sid = m.group(1) if m else None
+        entry = table.get(sid) if sid else None
+        if entry and today <= entry[0]:
+            known_ids.append(sid)
+            continue
+        if entry:
+            expired.append(sid)
+        unknown.append(sid or str(msg)[:40])
+    unknown.extend("?" for _ in range(max(0, errors_count - len(messages))))
+    return known_ids, unknown, expired
 # Supabase FAIL collapses the alert body; these components are treated as
 # UNKNOWN (not FAIL) in the rendered body so the alert signature stays stable.
 SUPABASE_DEPENDENT_COMPONENTS = (
@@ -357,8 +400,8 @@ class HealthCheck:
         except Exception as exc:
             self._add("freshness", FAIL, "Could not check freshness: %s" % str(exc)[:80])
 
-    def _check_full_api_freshness(self, runs):
-        # type: (List[Dict[str, Any]]) -> None
+    def _check_full_api_freshness(self, runs, today=None):
+        # type: (List[Dict[str, Any]], Optional[str]) -> None
         """Check the actual all-non-Telegram profile, not any recent subset."""
         config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "sources.yaml")
         try:
@@ -392,13 +435,25 @@ class HealthCheck:
                       "Could not parse full API crawl time: %s" % started[:30])
             return
         errors = int(latest.get("errors_count") or 0)
-        if errors:
+        day = today or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        known_ids, unknown, expired = split_crawl_errors(
+            latest.get("error_messages") or [], errors, day)
+        known_note = ""
+        if known_ids:
+            known_note = "; известные: %s" % ", ".join(
+                "%s (до %s)" % (sid, KNOWN_CRAWL_ERRORS[sid][0]) for sid in known_ids)
+        if unknown:
+            expired_note = ""
+            if expired:
+                expired_note = "; истёк срок записи KNOWN_CRAWL_ERRORS: %s" % ", ".join(expired)
             self._add("freshness.full_api", FAIL,
-                      "Latest full API crawl %.1fh ago ended with %d error(s)" % (age_hours, errors))
+                      "Latest full API crawl %.1fh ago ended with %d error(s): %s%s%s" % (
+                          age_hours, errors, ", ".join(unknown), expired_note, known_note))
         elif age_hours < 4:
-            self._add("freshness.full_api", OK,
-                      "Full API crawl %.1fh ago (%d fetched, %d new)" % (
-                          age_hours, latest.get("total_fetched", 0), latest.get("total_new", 0)))
+            self._add("freshness.full_api", WARN if known_ids else OK,
+                      "Full API crawl %.1fh ago (%d fetched, %d new)%s" % (
+                          age_hours, latest.get("total_fetched", 0), latest.get("total_new", 0),
+                          known_note))
         elif age_hours < 8:
             self._add("freshness.full_api", WARN,
                       "Full API crawl %.1fh ago (may be stale)" % age_hours)
