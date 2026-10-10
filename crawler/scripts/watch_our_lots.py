@@ -25,6 +25,19 @@ upgrade once Daniyar's xt-xarid session is wired in.
 
 Usage: python3 -m crawler.scripts.watch_our_lots [--dry-run]
 Cron:  */2 * * * *
+
+10.10.2026 — сторож перестал выжигать лимит площадки. С 07.10 с нашего IP
+площадка пускает один запрос в минуту на оба домена, а сторож один делал два
+запроса каждые 2 минуты — весь лимит, при том что наших позиций в э-магазине
+нет (состояние {"ads": {}}). Теперь:
+  • каждый запрос идёт через общую очередь `host_budget` (одна на все процессы);
+  • частота по ситуации: позиций нет — проверка раз в 30 мин, позиции есть —
+    раз в 10 мин, идёт аукцион по нашему товару — каждый тик cron;
+  • аукционы ищутся, только когда есть что сопоставлять, и с limit=100: прежний
+    limit=200 площадка отвергала с HTTP 400 на каждом тике, то есть поиск
+    аукционов по нашему товару не работал ни разу;
+  • сбой запроса = «не знаю», а не «пусто»: раньше пустой ответ превращался в
+    «наша позиция ИСЧЕЗЛА» и «аукцион завершён».
 """
 
 import argparse
@@ -38,6 +51,7 @@ from datetime import datetime, timezone
 import httpx
 
 from crawler.config.settings import settings
+from crawler.core import host_budget
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("watch_our_lots")
@@ -47,6 +61,14 @@ OUR_VENDOR = "WINCH GROUP XK"
 STATE_KEY = "our_lots_watch_v1"
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HISTORY = os.path.join(REPO_ROOT, "logs", "our_lots_history.jsonl")
+
+# Частота проверок, секунды (см. docstring, 10.10.2026).
+_EVERY_NO_ADS_S = 30 * 60
+_EVERY_ADS_S = 10 * 60
+# Сколько тик готов ждать слота в общей очереди: cron */2, следующий тик всё равно придёт.
+_SLOT_WAIT_S = 90.0
+# Максимум строк за запрос у ref_*_public; больше — HTTP 400 bad_params.
+_PAGE_LIMIT = 100
 
 # Words too generic to identify OUR product on their own (avoid false «наш товар»
 # alarms on someone else's unrelated notebook auction word-collisions).
@@ -59,9 +81,40 @@ def _words(s):
 
 
 async def _rpc(client, method, params, path="/rpc"):
-    r = await client.post(XT + path, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-    j = r.json()
-    return j.get("result")
+    """Один запрос через общую очередь. (ok, result): ok=False — ответа нет, а не «пусто»."""
+    backend = host_budget.XT_BACKEND
+    if not await host_budget.acquire(backend, max_wait=_SLOT_WAIT_S):
+        logger.info("[OurLots] очередь к площадке длиннее %d с — пропускаю тик", _SLOT_WAIT_S)
+        return False, None
+    try:
+        r = await client.post(XT + path, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+    except httpx.HTTPError as exc:
+        logger.warning("[OurLots] %s: %s", params.get("ref"), type(exc).__name__)
+        return False, None
+    if r.status_code == 429:
+        host_budget.penalize(backend)
+    if r.status_code != 200:
+        logger.warning("[OurLots] %s: HTTP %d", params.get("ref"), r.status_code)
+        return False, None
+    try:
+        j = r.json()
+    except ValueError:
+        logger.warning("[OurLots] %s: ответ не JSON", params.get("ref"))
+        return False, None
+    if not isinstance(j, dict) or j.get("error"):
+        logger.warning("[OurLots] %s: RPC error %s", params.get("ref"), str((j or {}).get("error"))[:120])
+        return False, None
+    result = j.get("result")
+    return True, (result if isinstance(result, list) else [])
+
+
+def next_check_after(now_ts, has_ads, has_live_auction):
+    """Когда проверять снова (epoch-секунды)."""
+    if has_live_auction:
+        return now_ts  # аукцион идёт — каждый тик cron
+    if has_ads:
+        return now_ts + _EVERY_ADS_S
+    return now_ts + _EVERY_NO_ADS_S
 
 
 def _fmt_price(p):
@@ -107,16 +160,29 @@ async def tick(dry_run=False):
     state = session_store.get_setting(STATE_KEY)
     if not isinstance(state, dict):
         state = {"ads": {}, "auctions": {}}
+    now = datetime.now(timezone.utc)
+    now_ts = now.timestamp()
+    try:
+        due_at = float(state.get("next_check_at") or 0)
+    except (TypeError, ValueError):
+        due_at = 0.0
+    if not dry_run and now_ts < due_at:
+        return 0
     ads_state = state.setdefault("ads", {})
     auc_state = state.setdefault("auctions", {})
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = now.isoformat()
     alerts = []
+    live_matched = set()
 
     async with httpx.AsyncClient(timeout=20) as client:
         # ── 1. Our ads (auto-discovery, server-side vendor filter) ──
-        ads = await _rpc(client, "ref", {"ref": "ref_online_shop_public", "op": "read",
-                                         "limit": 100, "offset": 0,
-                                         "filters": {"vendor": OUR_VENDOR}}) or []
+        ok, ads = await _rpc(client, "ref", {"ref": "ref_online_shop_public", "op": "read",
+                                             "limit": _PAGE_LIMIT, "offset": 0,
+                                             "filters": {"vendor": OUR_VENDOR}})
+        if not ok:
+            # Ответа нет — не значит «позиций нет». Состояние не трогаем,
+            # следующий тик cron попробует снова.
+            return 0
         our_products = []  # (ad_id, name, our_price, word-set)
         seen_ids = set()
         is_seed = not ads_state  # first-ever run: baseline silently, no announces
@@ -142,10 +208,12 @@ async def tick(dry_run=False):
                 del ads_state[aid]
 
         # ── 2. Live reductions matching OUR products ──
-        reds = await _rpc(client, "ref", {"ref": "ref_reduction_object_public", "op": "read",
-                                          "limit": 200, "offset": 0}) or []
-        live_matched = set()
-        for r in reds:
+        # Нечего сопоставлять — не тратим запрос из минутного лимита площадки.
+        reds_ok, reds = True, []
+        if our_products or auc_state:
+            reds_ok, reds = await _rpc(client, "ref", {"ref": "ref_reduction_object_public", "op": "read",
+                                                       "limit": _PAGE_LIMIT, "offset": 0})
+        for r in (reds or []):
             rid = str(r.get("id"))
             goods = r.get("good_list") or []
             gm = (r.get("meta") or {}).get("good_maps") or []
@@ -189,13 +257,16 @@ async def tick(dry_run=False):
                               "part": part, "seen": now_iso}
 
         # ── 3. Watched auctions that disappeared = closed ──
-        for rid in list(auc_state):
+        # Только если список аукционов действительно получен: при сбое запроса
+        # «нет в ответе» не значит «закрылся».
+        for rid in (list(auc_state) if reds_ok else []):
             if rid not in live_matched:
                 a = auc_state.pop(rid)
                 alerts.append("🏁 Аукцион по нашему товару *%s* завершён. Финальная цена: %s сум "
                               "(итог смотри в кабинете)\nhttps://xt-xarid.uz/procedure/%s/core"
                               % (a.get("product", "?"), _fmt_price(a.get("price")), rid))
 
+    state["next_check_at"] = next_check_after(now_ts, bool(ads_state), bool(live_matched) or not reds_ok)
     if dry_run:
         print("ads=%d matched_live_auctions=%d alerts=%d" % (len(ads_state), len(live_matched), len(alerts)))
         for m in alerts:

@@ -34,7 +34,8 @@ if [ "${1:-}" = "--no-telegram" ]; then
 import yaml, sys
 with open('$DIR/crawler/config/sources.yaml') as f:
     cfg = yaml.safe_load(f)
-ids = [s['id'] for s in cfg['sources'] if s.get('enabled', True) and s.get('adapter') != 'telegram']
+# Источники с lane идут своим cron (crawler.main --lane), см. crawler/core/lanes.py
+ids = [s['id'] for s in cfg['sources'] if s.get('enabled', True) and s.get('adapter') != 'telegram' and not s.get('lane')]
 print(' '.join(ids))
 ")"
 elif [ "${1:-}" = "--only-telegram" ]; then

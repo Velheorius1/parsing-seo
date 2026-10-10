@@ -170,6 +170,13 @@ class SourceConfig(BaseModel):
     # external_id matches into a single row. First source in collection order
     # wins (put the preferred source first in sources.yaml).
     dedup_group: Optional[str] = None
+    # Отдельная очередь прогона (10.10.2026). Источник с `lane` не идёт в основной
+    # краул (scripts/run_crawl.sh его пропускает) — его запускает свой cron через
+    # `crawler.main --lane <имя>`. Так источники бэкенда с лимитом «раз в минуту»
+    # не задерживают алерты остальных площадок на десятки минут.
+    lane: Optional[str] = None
+    # Не чаще, чем раз в столько минут (внутри очереди). None — каждый прогон.
+    every_minutes: Optional[int] = None
     # productName loop — when set, adapter iterates over values, injects each as the
     # given query param, and dedups results by external_id. Replaces the pattern of
     # 10+ near-identical YAML blocks differing only by params.productName.
