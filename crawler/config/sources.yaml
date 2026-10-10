@@ -1594,8 +1594,18 @@ sources:
     telegram_limit: 100
     rate_limit: 1.0
 
-  # ── Крупные компании (disabled — нужна верификация) ──────────────
+  # ── Крупные компании ──────────────────────────────────────────────
 
+  # ООО «Toshkent Metallurgiya Zavodi» (ИНН 304574612) — это его знак «ТМЗ» и его
+  # тендеры; tmz.uz — другая компания (механический завод). На госплощадках у
+  # него 0 сделок, всё идёт через свой портал: с 05.06.2026 вышло 62 лота, 2-3 в
+  # неделю, был наш профиль (сувенирный набор с логотипом, этикетки, баннеры).
+  #
+  # 10.10.2026: селекторы переписаны под текущую вёрстку. Прежние искали
+  # `h2.elementor-heading-title`, а сайт с июня на своей вёрстке без Elementor:
+  # карточки находились, заголовок нет — и все карточки молча отбрасывались.
+  # За всё время источник собрал одну строку (28.02). Срок берём из
+  # `data-deadline` счётчика: ISO с поясом +05:00, точное время.
   - id: tashkent-steel
     name: "Tashkent Steel (ТМЗ)"
     adapter: html
@@ -1610,14 +1620,16 @@ sources:
     timeout: 20
     id_prefix: "tmz"
     html_selectors:
-      container: "a[href*='/lot/']"
-      title: "h2.elementor-heading-title:nth-match(4)"
-      deadline: "h2.elementor-heading-title:nth-match(8)"
+      container: "a.card[href*='/lot/']"
+      title: ".lot-name"
+      deadline: ".flipclock@data-deadline"
       link: "@href"
+      external_id_regex: "/lot/(\\d+)"
     field_map:
       title: title
       organization: "Tashkent Steel (ТМЗ)"
       deadline: deadline
+      currency: "UZS"
       source_url_template: "{link}"
     keywords_fields: [title]
 
