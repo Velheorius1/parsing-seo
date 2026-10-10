@@ -1,5 +1,6 @@
 """SPA adapter — uses Playwright to scrape JavaScript-rendered pages."""
 
+import asyncio
 import logging
 from typing import List, Optional
 
@@ -8,6 +9,19 @@ from crawler.config.settings import settings
 from crawler.core.models import RawTender, SourceConfig
 
 logger = logging.getLogger(__name__)
+
+# Chromium обрывает переход с net::ERR_NETWORK_CHANGED, когда на хосте
+# появляется или исчезает сетевой интерфейс. На VPS это каждые 5 минут:
+# `run_erp_telegram.sh --process-sources` поднимает контейнер winch-bot через
+# `docker compose run --rm`, он живёт ~4 с, и его veth рождается и умирает в
+# :00:01-:00:05 — ровно когда основной прогон открывает первую SPA-страницу
+# (10.10: ebirja-announcements в 06:00 и 08:00 подряд, 8 раз с 25.09; по
+# секундам совпало с journalctl). Ошибка про хост, а не про площадку, поэтому
+# загрузка страницы повторяется после паузы (см. _open); любая другая ошибка —
+# сразу наверх.
+_NETWORK_CHANGED = "ERR_NETWORK_CHANGED"
+_GOTO_ATTEMPTS = 3
+_GOTO_RETRY_PAUSE_S = 5.0
 
 
 class SpaAdapter(BaseAdapter):
@@ -50,16 +64,8 @@ class SpaAdapter(BaseAdapter):
             page = None
             try:
                 page = await browser.new_page()
-                await page.goto(
-                    self.config.url,
-                    wait_until="domcontentloaded",
-                    timeout=timeout_ms,
-                )
-
-                # Wait for the SPA to render the target content
-                await page.wait_for_selector(
-                    self.config.wait_selector, timeout=timeout_ms
-                )
+                # Переход и ожидание рендера SPA — с повтором на смену сети.
+                await self._open(page, timeout_ms)
                 # Small delay for remaining DOM elements to stabilize
                 await page.wait_for_timeout(1000)
 
@@ -78,6 +84,50 @@ class SpaAdapter(BaseAdapter):
                 await browser.close()
 
         return tenders
+
+    async def _open(self, page, timeout_ms):  # type: ignore[no-untyped-def]
+        """goto + wait_for_selector с повтором на смену сети (см. _NETWORK_CHANGED).
+
+        Смена сети бьёт по-разному: во время перехода — сам goto падает с
+        ERR_NETWORK_CHANGED; после него — рвётся XHR, которым SPA тянет данные,
+        таблица не рисуется, и ждём рендер до таймаута (A/B на проде 10.10:
+        старт на :02 — оба адаптера упали на wait_for_selector, на :03 — на
+        goto). Второй случай узнаём по `requestfailed` с тем же кодом в этой
+        попытке; таймаут без такой улики — проблема площадки, не повторяем.
+        """
+        changed = []  # type: List[str]
+
+        def on_failed(request):  # type: ignore[no-untyped-def]
+            if _NETWORK_CHANGED in (request.failure or ""):
+                changed.append(request.url)
+
+        page.on("requestfailed", on_failed)
+        try:
+            for attempt in range(1, _GOTO_ATTEMPTS + 1):
+                del changed[:]
+                try:
+                    await page.goto(
+                        self.config.url,
+                        wait_until="domcontentloaded",
+                        timeout=timeout_ms,
+                    )
+                    await page.wait_for_selector(
+                        self.config.wait_selector, timeout=timeout_ms
+                    )
+                    return
+                except Exception as exc:
+                    hit = _NETWORK_CHANGED in str(exc) or bool(changed)
+                    if not hit or attempt == _GOTO_ATTEMPTS:
+                        raise
+                    logger.warning(
+                        "[%s] %s — смена сети на хосте (%s), повтор %d/%d через %.0f с",
+                        self.config.name, _NETWORK_CHANGED,
+                        "goto" if _NETWORK_CHANGED in str(exc) else "запрос страницы",
+                        attempt, _GOTO_ATTEMPTS - 1, _GOTO_RETRY_PAUSE_S,
+                    )
+                    await asyncio.sleep(_GOTO_RETRY_PAUSE_S)
+        finally:
+            page.remove_listener("requestfailed", on_failed)
 
     async def _extract_page(self, page) -> List[RawTender]:  # type: ignore[no-untyped-def]
         """Extract tender items from the current page DOM."""
