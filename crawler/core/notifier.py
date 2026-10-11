@@ -873,7 +873,21 @@ def _word_start_match(text: str, stem: str) -> int:
 # False positive patterns: if stem is followed by these strings, skip the match
 _FALSE_POSITIVES = {
     "календар": [" кун", "кун ", " дн", " день"],  # "календарных дней/кун" = time, not product
+    # «chop» (печать) ≠ «cho‘pon»: чабан, махалля «Cho‘ponota», халат «chopon».
+    # Без апострофа (_UZ_APOSTROPHE) «Cho‘ponota» стала бы «choponota».
+    "chop": ["on"],
 }
+
+# Узбекская латиница пишет o‘/g‘ и твёрдый знак апострофом, в лотах — в пяти
+# написаниях (' ‘ ’ ʻ ʼ, бывает `). Апостроф резал слово: «sovga» не находило
+# «sovg‘alar» (11.10.2026). За год так ушло мимо словаря 23 покупки нашего
+# профиля на 2,8 млрд, за 29.09–09.10 — 5 открытых лотов на ~700 млн
+# (Минобороны «Qimmatbaho sovg‘alar» ×3, UzAuto «Sovg‘ali to‘plamlar»,
+# ТВО «Sovg'a 5»). Апостроф внутри слова снимается и в тексте, и в ключе.
+# 60 дней прода: +51 лот вне э-магазинов (≈6/нед до AI), из них ~7 подарков,
+# остальное — «Hojatxona qog‘ozi» и посты TG, их режет AI; ни один прежний
+# матч не потерян.
+_UZ_APOSTROPHE = re.compile("(?<=\\w)['\u2018\u2019\u02bb\u02bc`](?=\\w)")
 
 # Ключи, которые НЕ обрезаются стеммером — ищется начало слова целиком.
 # «промо» → стем «пром» ловил «промышленн…», «промежуточн…», «промывочн…»
@@ -923,14 +937,15 @@ def _find_matching_keyword(tender: RawTender, keywords: List[str]) -> Optional[s
     "Лента светоотражающая, … электрод сварочный" matching on «лента». Strong
     keywords are never gated, so real print/packaging tenders still pass.
     """
-    text = (tender.search_text + " " + tender.title).lower()
+    text = _UZ_APOSTROPHE.sub("", (tender.search_text + " " + tender.title).lower())
     has_negative = _has_negative_context(text)
     for kw in keywords:
-        stem = _stem(kw) if len(kw) > _MIN_STEM and kw not in _NO_STEM else kw
+        key = _UZ_APOSTROPHE.sub("", kw)
+        stem = _stem(key) if len(key) > _MIN_STEM and kw not in _NO_STEM else key
 
         if len(stem) < _MIN_STEM:
             # Short keywords: exact match only
-            if _word_start_match(text, kw) < 0:
+            if _word_start_match(text, key) < 0:
                 continue
         else:
             idx = _word_start_match(text, stem)
