@@ -104,6 +104,16 @@ class Settings(BaseSettings):
         # световые вывески: оставлен AI-гейту. «сумк» и голое «нанесени» НЕ взяты:
         # на тех же 60 днях почти сплошь «сумка для ноутбука», «нанесение плёнки».
         "логотип", "logotip",
+        # Узбекская латиница (11.10, одобрено Данияром). Кириллическое «полиграф»
+        # латиницу не ловит: Узбектелеком «Poligrafiya mahsulotalrini ishlab
+        # chiqarish» 690 млн умер на словах. Бэктест propose_fixes --days 60:
+        #   poligraf — этот пропуск + 7 новых лотов за 60 дней, AI взял бы 5 (≈0,6/нед);
+        #   matbaa — Шуртан «Bezak ishlari va matbaa xizmatlari» 794 млн, шума 0;
+        #   bezak — тот же Шуртан + 9 новых лотов, AI взял бы 3 (≈0,4/нед); остальное
+        #     — «fasad uchun bezak», «tabiiy toshdan bezak» (стройка), режет AI.
+        # Кириллические «матбаа»/«безак» НЕ взяты: за 90 дней 7 строк вне э-магазинов,
+        # почти все — «тунги безак чироқлари» (подсветка улиц).
+        "poligraf", "matbaa", "bezak",
         # English
         "packaging", "printing", "cardboard", "label", "sticker",
         "souvenir", "promotional", "gift", "badge",
