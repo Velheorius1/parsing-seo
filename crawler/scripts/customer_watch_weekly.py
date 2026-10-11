@@ -160,6 +160,13 @@ def render_text(ctx):
     lines.append('Без объявления (прямые договоры, э-магазин): %d %s — словом не ловится.' % (b, purchases(b)))
     lines.append('Окно: покупки нашего профиля от 20 млн с %s; выиграли сами — %d.' % (
         _d(s.get('since')), types.get('WON') or 0))
+    cov = ctx.get('coverage')
+    if cov and cov.get('total'):
+        # Метрика обучения: учится ли словарь языку заказчиков (не зависит от того,
+        # был ли лот у нас в базе — смотрит предмет договора).
+        lines.append('Словарь видит %d из %d покупок нашего профиля за год (%s), по деньгам %s%s.' % (
+            cov['covered'], cov['total'], pct(cov.get('share')), pct(cov.get('share_uzs')),
+            delta(cov.get('share'), (ctx.get('coverage_prev') or {}).get('share'))))
     lines.append('')
     fresh = ctx['new_misses']
     if fresh:
@@ -358,6 +365,7 @@ def run(args):
     since = str(CM.coverage(client)['deals'] or (today - timedelta(days=365)))
     summary, rows, per_customer = CM.run(client, registry, since, today, not args.no_ai, args.ai_calls, args.dry_run)
     hit, current = PF._matcher()
+    coverage = PF.dictionary_coverage(PF.year_purchases(client, today), hit, current)[0]
     proposals = {'new_or_unsent': 0, 'waiting_commit': [], 'fresh': []}  # type: Dict[str, Any]
     if not args.no_ai:
         proposals = PF.run(client, hit, current, dry_run=args.dry_run, send_tg=False)
@@ -374,13 +382,15 @@ def run(args):
         'feeds': feed_health(feed_counts(client, today)),
         'feeds_to': (today - timedelta(days=FEED_LAG_DAYS + 1)).isoformat(), 'unjudged': unjudged(client),
         'bitrix_line': RK.bitrix_line(RK.load_bitrix(), today), 'rebuilt': rebuilt,
+        'coverage': coverage, 'coverage_prev': state.get('coverage'),
     }
     text = render_text(ctx)
     page = render_html(registry, rows, per_customer, ctx)
     path = PRIVATE_DIR / ('customer_watch_%s.html' % today.isoformat())
     if args.dry_run:
         print(text)
-        print(json.dumps({'html_bytes': len(page), 'alerts': len(alerts), 'stars': ctx['stars']}, ensure_ascii=False))
+        print(json.dumps({'html_bytes': len(page), 'alerts': len(alerts), 'stars': ctx['stars'],
+                          'coverage': coverage}, ensure_ascii=False))
         return 0
     path.write_text(page, encoding='utf-8')
     ok = True
@@ -389,8 +399,8 @@ def run(args):
         if proposals.get('fresh'):
             PF.send(client, proposals['fresh'])
     STATE_PATH.write_text(json.dumps({'last_run': today.isoformat(), 'last_seq': max(
-        [int(a['alert_seq']) for a in alerts] + [int(state.get('last_seq') or 0)]), 'sent': ok},
-        ensure_ascii=False), encoding='utf-8')
+        [int(a['alert_seq']) for a in alerts] + [int(state.get('last_seq') or 0)]), 'sent': ok,
+        'coverage': coverage}, ensure_ascii=False), encoding='utf-8')
     print(json.dumps({'sent': ok, 'html': str(path), 'chars': len(text), 'stars': ctx['stars'],
                       'new_misses': len(ctx['new_misses'])}, ensure_ascii=False))
     return 0 if ok else 1
