@@ -18,11 +18,15 @@
   A_late              — алерт пришёл после срока подачи;
   B_no_announcement   — прямой договор UZEX или э-магазин ebirja: объявления
                         нет, выиграть можно только своим каталогом на площадке;
-  C_uncrawled_platform — объявлений площадки у нас нет или они не сшиваются
-                        с договором (тендеры, отборы и аукционы ebirja);
+  C_uncrawled_platform — объявлений площадки у нас нет;
   PRE_COVERAGE        — закупка раньше, чем мы начали собирать эти лоты: не
                         пропуск, в полноту не входит.
 D (собственные сайты заказчиков) из журнала не видно: нужен внешний сигнал.
+
+Отборы, тендеры и аукционы ebirja (11.10.2026) сшиваются с нашим лотом по номеру
+процедуры (procedure_id договора): у отборов это external_id лота, у аукционов —
+«Номер лота» в extra_info. Номер у лота аукциона пишется с 11.10, поэтому
+договор раньше этого — «до нашего сбора», а не «площадку не собираем».
 
 Пишет miss_type / root_stage / analysed_at в purchase_ledger, сводку полноты
 по заказчикам — в data/private/customer_miss_<дата>.json и строку истории в
@@ -54,9 +58,18 @@ EXCLUDED = ('PRE_COVERAGE',)
 # Лот объявляют за 2–4 недели до договора. Договор в первые 3 недели после
 # начала нашего сбора без нашей строки лота — лот, скорее всего, вышел раньше.
 ANNOUNCE_LEAD_DAYS = 21
+# Лоты ebirja, сшиваемые с договором по номеру процедуры (procedure_id).
+EBIRJA_SELECTION_SOURCE = 'Ebirja Отборы и тендеры'
+EBIRJA_AUCTION_SOURCE = 'E-Birja активные аукционы (xarid)'
+EBIRJA_LOT_FEEDS = {'ebirja_selection': EBIRJA_SELECTION_SOURCE, 'ebirja_tender': EBIRJA_SELECTION_SOURCE,
+                    'ebirja_auction': EBIRJA_AUCTION_SOURCE}
+LOT_NUMBER_KEY = 'Номер лота'
+# С этого дня у лота аукциона ebirja пишется номер процедуры (#106): раньше
+# аукционы собирались, но сшить их с договором было не по чему.
+EBIRJA_AUCTION_LINK_SINCE = date(2026, 10, 11)
 AI_CAP = 80
 _COLS = ('feed,business_id,buyer_inn,buyer_name,winner_inn,winner_name,subject,amount_uzs,awarded_on,'
-         'status,profile,lot_key,source_url,miss_type,root_stage')
+         'status,profile,lot_key,source_url,miss_type,root_stage,procedure_id')
 
 
 def classify(purchase, lot_rows, labels, coverage, after_deadline):
@@ -69,16 +82,16 @@ def classify(purchase, lot_rows, labels, coverage, after_deadline):
         return 'B_no_announcement', 'прямой договор UZEX'
     if feed == 'ebirja_shop':
         return 'B_no_announcement', 'э-магазин ebirja'
-    if feed.startswith('ebirja_'):
-        return 'C_uncrawled_platform', '%s ebirja: объявления не сшиваются с договором' % feed[7:]
-    if feed not in ('deals', 'civil'):
+    if feed not in ('deals', 'civil') and feed not in EBIRJA_LOT_FEEDS:
         return 'C_uncrawled_platform', feed
     status, first = CW.alert_status(lot_rows, labels)
     if status == CW.STATUS_NOT_COLLECTED:
         start = coverage.get(feed)
         awarded = date.fromisoformat(str(purchase['awarded_on'])[:10])
         if start is None or awarded < start + timedelta(days=ANNOUNCE_LEAD_DAYS):
-            return 'PRE_COVERAGE', 'лоты %s собираем с %s' % (feed, start)
+            # Аукционы ebirja собирали и раньше, но без номера процедуры — сшить было не по чему.
+            verb = 'сшиваем с договором' if feed == 'ebirja_auction' else 'собираем'
+            return 'PRE_COVERAGE', 'лоты %s %s с %s' % (feed, verb, start)
         return 'A_not_collected', None
     if status == CW.STATUS_REJECTED_BY_HUMAN:
         return 'KNOWN_REJECTED', 'человек: мимо/реклама'
@@ -142,7 +155,46 @@ def coverage(client):
         rows = client.table('tenders').select('created_at').in_('source', list(sources)) \
             .order('created_at').limit(1).execute().data or []
         return date.fromisoformat(rows[0]['created_at'][:10]) if rows else None
-    return {'deals': first(CW.LOT_SOURCES), 'civil': first(CW.CIVIL_LOT_SOURCES)}
+    selection = first([EBIRJA_SELECTION_SOURCE])
+    auction = first([EBIRJA_AUCTION_SOURCE])
+    return {'deals': first(CW.LOT_SOURCES), 'civil': first(CW.CIVIL_LOT_SOURCES),
+            'ebirja_selection': selection, 'ebirja_tender': selection,
+            'ebirja_auction': max(auction, EBIRJA_AUCTION_LINK_SINCE) if auction else None}
+
+
+def ebirja_lot_rows(client, rows):
+    # type: (Any, List[Dict[str, Any]]) -> Dict[Tuple[str, str], List[Dict[str, Any]]]
+    """Наши строки лотов ebirja по номеру процедуры: {(источник, номер): [строки]}."""
+    from crawler.scripts.competitor_wins_weekly import _LOT_FIELDS
+    out = defaultdict(list)  # type: Dict[Tuple[str, str], List[Dict[str, Any]]]
+    sel = sorted({str(r['procedure_id']) for r in rows
+                  if EBIRJA_LOT_FEEDS.get(r['feed']) == EBIRJA_SELECTION_SOURCE and r.get('procedure_id')})
+    for start in range(0, len(sel), 100):
+        for t in client.table('tenders').select(_LOT_FIELDS).eq('source', EBIRJA_SELECTION_SOURCE) \
+                .in_('external_id', sel[start:start + 100]).execute().data or []:
+            out[(EBIRJA_SELECTION_SOURCE, str(t['external_id']))].append(t)
+    if any(r['feed'] == 'ebirja_auction' for r in rows):
+        # Номер процедуры у аукциона — в extra_info: берём лоты с начала сшивки
+        # (их немного — несколько в день) и раскладываем по номеру сами.
+        offset = 0
+        while True:
+            page = client.table('tenders').select(_LOT_FIELDS).eq('source', EBIRJA_AUCTION_SOURCE) \
+                .gte('created_at', EBIRJA_AUCTION_LINK_SINCE.isoformat()).order('id') \
+                .range(offset, offset + 999).execute().data or []
+            for t in page:
+                lot = str((t.get('extra_info') or {}).get(LOT_NUMBER_KEY) or '')
+                if lot:
+                    out[(EBIRJA_AUCTION_SOURCE, lot)].append(t)
+            if len(page) < 1000:
+                break
+            offset += 1000
+    return out
+
+
+def ebirja_lots_of(row, by_lot):
+    # type: (Dict[str, Any], Dict[Tuple[str, str], List[Dict[str, Any]]]) -> List[Dict[str, Any]]
+    source = EBIRJA_LOT_FEEDS.get(row.get('feed') or '')
+    return by_lot.get((source, str(row.get('procedure_id') or '')), []) if source else []
 
 
 def candidates(client, registry, since, today):
@@ -180,13 +232,14 @@ async def analyse(client, rows, use_ai, ai_cap):
     civil_keys = sorted({r['lot_key'] for r in rows if r['feed'] == 'civil' and r.get('lot_key')})
     lots_by_url = W.fetch_lot_rows(client, deals_urls) if deals_urls else {}
     civil_lots = W.fetch_civil_lot_rows(client, civil_keys) if civil_keys else {}
+    ebirja_lots = ebirja_lot_rows(client, rows)
 
     def lots_of(row):
         if row['feed'] == 'civil':
             return civil_lots.get(CW.civil_norm_key(row.get('lot_key')), [])
         if row['feed'] == 'deals':
             return lots_by_url.get(row.get('source_url') or '', [])
-        return []
+        return ebirja_lots_of(row, ebirja_lots)
     seqs = sorted({int(l['alert_seq']) for r in rows for l in lots_of(r) if l.get('alert_seq') is not None})
     labels = W.fetch_human_labels(client, seqs) if seqs else {}
     need = []

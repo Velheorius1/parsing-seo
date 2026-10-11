@@ -70,7 +70,7 @@ YEAR_DAYS = 365
 YEAR_MAX_ROWS = 10000       # 11.10: 699 покупок профиля от 20 млн за год — с большим запасом
 YEAR_IN_PROMPT = 60         # непокрытых покупок года в промпт — самые дорогие
 LEDGER_COLS = ('feed,business_id,buyer_inn,buyer_name,winner_name,subject,amount_uzs,awarded_on,'
-               'lot_key,source_url,miss_type,root_stage')
+               'lot_key,source_url,miss_type,root_stage,procedure_id')
 CHANNEL_TYPES = ('B_no_announcement', 'C_uncrawled_platform')
 CHANNEL_TEXT = {
     'ebirja_shop': ('Э-магазин ebirja', 'объявления нет: заказчик выбирает из каталога. '
@@ -364,15 +364,21 @@ def keyword_misses(client, rows):
     # type: (Any, List[Dict[str, Any]]) -> List[Dict[str, Any]]
     """Пропуски «умер на словах» вместе с нашей строкой лота (её и судит гейт)."""
     from crawler.scripts import competitor_wins_weekly as W
+    from crawler.scripts import customer_miss as CM
     rows = [r for r in rows if r.get('miss_type') == 'A_filter' and r.get('root_stage') == 'no_keyword']
     urls = sorted({r['source_url'] for r in rows if r['feed'] == 'deals' and r.get('source_url')})
     keys = sorted({r['lot_key'] for r in rows if r['feed'] == 'civil' and r.get('lot_key')})
     by_url = W.fetch_lot_rows(client, urls) if urls else {}
     by_key = W.fetch_civil_lot_rows(client, keys) if keys else {}
+    by_lot = CM.ebirja_lot_rows(client, rows)     # отборы и аукционы ebirja — по номеру процедуры
     out = []
     for r in rows:
-        lots = by_key.get(CW.civil_norm_key(r.get('lot_key')), []) if r['feed'] == 'civil' \
-            else by_url.get(r.get('source_url') or '', [])
+        if r['feed'] == 'civil':
+            lots = by_key.get(CW.civil_norm_key(r.get('lot_key')), [])
+        elif r['feed'] == 'deals':
+            lots = by_url.get(r.get('source_url') or '', [])
+        else:
+            lots = CM.ebirja_lots_of(r, by_lot)
         lot = CW.pick_lot_row(lots)
         if lot:
             out.append({'purchase': r, 'lot': lot})
