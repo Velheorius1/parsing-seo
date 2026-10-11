@@ -53,10 +53,11 @@ def test_no_lot_row_is_a_miss_only_after_our_collection_started():
     assert M.classify(_p(feed='civil', awarded='2026-10-02'), [], {}, COV, NEVER_LATE)[0] == 'PRE_COVERAGE'
 
 
-def test_direct_and_eshop_have_no_announcement_ebirja_tenders_are_uncrawled():
+def test_direct_and_eshop_have_no_announcement_unknown_platform_is_uncrawled():
     assert M.classify(_p(feed='direct'), [], {}, COV, NEVER_LATE)[0] == 'B_no_announcement'
     assert M.classify(_p(feed='ebirja_shop'), [], {}, COV, NEVER_LATE)[0] == 'B_no_announcement'
-    assert M.classify(_p(feed='ebirja_selection'), [], {}, COV, NEVER_LATE)[0] == 'C_uncrawled_platform'
+    assert M.classify(_p(feed='some_new_platform'), [], {}, COV, NEVER_LATE)[0] == 'C_uncrawled_platform'
+    # Отборы и аукционы ebirja с 11.10 сшиваются с лотом — test_ebirja_miss_link.py.
 
 
 def test_our_win_is_won_whatever_the_feed():
