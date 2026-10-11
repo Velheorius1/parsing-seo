@@ -8,7 +8,10 @@
   4. Telegram: полнота и её тренд, новые пропуски с видом и причиной, ⭐-алерты недели
      и отметки Данияра на них (от них зависит перевод полосы в пуш), предложения, охват
      каждой ленты без «тихих нулей», карточки в очереди, возраст выгрузки Битрикса;
-  5. HTML-вложение (protect_content): каждый заказчик топ-100 и его покупки — узнали / не узнали.
+  5. HTML-вложение (protect_content): каждый заказчик топ-100 и его покупки — узнали / не узнали;
+  6. «Ждём закупку»: что топ-100 покупал нашего в эти же 6 недель год назад (11.10.2026).
+     Закупку без объявления (э-магазин, прямой договор) краулер не увидит вовсе — 156 из
+     204 пропусков топ-100 на 08.10 такие; успеть можно только заранее.
 
 Чат — личный чат алертов Данияра; отдельный чат не нужен. Всё про заказчиков —
 только data/private (репозиторий публичный).
@@ -32,6 +35,10 @@ STATE_PATH = PRIVATE_DIR / 'customer_watch_state.json'
 HISTORY_PATH = PRIVATE_DIR / 'customer_recall_history.jsonl'
 TEXT_LIMIT = 3900
 NEW_MISSES_SHOWN = 8
+# «Ждём закупку»: окно «эти же недели год назад». Замер 11.10: 96 из 237 покупок топ-100
+# (40%) повторились у того же заказчика через год ±45 дней.
+EXPECT_DAYS = 42
+EXPECTED_SHOWN = 6
 UNJUDGED_SHOWN = 100   # меньше — шум (08.10: 2 из 163 тыс.)
 KNOWN_RU = {'WON': 'выиграли', 'KNOWN_LOST': 'знали — выиграл другой', 'KNOWN_REJECTED': 'знали — отклонили'}
 MISS_RU = {'A_filter': 'отсёк фильтр', 'A_not_collected': 'лот не собрали', 'A_late': 'алерт опоздал',
@@ -139,6 +146,26 @@ def star_stats(alerts, index, keyword_hit, labels):
             'unmarked': marks.get(None, 0)}
 
 
+def expected(rows, registry, today, days=EXPECT_DAYS):
+    # type: (List[Dict[str, Any]], Dict[str, Any], date, int) -> List[Dict[str, Any]]
+    """Ждём закупку: покупки топ-100 нашего профиля в эти же недели год назад,
+    по заказчику — самые крупные первыми (окно [сегодня−365, +days))."""
+    lo = (today - timedelta(days=365)).isoformat()
+    hi = (today - timedelta(days=365 - days)).isoformat()
+    by = CR.by_inn(registry)
+    groups = {}  # type: Dict[str, Dict[str, Any]]
+    for r in rows:
+        entity = by.get(r.get('buyer_inn'))
+        if entity is None or not lo <= str(r.get('awarded_on') or '')[:10] < hi:
+            continue
+        groups.setdefault(entity['id'], {'id': entity['id'], 'name': entity['name'], 'items': []})['items'].append(r)
+    out = []
+    for g in groups.values():
+        items = sorted(g['items'], key=lambda r: -float(r.get('amount_uzs') or 0))
+        out.append(dict(g, items=items, count=len(items), amount_uzs=sum(float(r.get('amount_uzs') or 0) for r in items)))
+    return sorted(out, key=lambda g: -g['amount_uzs'])
+
+
 def _tender(row):
     # type: (Dict[str, Any]) -> Any
     from crawler.core.tender_rows import row_to_raw_tender
@@ -183,6 +210,20 @@ def render_text(ctx):
     else:
         lines.append('<b>Новых пропусков</b> за неделю нет.')
     lines.append('')
+    exp = ctx.get('expected') or []
+    if exp:
+        n = sum(g['count'] for g in exp)
+        lines.append('<b>Ждём закупку</b>: год назад в эти 6 недель топ-100 купили нашего на %s (%d %s) — '
+                     'повод связаться до объявления:' % (money(sum(g['amount_uzs'] for g in exp)), n, purchases(n)))
+        for g in exp[:EXPECTED_SHOWN]:
+            top = g['items'][0]
+            lines.append('• %s — «%s», %s%s; %s, выиграл %s' % (
+                e(_short(g['name'], 32)), e(_short(top.get('subject'), 50)), money(g['amount_uzs']),
+                ' за %d %s' % (g['count'], purchases(g['count'])) if g['count'] > 1 else '',
+                _d(top.get('awarded_on')), e(_short(top.get('winner_name'), 28))))
+        if len(exp) > EXPECTED_SHOWN:
+            lines.append('…и ещё %d — во вложении' % (len(exp) - EXPECTED_SHOWN))
+        lines.append('')
     st = ctx['stars']
     lines.append('<b>⭐ за неделю</b> (режим полосы: %s): алертов у топ-100 %d из %d, только по ⭐ — %d '
                  '(в пуш %d).' % (e(ctx['vip_mode']), st['starred'], st['alerts'], st['vip_only'], st['vip_only_push']))
@@ -224,6 +265,22 @@ def render_html(registry, rows, per_customer, ctx):
         if entity:
             purchases.setdefault(entity['id'], []).append(r)
     blocks = []
+    exp = ctx.get('expected') or []
+    if exp:
+        trs = []
+        for g in exp:
+            for r in g['items']:
+                subject = e(_short(r.get('subject'), 90))
+                if r.get('source_url'):
+                    subject = '<a href="%s">%s</a>' % (e(r['source_url']), subject)
+                trs.append('<tr><td>%s</td><td class="n">%s</td><td>%s</td><td class="n">%s</td><td>%s</td>'
+                           '<td>%s</td></tr>' % (e(g['name']), e(str(r.get('awarded_on') or '')[:10]), subject,
+                                                 money(r.get('amount_uzs')), e(FEED_RU.get(r.get('feed'), r.get('feed') or '')),
+                                                 e(_short(r.get('winner_name'), 40))))
+        blocks.append('<h2>Ждём закупку</h2><p class="m">Что топ-100 покупал нашего в эти же 6 недель год назад. '
+                      'Э-магазин ebirja в журнале с 12.2025 — его покупки раньше этого здесь не видны.</p>'
+                      '<div class="wrap"><table><tr><th>Заказчик</th><th class="n">Год назад</th><th>Предмет</th>'
+                      '<th class="n">Сумма</th><th>Лента</th><th>Выиграл</th></tr>%s</table></div>' % ''.join(trs))
     for entity in sorted(registry.get('entities') or [], key=lambda x: x.get('rank') or 999):
         mine = sorted(purchases.get(entity['id'], []), key=lambda r: str(r.get('awarded_on')), reverse=True)
         rc = recall_by_id.get(entity['id']) or {}
@@ -254,7 +311,7 @@ def render_html(registry, rows, per_customer, ctx):
 :root{--bg:#fbfaf7;--fg:#1c1b19;--muted:#6b6862;--line:#e4e1da;--head:#f1eee8;--ok:#2f7d4f;--okb:#e3f1e8;--bad:#a8401f;--badb:#f8e6df}
 @media (prefers-color-scheme:dark){:root{--bg:#161614;--fg:#ecebe7;--muted:#9c9a94;--line:#2c2b28;--head:#1f1e1b;--ok:#7fcf9c;--okb:#1d2e23;--bad:#f0a084;--badb:#3a221a}}
 body{background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:16px;max-width:1100px}
-h1{font-size:20px;margin:0 0 4px}h3{font-size:15px;margin:22px 0 6px}p{margin:4px 0 12px}.m{color:var(--muted);font-weight:400;font-size:12px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:17px;margin:20px 0 4px}h3{font-size:15px;margin:22px 0 6px}p{margin:4px 0 12px}.m{color:var(--muted);font-weight:400;font-size:12px}
 .wrap{overflow-x:auto}table{border-collapse:collapse;width:100%%;min-width:720px}
 th,td{border-bottom:1px solid var(--line);padding:6px 8px;vertical-align:top;text-align:left;font-size:13px}
 th{background:var(--head);font-weight:600;font-size:12px}.n{text-align:right;white-space:nowrap}
@@ -339,6 +396,27 @@ def week_alerts(client, last_seq, since):
         last = page[-1]['alert_seq']
 
 
+def year_ago_purchases(client, registry, today, days=EXPECT_DAYS):
+    # type: (Any, Dict[str, Any], date, int) -> List[Dict[str, Any]]
+    """Покупки нашего профиля от 20 млн у ИНН реестра в окне «год назад» (in_ по 50 ИНН)."""
+    from crawler.core.competitor_audit import THRESHOLD_UZS
+    from crawler.core.purchase_ledger import PURCHASE_STATUSES
+    lo = (today - timedelta(days=365)).isoformat()
+    hi = (today - timedelta(days=365 - days)).isoformat()
+    inns = sorted(CR.by_inn(registry))
+    rows = []  # type: List[Dict[str, Any]]
+    for start in range(0, len(inns), 50):
+        batch = client.table('purchase_ledger') \
+            .select('feed,buyer_inn,buyer_name,winner_name,subject,amount_uzs,awarded_on,status,source_url') \
+            .in_('buyer_inn', inns[start:start + 50]).in_('profile', ['poly', 'merch']) \
+            .gte('awarded_on', lo).lt('awarded_on', hi).gte('amount_uzs', int(THRESHOLD_UZS)) \
+            .is_('deleted_at', 'null').limit(1000).execute().data or []
+        if len(batch) >= 1000:
+            raise RuntimeError('покупки «год назад» 50 ИНН упёрлись в потолок 1000 строк — выборка неполна')
+        rows.extend(batch)
+    return [r for r in rows if r.get('status') in PURCHASE_STATUSES]
+
+
 def pending_decisions(client):
     # type: (Any) -> int
     return client.table('learning_proposals').select('id', count='exact').eq('status', 'proposed') \
@@ -382,6 +460,7 @@ def run(args):
         'feeds': feed_health(feed_counts(client, today)),
         'feeds_to': (today - timedelta(days=FEED_LAG_DAYS + 1)).isoformat(), 'unjudged': unjudged(client),
         'bitrix_line': RK.bitrix_line(RK.load_bitrix(), today), 'rebuilt': rebuilt,
+        'expected': expected(year_ago_purchases(client, registry, today), registry, today),
         'coverage': coverage, 'coverage_prev': state.get('coverage'),
     }
     text = render_text(ctx)
@@ -390,6 +469,7 @@ def run(args):
     if args.dry_run:
         print(text)
         print(json.dumps({'html_bytes': len(page), 'alerts': len(alerts), 'stars': ctx['stars'],
+                          'expected': [(g['name'], g['count'], round(g['amount_uzs'] / 1e6)) for g in ctx['expected']],
                           'coverage': coverage}, ensure_ascii=False))
         return 0
     path.write_text(page, encoding='utf-8')
