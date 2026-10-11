@@ -3320,13 +3320,95 @@ sources:
       # лишний прыжок, который во встроенном браузере Telegram иногда теряется.
       # Проверено: 631 → HTTP 200 напрямую.
       source_url_template: "https://ebirja.uz/ru/auction/{id}"
-    keywords_fields: ["title", "company.title"]
+      # lot — номер процедуры, тот же, что procedure_id договора в purchase_ledger:
+      # по нему пропуск сшивается с нашим лотом. external_id остаётся id — смена
+      # ключа заново «родила» бы уже собранные лоты.
+      extra_info:
+        "Номер лота": "{lot}"
+        "ИНН заказчика": "{company.tin}"
+    # Позиции лота (11.10.2026). Заголовок аукциона — общий («Kassa mahsulotlari»,
+    # «Kanstovar 2-yarim yillik»), предмет — в позициях: «Книга кассира» Асаки
+    # на 344 млн (договор 28.09) лежала у нас лотом #891 и умерла на словах.
+    # Карточка живёт, только пока аукцион активен (закрытый — «не найден»),
+    # поэтому позиции берутся при сборе. Список — только активные (~7 штук).
+    keywords_fields: ["title", "company.title", "_detail_text"]
+    detail_fetch:
+      url_template: "https://xarid-api.ebirja.uz/auction/auction/auction-view?id={id}"
+      state_key: "detail_state_ebirja_auctions_active"
+      max_per_run: 50
+      timeout: 30
+      retries: 1
+      text_fields:
+        - "result.auction_classifiers.*.classifier.title_ru"
+        - "result.auction_classifiers.*.classifier.title_uz"
+        - "result.auction_classifiers.*.classifier.classifier_category.title_ru"
+        - "result.auction_classifiers.*.description"
     pagination:
       type: page
       param: "page"
       size_param: "size"
       page_size: 100
       max_pages: 5
+      page_start: 0
+
+  # ── Ebirja отборы и тендеры (госзакупки ebirja) ── 11.10.2026
+  # Объявлений отборов у нас не было вовсе: договоры «отбор» журнал закупок видел,
+  # лоты — нет. Так за год прошли мимо 6,5 млрд «Услуга по печатанию рекламной
+  # продукции» (DASTURIY MAHSULOTLAR VA AXBOROT TEXNOLOGIYALARI, выиграла PRIMEPRESS
+  # POLIGRAFIYA, 08.07). API найден по сети страницы ebirja.uz/ru/selection —
+  # публичный, без авторизации.
+  #   type: 2/4/6 — отбор (общий, аутсорсинг, научная работа), 1/3/5 — тендер;
+  #     без type площадка отвечает 422.
+  #   state: 45 — обсуждение документов (лот виден, заявки ещё не принимают,
+  #     end_date пуст; фильтр 45 отдаёт и подстатус 46, а сам 46 площадка в
+  #     фильтре не принимает — 422), 50 — приём предложений. Остальные — оценка,
+  #     договор, отмена, архив: на 11.10 из 526 живых 19.
+  # external_id = lot — тот же номер, что procedure_id договора в purchase_ledger.
+  # Предмет — в позициях карточки (заголовок бывает «Asosiy vositalar sotib olish»).
+  - id: ebirja-selection
+    name: "Ebirja Отборы и тендеры"
+    adapter: api
+    enabled: true
+    url: "https://xarid-api.ebirja.uz/tender-v2/producer/landing-lots"
+    method: GET
+    params:
+      "type[]": [1, 2, 3, 4, 5, 6]
+      "state[]": [45, 50]
+    rate_limit: 2.0
+    timeout: 20
+    id_prefix: "ebirja-sel"
+    response_path: "result.data"
+    field_map:
+      title: "title"
+      organization: "company.title"
+      price: "total_price"
+      currency: "UZS"
+      deadline: "end_date"
+      date_start: "begin_date"
+      external_id: "lot"
+      region: "company.region.title_ru"
+      extra_info:
+        "ИНН заказчика": "{company.tin}"
+        "Позиций": "{position_count}"
+        "Обсуждение документов до": "{public_discussion_end_date}"
+      source_url_template: "https://ebirja.uz/ru/tender/{id}"
+    keywords_fields: ["title", "company.title", "_detail_text"]
+    detail_fetch:
+      url_template: "https://xarid-api.ebirja.uz/tender-v2/producer/landing-lots-view?id={id}"
+      state_key: "detail_state_ebirja_selection"
+      max_per_run: 60
+      timeout: 30
+      retries: 1
+      text_fields:
+        - "result.products.*.classifier.title_ru"
+        - "result.products.*.classifier.title_uz"
+        - "result.products.*.description"
+    pagination:
+      type: page
+      param: "currentPage"
+      size_param: "perPage"
+      page_size: 100
+      max_pages: 3
       page_start: 0
 
   # ── Ebirja встречные аукционные торги (reverse-auction) ──
