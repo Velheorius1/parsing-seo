@@ -13,6 +13,17 @@
     (все строки окна, без потолка на ленту), сколько пройдёт остальные стадии и
     какую долю возьмёт AI → ≈ алертов в неделю, с примерами.
 Слово, которое не довело бы до Данияра ни одного пропуска, не предлагается.
+
+Слово из года (11.10.2026). Пропуски видят только лоты, которые лежали у нас в
+базе. Но и то, что заказчики купили без объявления или на чужой площадке, —
+словарь их языка: 11.10 «Qimmatbaho sovg‘alar» Минобороны и «Poligrafiya
+mahsulotlari» Узбектелекома нашлись именно так. Поэтому второй вход —
+договоры нашего профиля за 365 дней (все ленты и заказчики, от 20 млн), чей
+предмет живой словарь не видит. Слово из них предлагается, если покрывает
+хоть одну такую покупку и AI взял хоть один свежий лот окна (или окно пустое:
+слово редкое, шума нет). Доля покупок года, которую видит словарь, —
+метрика обучения в недельном отчёте.
+
 Включается слово только коммитом в alert_keywords с тестом (правило «слова только
 коммитом», shadow_search.promote); «да» — разрешение на такой коммит. --sync
 ставит одобренному слову applied, когда оно появилось в живом словаре.
@@ -37,7 +48,7 @@ import random
 import re
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from crawler.core import competitor_wins as CW
@@ -55,6 +66,9 @@ NOISY_WEEK = 10             # ≈ алертов в неделю, после к�
 # AI не взял из них ни одного, и оценка «≈0 алертов» прятала нагрузку и риск ложных.
 MAX_LOAD_WEEK = 20
 GEN_MODEL = 'deepseek/deepseek-v4-pro'   # раз в прогон, один вызов: модель не экономим
+YEAR_DAYS = 365
+YEAR_MAX_ROWS = 10000       # 11.10: 699 покупок профиля от 20 млн за год — с большим запасом
+YEAR_IN_PROMPT = 60         # непокрытых покупок года в промпт — самые дорогие
 LEDGER_COLS = ('feed,business_id,buyer_inn,buyer_name,winner_name,subject,amount_uzs,awarded_on,'
                'lot_key,source_url,miss_type,root_stage')
 CHANNEL_TYPES = ('B_no_announcement', 'C_uncrawled_platform')
@@ -101,18 +115,23 @@ def build_prompt(lots, current):
     # type: (List[Dict[str, Any]], List[str]) -> str
     lines = []
     for i, item in enumerate(lots, 1):
-        lot = item['lot']
+        lot = item.get('lot')
+        if lot is None:     # договор года: лота у нас нет, есть предмет договора
+            lines.append('%d. %s — договор, %s' % (i, ' '.join(str(item['purchase'].get('subject') or '').split())[:200],
+                                                   ' '.join(str(item['purchase'].get('buyer_name') or '').split())[:60]))
+            continue
         text = ' '.join(str(lot.get('search_text') or '').split())[:200]
         lines.append('%d. %s — %s' % (i, ' '.join(str(lot.get('title') or '').split())[:200], text))
     return (
         'Ты настраиваешь словарь ключевых слов фильтра тендеров для типографии Winch '
-        '(полиграфия и сувенирная продукция с нанесением логотипа). Ниже лоты, которые были '
-        'нашим профилем, но фильтр их не пропустил: ни одно слово словаря в них не нашлось.\n\n'
+        '(полиграфия и сувенирная продукция с нанесением логотипа). Ниже наш профиль, которого '
+        'словарь не видит: лоты, которые фильтр не пропустил, и предметы договоров заказчиков '
+        'за последний год. Ни одно слово словаря в них не нашлось.\n\n'
         'Как работает словарь: слово ищется в начале слова текста (как префикс), регистр не '
         'важен; русские слова длиннее 4 букв обрезаются до основы. Тексты — на русском, '
         'узбекском латиницей и узбекском кириллицей.\n\n'
-        'Предложи до %d слов, которые поймали бы эти лоты. Слово должно буквально стоять в '
-        'начале слова текста лота. Нужны слова, которые означают печать, издание или сувенирку, '
+        'Предложи до %d слов, которые поймали бы эти лоты и договоры. Слово должно буквально '
+        'стоять в начале слова текста. Нужны слова, которые означают печать, издание или сувенирку, '
         'а не общие (услуга, поставка, 2026, названия организаций): каждое лишнее совпадение — '
         'лишний алерт. Одна точная основа лучше нескольких форм. Не повторяй слова словаря.\n\n'
         'Словарь сейчас: %s\n\n'
@@ -144,6 +163,30 @@ def helps(verdicts):
     # type: (List[Any]) -> int
     """Сколько пойманных пропусков дошло бы до Данияра (без AI — прошедшие фильтр)."""
     return sum(1 for v in verdicts if v.delivered is True or (v.delivered is None and v.passed_prefilter))
+
+
+def _text(item):
+    # type: (Dict[str, Any]) -> Dict[str, Any]
+    """Что судит сопоставитель: наш лот, а у договора года (лота нет) — его предмет."""
+    return item['lot'] if item.get('lot') is not None else {'title': item['purchase'].get('subject') or ''}
+
+
+def _amount(row):
+    # type: (Dict[str, Any]) -> float
+    return float(row.get('amount_uzs') or 0)
+
+
+def dictionary_coverage(rows, hit, current):
+    # type: (List[Dict[str, Any]], Callable[[Dict[str, Any], List[str]], bool], List[str]) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
+    """Какую долю покупок нашего профиля словарь видит по предмету — по числу и по деньгам.
+    -> (сводка, непокрытые покупки: самые дорогие первыми)."""
+    uncovered = [r for r in rows if not hit({'title': r.get('subject') or ''}, current)]
+    total_uzs, missed_uzs = sum(_amount(r) for r in rows), sum(_amount(r) for r in uncovered)
+    summary = {'total': len(rows), 'covered': len(rows) - len(uncovered),
+               'share': round((len(rows) - len(uncovered)) / float(len(rows)), 3) if rows else None,
+               'share_uzs': round((total_uzs - missed_uzs) / total_uzs, 3) if total_uzs else None,
+               'uncovered_uzs': missed_uzs}
+    return summary, sorted(uncovered, key=lambda r: -_amount(r))
 
 
 def channel_gaps(rows):
@@ -202,9 +245,16 @@ def line(p):
             html.escape(why[:1].upper() + why[1:]),
             ', '.join('%s %s' % (_e(n, 32), money(v)) for n, v in ev['buyers'][:3]),
             ', '.join('%s %s' % (_e(n, 32), money(v)) for n, v in ev['winners'][:3])))
-    out = '<b>#%s «%s»</b> — пропусков ловит %d из %d (%s), %s %d.' % (
-        p.get('id', '—'), html.escape(p['key']), ev['caught'], ev['missed_total'], money(ev['amount_uzs']),
-        'до тебя дошло бы' if ev.get('ai_checked') else 'фильтр прошли бы (AI не проверял)', ev['delivered'])
+    out = '<b>#%s «%s»</b> —' % (p.get('id', '—'), html.escape(p['key']))
+    if ev['caught'] or not ev.get('year_covered'):
+        out += ' пропусков ловит %d из %d (%s), %s %d.' % (
+            ev['caught'], ev['missed_total'], money(ev['amount_uzs']),
+            'до тебя дошло бы' if ev.get('ai_checked') else 'фильтр прошли бы (AI не проверял)', ev['delivered'])
+    if ev.get('year_covered'):
+        out += ' %s %d %s нашего профиля за год на %s, которых словарь не видел.' % (
+            'Ещё покрывает' if ev['caught'] else 'Покрывает', ev['year_covered'],
+            purchases(ev['year_covered']).replace('покупка', 'покупку'),    # «покрывает 1 покупку»
+            money(ev.get('year_uzs')))
     if bt.get('judged'):
         est = bt.get('est_alerts_week')
         out += ' За %d дней новых лотов через фильтр: %d, AI взял бы %d из %d → ≈ %s алерта в неделю%s.' % (
@@ -216,10 +266,11 @@ def line(p):
             ', AI не проверял' if bt['passed_prefilter'] else ' — шума нет')
     if bt.get('truncated'):
         out += ' ⚠️ Окно усечено — шум оценён снизу.'
-    if ev.get('lots'):
+    examples = ev.get('lots') or ev.get('year_lots')
+    if examples:
         # Пример — где слово стоит в самом предмете: «журнал» ловит и лот, где оно
         # только в описании, и такой пример читается как ошибка.
-        top = next((l for l in ev['lots'] if p['key'] in str(l.get('subject') or '').lower()), ev['lots'][0])
+        top = next((l for l in examples if p['key'] in str(l.get('subject') or '').lower()), examples[0])
         out += ' Напр.: «%s» (%s), %s.' % (_e(top.get('subject'), 60), _e(top.get('buyer_name'), 30),
                                           money(top.get('amount_uzs')))
     if bt.get('accepted_examples'):
@@ -229,8 +280,9 @@ def line(p):
 
 HEADERS = {
     'keyword': ('💡 <b>Слова в фильтр алертов</b>\n'
-                'Пропуски — покупки топ-100, чей лот был у нас и умер на словах (на них слово и придумано). '
-                'Окно — свежие лоты вне этих пропусков: сколько добавится алертов.\n'
+                'Пропуски — покупки топ-100, чей лот был у нас и умер на словах; «за год» — договоры '
+                'нашего профиля от 20 млн (все заказчики), чей предмет словарь не видит. На них слово '
+                'и придумано. Окно — свежие лоты вне этой выборки: сколько добавится алертов.\n'
                 '«Да» — добавлю слово в словарь коммитом с тестом.'),
     'channel': ('💡 <b>Где топ-100 покупает наше мимо объявлений</b>\n'
                 'Словом это не лечится. «Да» — берём в работу.'),
@@ -278,6 +330,34 @@ def ledger_misses(client):
     if len(rows) >= 1000:
         raise RuntimeError('пропуски упёрлись в потолок 1000 строк — выборка неполна')
     return rows
+
+
+def year_purchases(client, today=None):
+    # type: (Any, Optional[date]) -> List[Dict[str, Any]]
+    """Договоры нашего профиля за YEAR_DAYS от 20 млн: все ленты, все заказчики."""
+    from crawler.core.competitor_audit import THRESHOLD_UZS
+    from crawler.core.purchase_ledger import PURCHASE_STATUSES
+    today = today or date.today()
+    since = (today - timedelta(days=YEAR_DAYS)).isoformat()
+    rows = []  # type: List[Dict[str, Any]]
+    for offset in range(0, YEAR_MAX_ROWS, WINDOW_PAGE):
+        page = client.table('purchase_ledger').select(LEDGER_COLS + ',status') \
+            .in_('profile', ['poly', 'merch']).gte('awarded_on', since).lte('awarded_on', today.isoformat()) \
+            .gte('amount_uzs', int(THRESHOLD_UZS)).is_('deleted_at', 'null') \
+            .order('id').range(offset, offset + WINDOW_PAGE - 1).execute().data or []
+        rows.extend(page)
+        if len(page) < WINDOW_PAGE:
+            return [r for r in rows if r.get('status') in PURCHASE_STATUSES]
+    # Усечённый год дал бы ложную долю покрытия — лучше упасть вслух.
+    raise RuntimeError('покупки года упёрлись в потолок %d строк — выборка неполна' % YEAR_MAX_ROWS)
+
+
+def year_items(uncovered, misses):
+    # type: (List[Dict[str, Any]], List[Dict[str, Any]]) -> List[Dict[str, Any]]
+    """Непокрытые покупки года для предложений — без тех, что уже идут пропуском с лотом."""
+    taken = set((m['purchase'].get('feed'), str(m['purchase'].get('business_id'))) for m in misses)
+    return [{'purchase': r, 'lot': None} for r in uncovered
+            if (r.get('feed'), str(r.get('business_id'))) not in taken][:YEAR_IN_PROMPT]
 
 
 def keyword_misses(client, rows):
@@ -361,6 +441,9 @@ async def propose_words(client, misses, current, hit, words=None, ask=None, use_
     """Предложения-слова с бэктестом. dropped — куда записать, какой кандидат
     почему не прошёл: молча пустой список неотличим от сломанного AI."""
     dropped = {} if dropped is None else dropped
+    # Разбор пропусков бывает старше словаря: 11.10 «sovg» «ловило» два пропуска UzAuto,
+    # которые с правкой апострофа уже ловит живое «sovga». Пойманное сегодня — не пропуск.
+    misses = [m for m in misses if not hit(_text(m), current)]
     if words is None:
         if not misses:
             return []
@@ -378,10 +461,11 @@ async def propose_words(client, misses, current, hit, words=None, ask=None, use_
             seen.add(kw)
             cands.append({'keyword': kw, 'why': c['why']})
     cands = cands[:MAX_WORDS]
-    caught = {c['keyword']: [m for m in misses if hit(m['lot'], [c['keyword']])] for c in cands}
+    # Пропуск — с нашим лотом (его судит replay), договор года — без лота (судится предмет).
+    caught = {c['keyword']: [m for m in misses if hit(_text(m), [c['keyword']])] for c in cands}
     for c in cands:
         if not caught[c['keyword']]:
-            dropped[c['keyword']] = 'не ловит ни одного пропуска'
+            dropped[c['keyword']] = 'не ловит ни одного пропуска и ни одной покупки года'
     cands = [c for c in cands if caught[c['keyword']]]
     if not cands:
         return []
@@ -389,19 +473,23 @@ async def propose_words(client, misses, current, hit, words=None, ask=None, use_
     lots = []  # type: List[Dict[str, Any]]
     for c in cands:
         for m in caught[c['keyword']]:
-            if all(m is not x for x in lots):
+            if m.get('lot') is not None and all(m is not x for x in lots):
                 lots.append(m)
     with_ai = use_ai and budget >= len(lots)
     verdicts = await _replay([m['lot'] for m in lots], with_ai, current + [c['keyword'] for c in cands])
     budget -= len(lots) if with_ai else 0
     by_lot = {id(m): v for m, v in zip(lots, verdicts)}
     since = ((now or datetime.now(timezone.utc)) - timedelta(days=days)).isoformat()
-    missed_ids = {m['lot'].get('id') for m in misses}     # окно — вне выборки, где слово придумано
+    # окно — вне выборки, где слово придумано
+    missed_ids = {m['lot'].get('id') for m in misses if m.get('lot') is not None}
+    year_total = sum(1 for m in misses if m.get('lot') is None)
     out = []
     for c in cands:
-        kw, mine = c['keyword'], caught[c['keyword']]
+        kw = c['keyword']
+        mine = [m for m in caught[kw] if m.get('lot') is not None]
+        year = [m['purchase'] for m in caught[kw] if m.get('lot') is None]
         mine_v = [by_lot[id(m)] for m in mine]
-        if not helps(mine_v):
+        if not helps(mine_v) and not year:
             dropped[kw] = 'пойманное (%d) всё равно отсеял бы фильтр или AI' % len(mine)
             continue
         rows, truncated = window_rows(client, kw, since)
@@ -424,16 +512,25 @@ async def propose_words(client, misses, current, hit, words=None, ask=None, use_
         ok_ai = [(r, v) for r, v in zip(sample, ai_v) if not v.ai_error]
         accepted = [r for r, v in ok_ai if v.delivered]
         rejected = [r for r, v in ok_ai if not v.delivered]
+        if not helps(mine_v) and ok_ai and not accepted:
+            # Слово только из года: покупки оно покрывает, но свежие лоты с ним AI не берёт —
+            # до Данияра оно не довело бы ничего (баннеры, таблички — вне профиля алертов).
+            dropped[kw] = 'AI не взял ни одного из %d свежих лотов — до тебя не дошло бы' % len(ok_ai)
+            continue
         out.append({
             'kind': 'keyword', 'key': kw, 'payload': {'keyword': kw, 'why': c['why']},
             'evidence': {
-                'missed_total': len(misses), 'caught': len(mine), 'delivered': helps(mine_v),
+                'missed_total': len(misses) - year_total, 'caught': len(mine), 'delivered': helps(mine_v),
                 'ai_checked': with_ai,
                 'amount_uzs': sum(float(m['purchase'].get('amount_uzs') or 0) for m in mine),
                 'lots': [dict({k: m['purchase'].get(k) for k in ('buyer_name', 'subject', 'amount_uzs', 'source_url')},
                               delivered=v.delivered)
                          for m, v in sorted(zip(mine, mine_v),
-                                            key=lambda mv: -float(mv[0]['purchase'].get('amount_uzs') or 0))]},
+                                            key=lambda mv: -float(mv[0]['purchase'].get('amount_uzs') or 0))],
+                'year_total': year_total, 'year_covered': len(year),
+                'year_uzs': sum(_amount(r) for r in year),
+                'year_lots': [{k: r.get(k) for k in ('buyer_name', 'subject', 'amount_uzs', 'source_url')}
+                              for r in sorted(year, key=lambda r: -_amount(r))[:5]]},
             'backtest': {
                 'window_days': days, 'since': since[:10], 'matched': len(matched), 'new': len(new),
                 'passed_prefilter': len(passed), 'dropped': dict(stages), 'judged': len(ok_ai),
@@ -443,7 +540,7 @@ async def propose_words(client, misses, current, hit, words=None, ask=None, use_
                 'accepted_examples': [r.get('title') for r in accepted[:3]],
                 'rejected_examples': [r.get('title') for r in rejected[:3]]},
         })
-    return sorted(out, key=lambda p: -p['evidence']['amount_uzs'])
+    return sorted(out, key=lambda p: -(p['evidence']['amount_uzs'] + p['evidence']['year_uzs']))
 
 
 # ── запись и отправка ───────────────────────────────────────────────────────
@@ -539,19 +636,23 @@ def run(client, hit, current, words=None, use_ai=True, ai_cap=AI_CAP, judge=JUDG
     """Предложить, записать, отправить, отметить включённое. Зовёт и недельный отчёт."""
     rows = ledger_misses(client)
     misses = keyword_misses(client, rows)
+    coverage, uncovered = dictionary_coverage(year_purchases(client), hit, current)
+    year = year_items(uncovered, misses)
     dropped = {}  # type: Dict[str, str]
-    proposals = asyncio.run(propose_words(client, misses, current, hit, words=words, use_ai=use_ai,
+    proposals = asyncio.run(propose_words(client, misses + year, current, hit, words=words, use_ai=use_ai,
                                           ai_cap=ai_cap, judge=judge, days=days, dropped=dropped))
     proposals += channel_gaps(rows)
     if dry_run:
         for text, _, _ in messages(proposals):
             print(text)
             print('-' * 40)
-        return {'misses_no_keyword': len(misses), 'proposals': len(proposals), 'dropped_words': dropped}
+        return {'misses_no_keyword': len(misses), 'year_uncovered': len(year), 'coverage': coverage,
+                'proposals': len(proposals), 'dropped_words': dropped}
     fresh = save(client, proposals)
     sent = send(client, fresh) if send_tg else 0
     applied, waiting = sync(client, current)
-    return {'misses_no_keyword': len(misses), 'proposals': len(proposals), 'dropped_words': dropped,
+    return {'misses_no_keyword': len(misses), 'year_uncovered': len(year), 'coverage': coverage,
+            'proposals': len(proposals), 'dropped_words': dropped,
             'new_or_unsent': len(fresh), 'sent': sent, 'applied': [r['key'] for r in applied],
             'waiting_commit': [r['key'] for r in waiting], 'fresh': fresh}
 
