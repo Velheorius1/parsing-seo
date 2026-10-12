@@ -1164,6 +1164,27 @@ _REJECT_TITLES = [
     "nfc визитк",
 ]
 
+
+def _all_positions_rejected(tender):
+    # type: (RawTender) -> bool
+    """Все позиции лота — из _REJECT_TITLES (12.10, weekly W42).
+
+    У предквалификаций `title` — рубрика («Услуги издательские»), а подписка
+    на газеты лежит в позициях (`extra_info.lots`, enrich до гейтов). Проверка
+    по одному title её не видела: за W42 33 из 81 алерта предквалификаций —
+    подписка, 5 из 6 отметок «мимо» Данияра — они. Отбрасываем, только если
+    КАЖДАЯ позиция совпала: книги + подписка проходят дальше к AI.
+    """
+    extra = tender.extra_info if isinstance(tender.extra_info, dict) else {}
+    lots = extra.get("lots")
+    if not isinstance(lots, list) or not lots:
+        return False
+    for item in lots:
+        name = str(item.get("productName") or "").lower() if isinstance(item, dict) else ""
+        if not any(rej in name for rej in _REJECT_TITLES):
+            return False
+    return True
+
 # UZEX prequest fast-pass: titles are OKED category names ("Услуги печатные...",
 # "Книги печатные") so AI conservatively rejects them. For UZEX-family sources,
 # if the title obviously matches our niche by category we skip the AI cost
@@ -1419,7 +1440,8 @@ def prefilter(
     before_reject = len(matched_idx)
     kept = []
     for i in matched_idx:
-        if any(rej in new_tenders[i].title.lower() for rej in _REJECT_TITLES):
+        if (any(rej in new_tenders[i].title.lower() for rej in _REJECT_TITLES)
+                or _all_positions_rejected(new_tenders[i])):
             verdicts[i].dropped_at = DropStage.REJECT_TITLE
         else:
             kept.append(i)

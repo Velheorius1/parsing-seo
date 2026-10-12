@@ -212,6 +212,25 @@ def test_reject_title_drops():
     assert r.verdicts[0].dropped_at == DropStage.REJECT_TITLE
 
 
+_SUB = "Услуга по подписке и доставке периодического печатного издания"
+
+
+def test_reject_when_all_positions_are_subscription():
+    """W42: рубрика «Услуги издательские», в позициях — только газеты."""
+    t = _mk(source="UZEX Предквалификации", title="Услуги издательские",
+            search_text="услуги издательские печать",
+            extra_info={"lots": [{"productName": _SUB, "description": "Xalq so'zi"},
+                                 {"productName": _SUB, "description": "Zarafshon"}]})
+    assert _run([t]).verdicts[0].dropped_at == DropStage.REJECT_TITLE
+
+
+def test_mixed_positions_not_rejected():
+    t = _mk(source="UZEX Предквалификации", title="Услуги издательские",
+            search_text="услуги издательские печать",
+            extra_info={"lots": [{"productName": _SUB}, {"productName": "Книги печатные"}]})
+    assert _run([t]).verdicts[0].dropped_at is None
+
+
 def test_uzex_bypass_by_source_and_hint():
     uzex = _mk(id="u", external_id="u", source="UZEX Предквалификации",
                title="Услуги печатные прочие")
