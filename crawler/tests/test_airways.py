@@ -90,6 +90,18 @@ def test_card_date_is_publication_not_deadline():
     assert t.date_start and t.date_start.startswith("2026-10-05T17:42"), t.date_start
 
 
+def test_external_id_is_the_whole_slug():
+    """«-0» в конце slug — не id: два разных лота с «-0» сливались в одну строку."""
+    items = HtmlAdapter(SourceConfig(**_cfg()))._parse_page(LIST, URL)
+    ids = [t.external_id for t in items]
+    assert len(set(ids)) == len(ids) == 9, ids
+    assert "ao-uzbekistan-airways-provodit-sbor-kommercheskikh-predlozheniy-na-zakupku-0" in ids, ids
+    assert "obyazatelnoe-strakhovanie-grazhdanskoy-otvetstvennosti-rabotodatelya-0" in ids, ids
+    # лоты без цифр в slug сохраняют прежний id — без дублей в базе
+    assert "izgotovlenie-i-postavka-reklamno-suvenirnoy-produkcii" in ids, ids
+    assert not [i for i in ids if i.isdigit()], ids
+
+
 def test_deadline_with_hour_from_the_lot_page():
     items, _ = _run(dict(LOTS, **{URL: LIST}))
     got = dict((t.source_url[len(BASE):], t.deadline) for t in items if t.source_url.startswith(BASE))
