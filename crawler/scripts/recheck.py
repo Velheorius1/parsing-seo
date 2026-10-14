@@ -30,6 +30,11 @@ AI не видел», то есть кандидатами сюда. Продо�
 ушло 73 повтора (тот же заказчик, название и сумма). Близнец — строка с тем же
 ключом лота, что у отправленной, появившаяся в пределах `TWIN_DAYS` от неё.
 
+Кроме перевыставления (14.10, решение Данияра): у близнеца срок новее всех
+отправленных — заказчик выставил ту же закупку заново. Такой не глушим, а
+досылаем с пометкой «🔁» (`dedup.is_repost`); 14.10 их было 9 из 166 близнецов.
+Без срока у любой из сторон — обычный близнец, как SQB выше.
+
 Границы, снятые замером 30.07 (14 дней, цена ≥ 5 млн, снятые источники прочь):
 22 799 кандидатов → 2 076 проходят префильтр, из них 1 115 — фид завершённых
 сделок (алерты по нему ошибка сами по себе, отсюда `_SKIP_SOURCES`).
@@ -252,10 +257,11 @@ def dedup_against_sent(tenders):
     Без этого второй шанс шлёт дубли — у площадок один лот лежит несколькими
     строками, и одну из них мы уже отправляли.
     """
-    from crawler.core.dedup import group_for_alerts, load_recent_alerted_fingerprints
-    recent = load_recent_alerted_fingerprints(days=14)
+    from crawler.core.dedup import group_for_alerts, load_recent_alerted_index
+    recent = load_recent_alerted_index(days=14)
     deduped, group_sources = group_for_alerts(tenders, tenders,
-                                              recent_alerted_keys=recent)
+                                              recent_alerted_keys=set(recent),
+                                              recent_alerted_deadlines=recent)
     return deduped, len(tenders) - len(deduped)
 
 
@@ -295,19 +301,34 @@ def drop_alerted_twins(rows, alerted, days=TWIN_DAYS):
     # type: (List[Dict], List[Dict], int) -> Tuple[List[Dict], List[Dict]]
     """Убирает кандидатов, у которых есть отправленный близнец: тот же ключ лота
     (`dedup._logical_key`, как у продового дедупа), строка появилась не дальше
-    `days` от отправленной. Возвращает (оставшиеся, убранные)."""
-    sent = collections.defaultdict(list)  # type: Dict[Tuple[str, str, str], List[datetime]]
+    `days` от отправленной. Возвращает (оставшиеся, убранные).
+
+    Перевыставление (14.10): срок близнеца новее сроков ВСЕХ близких
+    отправленных — строка остаётся с `_repost_prev_deadline` (прежний срок),
+    и алерт уйдёт с пометкой «🔁». Срок не читается хоть у одной стороны —
+    обычный близнец."""
+    from crawler.core.dedup import _parse_deadline_rough, is_repost
+    # ключ → [(когда появилась, срок YYYY-MM-DD или None)]
+    sent = collections.defaultdict(list)  # type: Dict[Tuple[str, str, str], List[Tuple[datetime, Optional[str]]]]
     for a in alerted:
         ts = _created(a)
         if ts is not None:
-            sent[_row_key(a)].append(ts)
+            sent[_row_key(a)].append((ts, _parse_deadline_rough(a.get("deadline"))))
     window = timedelta(days=days).total_seconds()
     keep, twins = [], []  # type: List[Dict], List[Dict]
     for r in rows:
         ts = _created(r)
-        near = ts is not None and any(
-            abs((s - ts).total_seconds()) <= window for s in sent.get(_row_key(r), ()))
-        (twins if near else keep).append(r)
+        near = [d for s, d in sent.get(_row_key(r), ())
+                if ts is not None and abs((s - ts).total_seconds()) <= window]
+        if not near:
+            keep.append(r)
+            continue
+        prev = None if any(d is None for d in near) else max(near)
+        if prev and is_repost(r.get("deadline"), prev):
+            r["_repost_prev_deadline"] = prev
+            keep.append(r)
+        else:
+            twins.append(r)
     return keep, twins
 
 
@@ -335,12 +356,19 @@ async def run(days, min_price, cap, execute, manifest=None, prefilter_only=False
                      "шанс шлёт повторы, ничего не досылаю", str(exc)[:150])
         raise SystemExit(1)
     rows, twins = drop_alerted_twins(rows, alerted)
+    reposts = dict(((r.get("source"), r["external_id"]), r["_repost_prev_deadline"])
+                   for r in rows if r.get("_repost_prev_deadline"))
     logger.info("близнецы отправленного (тот же лот, строка ±%d дн от отправленной): "
-                "убрано %d, осталось %d", TWIN_DAYS, len(twins), len(rows))
+                "убрано %d, осталось %d (из них перевыставлены с новым сроком: %d)",
+                TWIN_DAYS, len(twins), len(rows), len(reposts))
     if not rows:
         return 0
 
     keep, counters = survivors(rows)
+    for t in keep:
+        prev = reposts.get((t.source, t.external_id))
+        if prev:
+            t.repost_prev_deadline = prev
     logger.info("префильтр сегодняшним днём: прошли %d", len(keep))
     for st, n in sorted(counters.items(), key=lambda kv: -kv[1]):
         if n and st not in ("passed", "bypass"):

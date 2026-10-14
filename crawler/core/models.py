@@ -257,6 +257,10 @@ class RawTender(BaseModel):
     # deliberately not a database column — it describes the current adapter,
     # not a tender attribute.
     detail_persistence: bool = False
+    # Ephemeral (14.10): лот — перевыставление уже отправленной закупки (тот же
+    # ключ лота, срок новее). Значение — прежний срок «YYYY-MM-DD»; алерт идёт
+    # с пометкой «🔁». Не колонка БД: `_tender_to_row` его не пишет.
+    repost_prev_deadline: Optional[str] = None
     # AI relevance (migration 017). Populated by notifier._ai_check_relevance
     # for tenders that reach the keyword/bypass gate. NULL = not yet scored.
     relevance_score: Optional[int] = None  # 0-100

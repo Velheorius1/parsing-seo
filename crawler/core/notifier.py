@@ -1540,6 +1540,13 @@ def _extra_info_lines(extra):
     return lines
 
 
+def _repost_day(day):
+    # type: (str) -> str
+    """«2026-10-07» → «07.10.2026» для строки «🔁 Перевыставлен»."""
+    parts = (day or "").split("-")
+    return "%s.%s.%s" % (parts[2], parts[1], parts[0]) if len(parts) == 3 else (day or "")
+
+
 def _format_alert(
     tender: RawTender,
     matched_kw: str,
@@ -1565,6 +1572,12 @@ def _format_alert(
         parts.append("%s\U0001f4cb [ПЛАН ЗАКУПОК — не объявленный тендер]" % prefix)
     else:
         parts.append("%s[ТЕНДЕР]" % prefix if prefix else "")
+    # Перевыставление (14.10, решение Данияра): та же закупка уже приходила,
+    # теперь с новым сроком — досылаем, но так, чтобы не читалось новой.
+    _repost_prev = getattr(tender, "repost_prev_deadline", None)
+    if _repost_prev:
+        parts.append("🔁 *Перевыставлен* — уже приходил со сроком до %s, новый срок ниже"
+                     % _repost_day(_repost_prev))
     # Reverse auction badge — distinct bidding dynamic (price goes down).
     if tender.source in _REVERSE_AUCTION_SOURCES:
         parts.append("🔄 *Обратный тендер* (аукцион на понижение)")
@@ -1811,6 +1824,8 @@ def _build_digest_text(tenders: List[RawTender], archive: Optional[dict] = None,
         # большинство планов уходит именно дайджестом, и клик по строке — это
         # и есть тот случай, на который жаловался Данияр («там не тендер»).
         tag = "\U0001f4cb ПЛАН " if is_plan_source(t.source) else ""
+        if getattr(t, "repost_prev_deadline", None):
+            tag = "🔁 " + tag
         if stars and (t.external_id, t.source) in stars:
             tag = "⭐ " + tag
         title = _headline(t.title, t.source, t.extra_info, limit=48)
