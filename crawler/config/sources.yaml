@@ -785,6 +785,12 @@ sources:
       deadline: "time@datetime"
       deadline_is_publication_date: true
       link: "h5.item-title a.articles__title@href"
+      # 14.10: id — весь slug лота. По умолчанию адаптер берёт ПЕРВОЕ число
+      # ссылки, а CMS дописывает к повторяющимся slug «-0», «-1», «-2»:
+      # «…na-zakupku-0» (вычислительные мощности, 08.10) и «…rabotodatelya-0»
+      # (страховка) оба становились id «0» и сливались со строкой «0» от 27.02 —
+      # лот считался старым и в алерт не шёл никогда. Slug-id без цифр не меняются.
+      external_id_regex: 'tenders/([^/?#]+)'
       detail_deadline_regex: '(?:принима\w*|срок окончания при[её]ма)[^.]{0,120}?до\s+(?P<date>\d{1,2}\.\d{1,2}\.\d{4})(?:\s*(?:г\.|года)?,?\s*(?:время\s*)?(?P<hh>\d{1,2})[:\-](?P<mm>\d{2}))?'
       detail_max: 12
     field_map:
