@@ -235,9 +235,23 @@ def _within_source_key(t: RawTender) -> Tuple[str, str, str]:
     return _logical_key(t.source, t.organization, t.title, t.price, t.deadline)
 
 
+def is_repost(deadline, sent_day):
+    # type: (Optional[str], Optional[str]) -> bool
+    """Срок новее отправленного — та же закупка выставлена заново (14.10).
+
+    Решение Данияра: перевыставление (тот же заказчик, предмет и сумма, новый
+    срок) досылаем с пометкой «🔁», а не глушим как дубль — 14.10 таких было 9
+    за сутки. Нет любого из сроков — обычный дубль: так глушились и SQB
+    «Сувенир макети» (6 повторов без срока), и газеты-перевыпуски.
+    """
+    new_day = _parse_deadline_rough(deadline)
+    return bool(new_day and sent_day and new_day > sent_day)
+
+
 def dedup_within_source(
     tenders: List[RawTender],
     keep_existing_keys: Optional[Set[Tuple[str, str, str]]] = None,
+    sent_deadlines: Optional[Dict[Tuple[str, str, str], Optional[str]]] = None,
 ) -> Tuple[List[RawTender], int]:
     """First pass: collapse same-source duplicates by (source, org, title-words).
 
@@ -245,17 +259,28 @@ def dedup_within_source(
     - Another new tender with the same fingerprint already came first in the batch
     - The fingerprint is in ``keep_existing_keys`` (already alerted recently)
 
+    Исключение (14.10): ``sent_deadlines`` (ключ → самый поздний отправленный
+    срок, YYYY-MM-DD) — лот с отправленным ключом, но более новым сроком,
+    проходит с ``repost_prev_deadline``. Один на ключ: остальные в пачке — дубли.
+
     Returns ``(filtered_list, dropped_count)``.
     """
     if not tenders:
         return [], 0
 
-    seen = set(keep_existing_keys or set())
+    sent = set(keep_existing_keys or set())
+    seen = set(sent)
     out = []
     dropped = 0
     for t in tenders:
         key = _within_source_key(t)
         if key in seen:
+            prev = (sent_deadlines or {}).get(key) if key in sent else None
+            if prev and is_repost(t.deadline, prev):
+                t.repost_prev_deadline = prev
+                sent.discard(key)   # дальше в пачке этот ключ — обычный дубль
+                out.append(t)
+                continue
             dropped += 1
             continue
         seen.add(key)
@@ -277,16 +302,26 @@ def load_recent_alerted_fingerprints(days: int = 14) -> Set[Tuple[str, str, str]
     re-fire today even if the source publishes it with a fresh GUID.
     Returns an empty set on any Supabase failure (degrades gracefully).
     """
+    return set(load_recent_alerted_index(days))
+
+
+def load_recent_alerted_index(days: int = 14) -> Dict[Tuple[str, str, str], Optional[str]]:
+    """Те же отпечатки, но ключ → самый поздний отправленный срок (YYYY-MM-DD).
+
+    Срок нужен, чтобы отличить перевыставление (тот же ключ, срок новее) от
+    дубля (14.10, `is_repost`). None — ни у одной отправленной строки ключа
+    срок не читается. Сбой Supabase — пустой словарь, как и раньше.
+    """
     try:
         from datetime import datetime, timedelta, timezone
         from crawler.config.settings import settings
         from supabase import create_client
 
         if not settings.supabase_url or not settings.supabase_service_role_key:
-            return set()
+            return {}
         client = create_client(settings.supabase_url, settings.supabase_service_role_key)
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        keys: Set[Tuple[str, str, str]] = set()
+        keys = {}  # type: Dict[Tuple[str, str, str], Optional[str]]
         page_size = 1000
         offset = 0
         while True:
@@ -302,9 +337,12 @@ def load_recent_alerted_fingerprints(days: int = 14) -> Set[Tuple[str, str, str]
             for row in rows:
                 # Fail-closed key (same as _within_source_key) — DO NOT skip empty-org
                 # rows: those are the TG leads / e-shop lots that drove the 40% dups.
-                keys.add(_logical_key(
+                key = _logical_key(
                     row.get("source") or "", row.get("organization"),
-                    row.get("title"), row.get("price"), row.get("deadline")))
+                    row.get("title"), row.get("price"), row.get("deadline"))
+                day = _parse_deadline_rough(row.get("deadline"))
+                prev = keys.get(key)
+                keys[key] = max(prev, day) if (prev and day) else (prev or day)
             if len(rows) < page_size:
                 break
             offset += page_size
@@ -312,13 +350,14 @@ def load_recent_alerted_fingerprints(days: int = 14) -> Set[Tuple[str, str, str]
         return keys
     except Exception as exc:
         logger.warning("[Dedup] Failed to load recent fingerprints: %s", str(exc)[:120])
-        return set()
+        return {}
 
 
 def group_for_alerts(
     new_tenders: List[RawTender],
     all_tenders: List[RawTender],
     recent_alerted_keys: Optional[Set[Tuple[str, str, str]]] = None,
+    recent_alerted_deadlines: Optional[Dict[Tuple[str, str, str], Optional[str]]] = None,
 ) -> Tuple[List[RawTender], Dict[str, List[str]]]:
     """Deduplicate new tenders for alerting.
 
@@ -346,8 +385,11 @@ def group_for_alerts(
     # NEVER alerted (billions-сум printing/newspaper lots re-published 2-8x never reached
     # keyword matching). Within-cycle spam is still collapsed by dedup_within_source's
     # own seen-loop; already-alerted re-fires are still caught by recent_alerted_keys.
+    # recent_alerted_deadlines (14.10): перевыставление — тот же ключ, срок новее
+    # отправленного — проходит с пометкой «🔁» (см. is_repost).
     existing_keys = set(recent_alerted_keys) if recent_alerted_keys else set()
-    new_tenders, _dropped = dedup_within_source(new_tenders, existing_keys)
+    new_tenders, _dropped = dedup_within_source(
+        new_tenders, existing_keys, sent_deadlines=recent_alerted_deadlines)
     if not new_tenders:
         return [], {}
 

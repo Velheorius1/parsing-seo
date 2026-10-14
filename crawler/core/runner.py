@@ -284,10 +284,13 @@ async def _run_pipeline(
         logger.warning("[Prequal] обогащение пропущено: %s", str(exc)[:150])
 
     # Deduplicate cross-source before alerting
-    from crawler.core.dedup import group_for_alerts, load_recent_alerted_fingerprints
+    from crawler.core.dedup import group_for_alerts, load_recent_alerted_index
 
-    recent_keys = load_recent_alerted_fingerprints(days=14) if not dry_run else set()
-    deduped_new, group_sources = group_for_alerts(new_tenders, all_tenders, recent_alerted_keys=recent_keys)
+    # Ключ → отправленный срок: перевыставление (срок новее) идёт с «🔁», не глушится.
+    recent_index = load_recent_alerted_index(days=14) if not dry_run else {}
+    deduped_new, group_sources = group_for_alerts(
+        new_tenders, all_tenders, recent_alerted_keys=set(recent_index),
+        recent_alerted_deadlines=recent_index)
     if len(new_tenders) != len(deduped_new):
         logger.info(
             "Dedup: %d new -> %d unique for alerts",
