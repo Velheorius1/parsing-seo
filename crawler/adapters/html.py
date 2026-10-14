@@ -210,6 +210,14 @@ class HtmlAdapter(BaseAdapter):
             dm = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", found)
             if dm:
                 found = "%02d.%02d.%s" % (int(dm.group(1)), int(dm.group(2)), dm.group(3))
+            # Час срока (14.10, Uzbekistan Airways «до 09.10.2026 года время 16:00»):
+            # группы hh/mm в регулярке → ISO с поясом Ташкента, и префильтр
+            # закрывает лот в этот час (#83), а не в конце дня. Нет групп или
+            # час не настоящий — остаётся одна дата, как было.
+            hh, mm = m.groupdict().get("hh"), m.groupdict().get("mm")
+            if dm and hh and mm and int(hh) < 24 and int(mm) < 60:
+                found = "%s-%02d-%02dT%02d:%s:00+05:00" % (
+                    dm.group(3), int(dm.group(2)), int(dm.group(1)), int(hh), mm)
             t.deadline = found
             t.date_end = found
 
