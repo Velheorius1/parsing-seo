@@ -259,6 +259,57 @@ def test_twins_are_dropped_before_prefilter_in_run():
         R.fetch_candidates, R.fetch_alerted, R.survivors = saved
     assert [r["external_id"] for r in seen] == ["other"]
 
+
+# ── предквалификация без предмета (W43) ──────────────────────────────────────
+
+def _prequal(eid, names):
+    return types.SimpleNamespace(source="UZEX Предквалификации", external_id=eid,
+                                 extra_info={}, _names=names)
+
+
+def _fake_enrich(calls):
+    async def enrich(tenders, dry_run=False, max_lots=200):
+        calls.append(dry_run)
+        for t in tenders:
+            t.extra_info = {"lots": [{"productName": n} for n in t._names]}
+        return len(tenders)
+    return enrich
+
+
+def test_subscription_prequal_without_positions_is_dropped():
+    import asyncio
+    import crawler.core.prequal_detail as P
+    calls = []
+    saved = P.enrich
+    P.enrich = _fake_enrich(calls)
+    try:
+        subscr = _prequal("uzex-prq-119323",
+                          ["Услуга по подписке и доставке периодического печатного издания"])
+        mixed = _prequal("uzex-prq-1", ["Книги печатные",
+                          "Услуга по подписке и доставке периодического печатного издания"])
+        keep, n = asyncio.run(R.drop_subscription_prequals([subscr, mixed], persist=True))
+    finally:
+        P.enrich = saved
+    assert [t.external_id for t in keep] == ["uzex-prq-1"]   # книги + подписка идут к AI
+    assert n == 1
+    assert calls == [False]                                   # execute → пишем в базу
+
+
+def test_enrich_failure_keeps_lots():
+    import asyncio
+    import crawler.core.prequal_detail as P
+    saved = P.enrich
+
+    async def boom(tenders, dry_run=False, max_lots=200):
+        raise RuntimeError("proxy down")
+    P.enrich = boom
+    try:
+        t = _prequal("uzex-prq-2", [])
+        keep, n = asyncio.run(R.drop_subscription_prequals([t], persist=False))
+    finally:
+        P.enrich = saved
+    assert keep == [t] and n == 0
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

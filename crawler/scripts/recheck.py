@@ -250,6 +250,30 @@ def survivors(rows, keywords=None, tnved_scope=None):
     return keep, res.counters
 
 
+async def drop_subscription_prequals(tenders, persist):
+    # type: (List, bool) -> Tuple[List, int]
+    """Предквалификации без предмета: дотянуть позиции и отсеять подписку (19.10, W43).
+
+    Лот предквалификации лежит в базе двумя строками: краул пишет `N` и до гейтов
+    дотягивает позиции (`prequal_detail`), `fetch_uzex_auctions` пишет
+    `uzex-prq-N` без них. Строку `N` с подпиской на газеты основной прогон
+    законно отсекает (`_all_positions_rejected`, W42), но `uzex-prq-N` остаётся
+    «не отправлялась, AI не видел» и попадает сюда. Без позиций фильтр её не
+    видит, AI судит по рубрике «Услуги издательские» и даёт 90. За W43 так ушли
+    35 из 99 алертов предквалификаций — все 35 подписка (сверено по близнецам).
+
+    Отказ обогащения fail-open, как в краулере: лот идёт дальше к AI по рубрике.
+    """
+    from crawler.core.notifier import _all_positions_rejected
+    try:
+        from crawler.core.prequal_detail import enrich as _enrich_prequal
+        await _enrich_prequal(tenders, dry_run=not persist)
+    except Exception as exc:
+        logger.warning("[Prequal] обогащение пропущено: %s", str(exc)[:150])
+    keep = [t for t in tenders if not _all_positions_rejected(t)]
+    return keep, len(tenders) - len(keep)
+
+
 def dedup_against_sent(tenders):
     # type: (List) -> Tuple[List, int]
     """Продовый дедуп: и внутри выборки, и против отправленного за 14 дней.
@@ -373,6 +397,9 @@ async def run(days, min_price, cap, execute, manifest=None, prefilter_only=False
     for st, n in sorted(counters.items(), key=lambda kv: -kv[1]):
         if n and st not in ("passed", "bypass"):
             logger.info("   отсев %-20s %d", st, n)
+    keep, subscr = await drop_subscription_prequals(keep, persist=execute)
+    if subscr:
+        logger.info("   отсев %-20s %d", "prequal_subscription", subscr)
     if not keep:
         return 0
 
