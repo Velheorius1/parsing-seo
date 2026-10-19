@@ -2290,6 +2290,39 @@ sources:
         "Номер": "{code}"
     keywords_fields: [name]
 
+  # 19.10.2026: у Ucell ДВА потока заявок. ПКО идут через портал Zinit (источник
+  # `ucell` выше), а мелкие запросы с короткими номерами (№117–121: «Новогоднее
+  # оформление фасада», перевозка, курсы) публикуются ТОЛЬКО на странице
+  # поставщиков ucell.uz — карточка + архив документов (.7z), на портале их нет.
+  # Мы считали, что вся закупка переехала на Zinit, и этот поток не видели вовсе.
+  # Страница рендерится на сервере (Next.js) — обычный HTML. Карточки со ссылкой
+  # на tender.ucell.uz — дубли портала, отсекаются контейнером.
+  # Ссылку лота НЕ задаём: id из первого числа ссылки дал бы «00» из
+  # «cw-corn00…/transfer.7z», а имена архивов повторяются («transfer.7z») —
+  # новый запрос слился бы со старым (класс дефекта Airways, PR #109). Без ссылки
+  # id — хэш названия, а ссылка ведёт на страницу запросов, где лежат документы.
+  - id: ucell-site
+    name: "Ucell сайт (COSCOM)"   # HTML-адаптер ставит имя источника заказчиком
+    adapter: html
+    enabled: true
+    url: "https://ucell.uz/ru/partners"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+      Accept: "text/html,application/xhtml+xml"
+      Accept-Language: "ru,uz;q=0.9"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "ucellsite"
+    html_selectors:
+      container: 'div.h-full.rounded-2xl:not(:has(a[href*="tender.ucell.uz"]))'
+      title: "a.text-xl:not(.mt-1)"
+      deadline: "p.text-brandSecondary-1"
+    field_map:
+      title: title
+      source_url_template: "https://ucell.uz/ru/partners"
+    keywords_fields: [title]
+
   - id: railway
     name: "Узбекистон темир йуллари (ЖД)"
     adapter: html
