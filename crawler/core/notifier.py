@@ -1075,6 +1075,21 @@ def is_plan_source(source):
     return (source or "") in _PLAN_SOURCES
 
 
+# Источники УЖЕ ЗАКЛЮЧЁННЫХ договоров (19.10). Прямая закупка — договор с
+# выбранным поставщиком («Единый поставщик»), поле срока у неё — дата договора.
+# Подать нельзя, но кто у кого и что купил — разведка: решение Данияра 19.10 —
+# слать с пометкой, а не глушить. Алерт #10006 ушёл «[ТЕНДЕР]» с «Подача КП»:
+# SQB, бланки с водяными знаками у «Давлат Белгиси», 187,6 млн.
+_CONTRACT_SOURCES = frozenset({
+    "Xarid Прямые закупки",
+})
+
+
+def is_contract_source(source):
+    # type: (Optional[str]) -> bool
+    return (source or "") in _CONTRACT_SOURCES
+
+
 
 def _is_own_lot(org: Optional[str]) -> bool:
     """True if the organization is Winch's own (suppress — it's our posting)."""
@@ -1570,6 +1585,9 @@ def _format_alert(
     elif is_plan_source(tender.source):
         # Не «[ТЕНДЕР]»: подать по плану нельзя, это намерение заказчика.
         parts.append("%s\U0001f4cb [ПЛАН ЗАКУПОК — не объявленный тендер]" % prefix)
+    elif is_contract_source(tender.source):
+        # Не «[ТЕНДЕР]»: договор уже подписан, это сведения, а не возможность.
+        parts.append("%s📄 [ДОГОВОР УЖЕ ЗАКЛЮЧЁН — подать нельзя]" % prefix)
     else:
         parts.append("%s[ТЕНДЕР]" % prefix if prefix else "")
     # Перевыставление (14.10, решение Данияра): та же закупка уже приходила,
@@ -1600,7 +1618,9 @@ def _format_alert(
     if tender.price:
         parts.append("Сумма: %s %s" % ("{:,.0f}".format(tender.price), tender.currency))
     if tender.deadline:
-        parts.append("Дедлайн: %s" % tender.deadline)
+        # У договора поле срока — дата договора, «Дедлайн» звал бы подавать.
+        parts.append("%s: %s" % ("Дата договора" if is_contract_source(tender.source)
+                                 else "Дедлайн", tender.deadline))
     # Extra per-source info (region, delivery days, etc.)
     if tender.extra_info:
         parts.extend(_extra_info_lines(tender.extra_info))
@@ -1824,6 +1844,8 @@ def _build_digest_text(tenders: List[RawTender], archive: Optional[dict] = None,
         # большинство планов уходит именно дайджестом, и клик по строке — это
         # и есть тот случай, на который жаловался Данияр («там не тендер»).
         tag = "\U0001f4cb ПЛАН " if is_plan_source(t.source) else ""
+        if is_contract_source(t.source):
+            tag = "📄 ДОГОВОР " + tag
         if getattr(t, "repost_prev_deadline", None):
             tag = "🔁 " + tag
         if stars and (t.external_id, t.source) in stars:

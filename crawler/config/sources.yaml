@@ -300,8 +300,11 @@ sources:
       deadline: contract_date
       date_end: contract_date
       external_id: display_id
-      # 2026-05-21: see note above (UZEX migration). Universal new-xarid URL.
-      source_url_template: "https://new-xarid.uzex.uz/home/shop/detail/{id}?elektron=true"
+      # 19.10.2026: прямая закупка живёт на своём маршруте, не в э-магазине.
+      # Прежний универсальный /home/shop/detail/{id} подставлял id прямой
+      # закупки в пространство оферт — алерт #10006 (SQB, 4447704) вёл на
+      # удалённую оферту болгарки 2023 года. Маршрут из бандла SPA, публичный.
+      source_url_template: "https://new-xarid.uzex.uz/home/purchase/direct/detail/{id}"
       extra_info:
         # ИНН заказчика и победителя есть в каждой строке — сохраняем для
         # аудита по заказчику (2026-07-28). Внимание: `deadline` здесь =
