@@ -29,9 +29,13 @@ DETAIL_BASE = "https://parsing-seo.vercel.app/tenders"
 #    legacy SPA-источника "xt-xarid.uz": префикс-матчинг случайно зацепил бы
 #    будущие xt-xarid-* источники, чьи ссылки публичны.
 # Keep in sync with web/src/app/tenders/[id]/page.tsx BROKEN_SPA_HOSTS.
+#  - 2026-10-19: «Xarid Прямые закупки» удалён — ссылка была битой не из-за
+#    SPA, а из-за чужого маршрута: id прямой закупки подставлялся в
+#    /home/shop/detail/ (алерт #10006 вёл на удалённую оферту болгарки 2023).
+#    Маршрут /home/purchase/direct/detail/{id} есть в бандле и открывается без
+#    входа (проверено в браузере на 4447704) — шаблон в sources.yaml исправлен.
 BROKEN_SPA_SOURCES = {
     "Xarid Конкурсы",
-    "Xarid Прямые закупки",
     "xt-xarid.uz",
 }
 BROKEN_SPA_PREFIXES = ("Cooperation.uz",)

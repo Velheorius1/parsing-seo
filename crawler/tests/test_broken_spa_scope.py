@@ -47,8 +47,13 @@ def test_rest_of_cooperation_stays_broken():
 
 
 def test_explicitly_listed_sources_stay_broken():
-    for src in ("Xarid Конкурсы", "Xarid Прямые закупки", "xt-xarid.uz"):
+    for src in ("Xarid Конкурсы", "xt-xarid.uz"):
         assert is_broken_spa(src), src
+
+
+def test_direct_purchases_have_a_working_link_now():
+    """19.10: /home/purchase/direct/detail/{id} публичен (проверено в браузере)."""
+    assert not is_broken_spa("Xarid Прямые закупки")
 
 
 def test_unrelated_sources_are_not_touched():
