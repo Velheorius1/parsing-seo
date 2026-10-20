@@ -29,6 +29,10 @@ _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 # ~2 недели новых лотов etender. Вытесненные уходят под пол и считаются
 # обработанными — поздний лот старше этого окна курсор уже не увидит.
 _SEEN_KEEP = 5000
+# Сколько прогонов подряд повторять detail, который не отдаётся (ревью 20.10):
+# 6 × 2 ч ≈ 12 часов. Дальше лот считается обработанным — без спецификации,
+# но и без вечного места в бюджете каждого прогона.
+_MAX_DETAIL_FAILS = 6
 _WS_RE = re.compile(r"\s+")
 
 
@@ -640,7 +644,9 @@ class ApiAdapter(BaseAdapter):
         else:
             floor = max_seen
             seen = set()  # type: Set[int]
-        start_floor, start_seen = floor, set(seen)
+        fails = dict((int(k), int(v)) for k, v in
+                     ((state.get("fail_counts") or {}).items() if isinstance(state, dict) else []))
+        start_floor, start_seen, start_fails = floor, set(seen), dict(fails)
 
         # A detail page is fetched before the combined database upsert. Restore
         # any payload left by a failed downstream write even when the source
@@ -658,7 +664,8 @@ class ApiAdapter(BaseAdapter):
             if candidates:
                 floor = _iid(candidates[0]) - 1
         else:
-            candidates = sorted(fresh, key=_iid)[: dcfg.max_per_run]
+            # Уже падавшие — в конец: свежие лоты не ждут за ними бюджета.
+            candidates = sorted(fresh, key=lambda it: (_iid(it) in fails, _iid(it)))[: dcfg.max_per_run]
         skipped = max(0, len(fresh) - len(candidates))
         if not candidates:
             return items
@@ -703,6 +710,11 @@ class ApiAdapter(BaseAdapter):
                     # Дальше идём: 20.10 detail 520753 отдавал пустое тело с 12:00,
                     # и break держал без спецификации ВСЕ более новые лоты etender.
                     failed += 1
+                    fails[iid] = fails.get(iid, 0) + 1
+                    if fails[iid] >= _MAX_DETAIL_FAILS:
+                        logger.warning("[%s] detail %s: gave up after %d runs", cfg.name, iid, fails[iid])
+                        fails.pop(iid)
+                        seen.add(iid)
                     continue
 
                 # Двойной parse строк с вложенным JSON (etender budget_products)
@@ -731,6 +743,7 @@ class ApiAdapter(BaseAdapter):
                     it["_detail_text"] = detail_text
                     enriched += 1
                 seen.add(iid)
+                fails.pop(iid, None)
                 processed_max = max(processed_max, iid)
 
         logger.info(
@@ -743,13 +756,15 @@ class ApiAdapter(BaseAdapter):
             ordered = sorted(seen)
             floor = max(floor, ordered[-_SEEN_KEEP - 1])  # ниже пола — «обработано»
             seen = set(ordered[-_SEEN_KEEP:])
-        if processed_max > max_seen or floor != start_floor or seen != start_seen:
+        fails = dict((k, v) for k, v in fails.items() if k > floor and k not in seen)
+        if processed_max > max_seen or floor != start_floor or seen != start_seen or fails != start_fails:
             try:
                 from datetime import datetime, timezone
                 session_store.set_setting(dcfg.state_key, {
                     "max_seen_id": processed_max,
                     "seen_floor": floor,
                     "seen_ids": sorted(seen),
+                    "fail_counts": dict((str(k), v) for k, v in fails.items()),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 })
             except Exception as exc:
