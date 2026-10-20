@@ -426,7 +426,23 @@ class HealthCheck:
             self._add("freshness.full_api", WARN,
                       "Cannot load full API profile: %s" % str(exc)[:80])
             return
-        full_runs = [row for row in runs if set(row.get("source_filter") or []) == expected]
+        # Источник, добавленный ПОСЛЕ прогона, не делает прогон неполным (21.10):
+        # «Xarid Аукционы» доехал в 18:20, прогон 18:00 был без него, и до
+        # следующего краула висел FAIL «нет полного прогона» при живом краулере.
+        # Прощаем не больше трёх недостающих и только тех, кого нет НИ В ОДНОМ
+        # прогоне окна (новые); пропавший из прогона старый источник — FAIL, как
+        # и раньше. Так же — до трёх удалённых из конфига после прогона.
+        seen_anywhere = set()  # type: set
+        for row in runs:
+            seen_anywhere.update(row.get("source_filter") or [])
+
+        def _is_full(row):
+            # type: (Dict[str, Any]) -> bool
+            got = set(row.get("source_filter") or [])
+            missing, extra = expected - got, got - expected
+            return len(missing) <= 3 and len(extra) <= 3 and not (missing & seen_anywhere)
+
+        full_runs = [row for row in runs if _is_full(row)]
         if not full_runs:
             self._add("freshness.full_api", FAIL,
                       "No completed full API crawl in the last 100 runs")

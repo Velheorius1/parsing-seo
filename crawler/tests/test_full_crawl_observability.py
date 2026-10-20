@@ -36,7 +36,10 @@ def test_runner_finalizes_in_a_finally_block_after_pipeline_errors():
 def test_healthcheck_has_separate_full_api_component_and_exact_profile_match():
     source = _src("scripts/healthcheck.py")
     assert '"freshness.full_api"' in source
-    assert 'set(row.get("source_filter") or []) == expected' in source
+    # С 21.10 не строгое равенство: прощаются до трёх источников, которых нет ни
+    # в одном прогоне окна (добавлены после прогона). Поведение — в
+    # test_lane_freshness: прогон одной очереди и выпавший старый источник — FAIL.
+    assert "missing & seen_anywhere" in source and "len(missing) <= 3" in source
     assert "Latest full API crawl" in source
 
 

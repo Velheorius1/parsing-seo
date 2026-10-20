@@ -70,6 +70,26 @@ def test_lane_only_runs_are_not_mistaken_for_a_full_crawl():
     assert "No completed full API crawl" in res["message"]
 
 
+def test_source_added_after_the_run_does_not_break_full_status():
+    # 21.10: «Xarid Аукционы» доехал в 18:20, прогон 18:00 был без него —
+    # FAIL «нет полного прогона» до следующего краула при живом краулере.
+    profile = _main_profile()
+    hc = H.HealthCheck()
+    hc._check_full_api_freshness([_run(profile[:-1])])
+    [res] = _results(hc, "freshness.full_api")
+    assert res["status"] == H.OK, res["message"]
+
+
+def test_source_dropped_from_a_run_is_still_a_failure():
+    # Источник был в прошлых прогонах и пропал из последнего — это не «новый».
+    profile = _main_profile()
+    hc = H.HealthCheck()
+    hc._check_full_api_freshness([_run(profile[:-1], hours_ago=1.0), _run(profile, hours_ago=30.0)])
+    [res] = _results(hc, "freshness.full_api")
+    # Полным засчитан только старый прогон — и он просрочен.
+    assert res["status"] == H.FAIL and "30.0h ago" in res["message"], res
+
+
 def test_config_really_has_lane_sources_outside_the_main_profile():
     # Без этого первые два теста прошли бы и на старом коде.
     lane_ids = set(s["id"] for s in _lane_items())
