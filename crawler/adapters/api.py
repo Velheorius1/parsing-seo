@@ -5,7 +5,7 @@ import hashlib
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import httpx
 
@@ -25,6 +25,10 @@ _DATE_RE = re.compile(
     r"|\b20\d{2}\b"                                 # bare 4-digit years
 )
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+# Сколько обработанных detail-id держит state над полом (R02, 20.10.2026):
+# ~2 недели новых лотов etender. Вытесненные уходят под пол и считаются
+# обработанными — поздний лот старше этого окна курсор уже не увидит.
+_SEEN_KEEP = 5000
 _WS_RE = re.compile(r"\s+")
 
 
@@ -595,12 +599,20 @@ class ApiAdapter(BaseAdapter):
 
     async def _enrich_with_details(self, items):
         # type: (List[Dict[str, Any]]) -> List[Dict[str, Any]]
-        """П7: дотянуть detail-страницы для НОВЫХ лотов (id > state max_seen).
+        """П7: дотянуть detail-страницы для НОВЫХ лотов.
 
         Бюджет max_per_run/прогон; кандидаты обрабатываются от старых к новым,
-        state = max обработанного id — недообработанный хвост подберёт
-        следующий краул. Текст пишется в item["_detail_text"] (подключи его
-        в keywords_fields). State переживает рестарты в crawler_settings.
+        недообработанный хвост подберёт следующий краул. Текст пишется в
+        item["_detail_text"] (подключи его в keywords_fields). State переживает
+        рестарты в crawler_settings.
+
+        «Новый» — не «id больше max_seen» (R02 ревью 02.10, 20.10.2026): лот с
+        меньшим номером попадает в активную выдачу позже соседей, и курсор
+        проскакивал его навсегда — «Tafakkur jurnalini 3-soni» (512262, печать
+        журнала) ушёл без спецификации и без алерта. State помнит обработанные
+        id выше пола `seen_floor` (последние _SEEN_KEEP), кандидат — любой id
+        выше пола, которого там нет. Старый state без пола: пол = max_seen,
+        архив ниже него заново не качается.
         """
         import json as _json
 
@@ -622,6 +634,13 @@ class ApiAdapter(BaseAdapter):
         except Exception:
             pass
         max_seen = int(state.get("max_seen_id", 0)) if isinstance(state, dict) else 0
+        if isinstance(state, dict) and "seen_floor" in state:
+            floor = int(state.get("seen_floor") or 0)
+            seen = set(int(x) for x in (state.get("seen_ids") or []))
+        else:
+            floor = max_seen
+            seen = set()  # type: Set[int]
+        start_floor, start_seen = floor, set(seen)
 
         # A detail page is fetched before the combined database upsert. Restore
         # any payload left by a failed downstream write even when the source
@@ -631,20 +650,24 @@ class ApiAdapter(BaseAdapter):
         if restored:
             logger.info("[%s] restored %d cached detail payloads", cfg.name, restored)
 
-        fresh = [it for it in items if _iid(it) > max_seen]
-        if max_seen == 0 and dcfg.bootstrap == "newest":
+        fresh = [it for it in items if _iid(it) > floor and _iid(it) not in seen]
+        if max_seen == 0 and floor == 0 and not seen and dcfg.bootstrap == "newest":
             # Архивный list: берём срез новейших, хвост не дотягиваем by design
             candidates = sorted(fresh, key=_iid, reverse=True)[: dcfg.max_per_run]
             candidates.reverse()  # обрабатываем от старых к новым внутри среза
+            if candidates:
+                floor = _iid(candidates[0]) - 1
         else:
             candidates = sorted(fresh, key=_iid)[: dcfg.max_per_run]
         skipped = max(0, len(fresh) - len(candidates))
         if not candidates:
             return items
 
+        late = sum(1 for it in candidates if _iid(it) <= max_seen)
         logger.info(
-            "[%s] detail-fetch: %d candidates (max_seen %d%s)",
+            "[%s] detail-fetch: %d candidates (max_seen %d%s%s)",
             cfg.name, len(candidates), max_seen,
+            ", %d late lower-id" % late if late else "",
             ", %d deferred to next run" % skipped if skipped else "",
         )
 
@@ -703,17 +726,24 @@ class ApiAdapter(BaseAdapter):
                         break
                     it["_detail_text"] = detail_text
                     enriched += 1
+                seen.add(iid)
                 processed_max = max(processed_max, iid)
 
         logger.info(
             "[%s] detail-fetch done: %d/%d enriched, state max_seen %d -> %d",
             cfg.name, enriched, len(candidates), max_seen, processed_max,
         )
-        if processed_max > max_seen:
+        if len(seen) > _SEEN_KEEP:
+            ordered = sorted(seen)
+            floor = max(floor, ordered[-_SEEN_KEEP - 1])  # ниже пола — «обработано»
+            seen = set(ordered[-_SEEN_KEEP:])
+        if processed_max > max_seen or floor != start_floor or seen != start_seen:
             try:
                 from datetime import datetime, timezone
                 session_store.set_setting(dcfg.state_key, {
                     "max_seen_id": processed_max,
+                    "seen_floor": floor,
+                    "seen_ids": sorted(seen),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 })
             except Exception as exc:
