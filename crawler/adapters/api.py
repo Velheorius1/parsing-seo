@@ -672,6 +672,7 @@ class ApiAdapter(BaseAdapter):
         )
 
         enriched = 0
+        failed = 0
         processed_max = max_seen
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(dcfg.timeout, connect=10.0),
@@ -698,8 +699,11 @@ class ApiAdapter(BaseAdapter):
                             cfg.name, iid, str(exc)[:120],
                         )
                 if not isinstance(data, dict):
-                    # Не двигаем state дальше провала — лот добьём в след. краул
-                    break
+                    # Лот не помечается обработанным — повтор в следующем прогоне.
+                    # Дальше идём: 20.10 detail 520753 отдавал пустое тело с 12:00,
+                    # и break держал без спецификации ВСЕ более новые лоты etender.
+                    failed += 1
+                    continue
 
                 # Двойной parse строк с вложенным JSON (etender budget_products)
                 for f in dcfg.json_string_fields:
@@ -730,8 +734,10 @@ class ApiAdapter(BaseAdapter):
                 processed_max = max(processed_max, iid)
 
         logger.info(
-            "[%s] detail-fetch done: %d/%d enriched, state max_seen %d -> %d",
-            cfg.name, enriched, len(candidates), max_seen, processed_max,
+            "[%s] detail-fetch done: %d/%d enriched%s, state max_seen %d -> %d",
+            cfg.name, enriched, len(candidates),
+            ", %d failed (retry next run)" % failed if failed else "",
+            max_seen, processed_max,
         )
         if len(seen) > _SEEN_KEEP:
             ordered = sorted(seen)
