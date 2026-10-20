@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
+from crawler.adapters.api import _safe_str
 from crawler.adapters.base import BaseAdapter
 from crawler.core.models import RawTender
 
@@ -34,7 +35,24 @@ _NO_DATE = "0001-01-01"
 
 def _str(value):
     # type: (Any) -> str
-    return " ".join(str(value or "").split())
+    """_safe_str + схлопнутые пробелы: статусы приходят как «Одобрен Казной\\n»."""
+    return " ".join(_safe_str(value).split())
+
+
+def _due(entry, now):
+    # type: (Dict[str, str], datetime) -> bool
+    """Пора ли перепроверить лот из очереди (ревью 20.10: 300–400 лотов в очереди
+    каждые 2 часа съедали бюджет перебора). Свежий — каждый прогон, 1–3 дня —
+    раз в 6 часов, старше — раз в 12."""
+    try:
+        since = datetime.fromisoformat(entry.get("since") or "")
+        checked = datetime.fromisoformat(entry["checked"]) if entry.get("checked") else None
+    except ValueError:
+        return True
+    age = now - since
+    every = timedelta(0) if age < timedelta(days=1) else (
+        timedelta(hours=6) if age < timedelta(days=3) else timedelta(hours=12))
+    return checked is None or now - checked >= every
 
 
 def _date(value):
@@ -61,14 +79,31 @@ class XaridProbeAdapter(BaseAdapter):
             pass
         state = state if isinstance(state, dict) else {}
         next_id = int(state.get("next_id") or pc.start_id)
-        pending = dict((str(k), v) for k, v in (state.get("pending") or {}).items())
         now = datetime.now(timezone.utc)
+        pending = {}  # type: Dict[str, Dict[str, str]]
+        for key, value in (state.get("pending") or {}).items():
+            if isinstance(value, dict):
+                pending[str(key)] = {"since": str(value.get("since") or now.isoformat()),
+                                     "checked": str(value.get("checked") or "")}
+            else:  # формат до 21.10: id -> since
+                pending[str(key)] = {"since": str(value), "checked": ""}
         stale = (now - timedelta(days=pc.pending_days)).isoformat()
-        for key in [k for k, since in pending.items() if str(since) < stale]:
+        for key in [k for k, entry in pending.items() if entry["since"] < stale]:
             pending.pop(key)
 
-        budget = pc.max_per_run
+        # Опубликованные прошлым прогоном отдаём ещё раз (ревью 20.10): state
+        # сохраняется ДО записи в БД, и при сбое записи лот иначе терялся бы
+        # навсегда — перебор ушёл дальше. Повтор идемпотентен: строка уже есть,
+        # алерта второй раз не будет.
         out = []  # type: List[RawTender]
+        for data in state.get("last_published") or []:
+            try:
+                out.append(RawTender(**data))
+            except Exception:
+                continue
+        replayed = len(out)
+
+        budget = pc.max_per_run
         found = missing = errors = 0
         start_next = next_id
         async with httpx.AsyncClient(timeout=httpx.Timeout(cfg.timeout, connect=10.0),
@@ -76,7 +111,10 @@ class XaridProbeAdapter(BaseAdapter):
             for key in sorted(pending, key=int):
                 if budget <= 0:
                     break
+                if not _due(pending[key], now):
+                    continue
                 budget -= 1
+                pending[key]["checked"] = now.isoformat()
                 kind, lot = await self._get(client, int(key))
                 if kind == "missing":
                     pending.pop(key, None)
@@ -95,9 +133,12 @@ class XaridProbeAdapter(BaseAdapter):
                     # держал спецификации etender): номер — в очередь перепроверки.
                     errors += 1
                     errors_in_row += 1
-                    pending.setdefault(str(cur), now.isoformat())
+                    pending.setdefault(str(cur), {"since": now.isoformat(), "checked": now.isoformat()})
                     if errors_in_row >= 3:
-                        break  # похоже на сеть или сервер: продолжим со следующего прогона
+                        # Похоже на сеть или сервер: продолжим со следующего прогона,
+                        # а сбой — в crawl_runs, иначе источник молча встанет (ревью 20.10).
+                        self.last_error = "probe stopped at %d: %d errors in a row" % (cur, errors_in_row)
+                        break
                     misses += 1
                 elif kind == "missing":
                     errors_in_row = 0
@@ -113,11 +154,13 @@ class XaridProbeAdapter(BaseAdapter):
             for key in [k for k in pending if int(k) >= next_id]:
                 pending.pop(key)  # выше next_id их и так пройдёт перебор
 
-        logger.info("[%s] probe %d..%d: %d lots, %d missing, %d errors; %d published, %d pending",
-                    cfg.name, start_next, cur - 1, found, missing, errors, len(out), len(pending))
+        fresh = out[replayed:]
+        logger.info("[%s] probe %d..%d: %d lots, %d missing, %d errors; %d published (+%d replayed), %d pending",
+                    cfg.name, start_next, cur - 1, found, missing, errors, len(fresh), replayed, len(pending))
         try:
             session_store.set_setting(pc.state_key, {
                 "next_id": next_id, "pending": pending, "updated_at": now.isoformat(),
+                "last_published": [t.model_dump(mode="json", exclude={"collected_at"}) for t in fresh],
             })
         except Exception as exc:
             logger.warning("[%s] probe state write failed: %s", cfg.name, str(exc)[:80])
@@ -151,7 +194,7 @@ class XaridProbeAdapter(BaseAdapter):
             pending.pop(key, None)
             out.append(self._to_tender(lot))
         elif any(h in status for h in _PENDING_HINTS):
-            pending.setdefault(key, now.isoformat())
+            pending.setdefault(key, {"since": now.isoformat(), "checked": now.isoformat()})
         else:
             pending.pop(key, None)  # совершён, отказан, удалён — не наше дело
 

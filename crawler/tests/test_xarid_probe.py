@@ -79,6 +79,7 @@ def _run(lots, state, errors=(), **probe):
             patch.object(session_store, "set_setting") as put, \
             patch("crawler.adapters.xarid_probe.httpx.AsyncClient", _Client):
         out = asyncio.run(adapter._fetch_items())
+    _run.last_error = adapter.last_error
     return out, put.call_args[0][1], asked
 
 
@@ -146,3 +147,38 @@ def test_book_printing_lot_passes_the_dictionary():
     from crawler.core.notifier import _find_matching_keyword
     out, _, _ = _run({419080: _lot(419080)}, {"next_id": 419080})
     assert _find_matching_keyword(out[0], ["книг", "печат"]) is not None
+
+
+# ── ревью 20.10 ──────────────────────────────────────────────────────────────
+
+def test_last_run_lots_are_replayed_once_against_a_failed_db_write():
+    out, state, _ = _run({419080: _lot(419080)}, {"next_id": 419080})
+    assert [t.external_id for t in out] == ["419080"] and len(state["last_published"]) == 1, state
+    again, state2, asked = _run({}, state, max_misses=1)
+    assert [t.external_id for t in again] == ["419080"], again  # повтор из state, без запроса
+    assert 419080 not in asked and state2["last_published"] == [], (asked, state2)
+    assert again[0].deadline == "2026-10-26T10:13:30" and again[0].organization == "КГУ им Бердаха"
+
+
+def test_old_queue_entries_are_rechecked_less_often():
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    iso = lambda d: (now - d).isoformat()  # noqa: E731
+    state = {"next_id": 900, "pending": {
+        "100": {"since": iso(timedelta(days=2)), "checked": iso(timedelta(hours=1))},   # 1–3 дня, рано
+        "101": {"since": iso(timedelta(days=2)), "checked": iso(timedelta(hours=7))},   # 1–3 дня, пора
+        "102": {"since": iso(timedelta(days=5)), "checked": iso(timedelta(hours=7))},   # старше, рано
+        "103": {"since": iso(timedelta(hours=3)), "checked": iso(timedelta(hours=1))},  # свежий — всегда
+    }}
+    _, _, asked = _run({}, state, max_misses=1)
+    assert [i for i in asked if i < 900] == [101, 103], asked
+
+
+def test_network_trouble_is_reported_to_crawl_runs():
+    _run({}, {"next_id": 100}, errors={100, 101, 102})
+    assert _run.last_error and "3 errors in a row" in _run.last_error, _run.last_error
+
+
+def test_gap_threshold_is_above_the_longest_seen_gap():
+    # 20.10: самая длинная дыра в номерах — 19 подряд; на 25 запас был мал.
+    assert _cfg().probe.max_misses >= 50 and _cfg().probe.pending_days >= 30

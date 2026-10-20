@@ -1378,8 +1378,10 @@ sources:
       state_key: "probe_state_xarid_auctions"
       start_id: 418200   # ~12.10: торги идут ~7 дней; 418265 (плакаты 132 млн) ещё ждёт торгов
       max_per_run: 500
-      max_misses: 25
-      pending_days: 14
+      # Самая длинная дыра в номерах на 20.10 — 19 подряд (418369–418389); на 25
+      # перебор мог бы встать навсегда, упираясь в одну и ту же дыру.
+      max_misses: 60
+      pending_days: 30   # «Проверка на аффилированность» тянется неделями
     field_map:
       source_url_template: "https://xarid.uzex.uz/auction/detail/{id}"
 
