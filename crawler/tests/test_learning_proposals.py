@@ -148,8 +148,29 @@ def test_stale_message_is_repaired_even_when_already_decided(monkeypatch):
 
 # ── кандидаты и бэктест ──────────────────────────────────────────────────────
 
+def _live_dictionary():
+    """Словарь из crawler/config/settings.py, а не из `sys.modules` (20.10).
+
+    В общем прогоне модуль `crawler.config.settings` раньше подменяет заглушка
+    из tests/_stubs (`alert_keywords=""`), и `_get_keywords()` отдавал [] — тест
+    падал только вместе со всеми, поодиночке проходил. Читаем литерал дефолта
+    из исходника: заглушки его не видят, .env не подмешивается.
+    """
+    import ast
+    import os
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        'config', 'settings.py')
+    tree = ast.parse(open(path, encoding='utf-8').read())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign) and getattr(node.target, 'id', '') == 'alert_keywords':
+            words = ast.literal_eval(node.value.args[0])
+            return [w.strip().lower() for w in words if w.strip()]
+    raise AssertionError('alert_keywords не найден в settings.py')
+
+
 def test_word_already_covered_by_the_live_dictionary_is_not_proposed():
-    hit, current = P._matcher()
+    hit, _ = P._matcher()
+    current = _live_dictionary()
     assert 'kitob' in current
     assert P.normalize_word('Kitobi', current, hit) is None, '«kitobi» ловит стоящее «kitob»'
     assert P.normalize_word('печать', current, hit) is None
