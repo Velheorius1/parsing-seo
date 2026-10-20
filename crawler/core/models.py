@@ -13,6 +13,7 @@ class AdapterType(str, enum.Enum):
     SPA = "spa"
     TELEGRAM = "telegram"
     JSONRPC = "jsonrpc"
+    XARID_PROBE = "xarid_probe"
 
 
 class FieldMap(BaseModel):
@@ -129,6 +130,22 @@ class DetailFetchConfig(BaseModel):
     bootstrap: str = "oldest"
 
 
+class ProbeConfig(BaseModel):
+    """Перебор лотов по номеру (20.10.2026, старые аукционы UZEX).
+
+    У xarid.uzex.uz/auction список закрыт RSA-токеном, а лот по номеру
+    (`Common/GetLot/{id}`) отдаётся без входа. Номера идут подряд (~100 в день):
+    адаптер идёт вперёд от `next_id` до `max_misses` «нет лота» подряд, лоты до
+    публикации держит в очереди и перепроверяет не дольше `pending_days`.
+    """
+
+    state_key: str  # ключ в crawler_settings
+    start_id: int  # откуда начать, пока state пуст
+    max_per_run: int = 300  # запросов на прогон: очередь + вперёд
+    max_misses: int = 25  # подряд «нет лота» — дальше номеров ещё нет
+    pending_days: int = 14
+
+
 class SourceConfig(BaseModel):
     """One tender source definition from sources.yaml."""
 
@@ -187,6 +204,8 @@ class SourceConfig(BaseModel):
     ai_lane_categories: List[str] = Field(default_factory=list)
     # П7: двухшаговый detail-fetch (см. DetailFetchConfig)
     detail_fetch: Optional[DetailFetchConfig] = None
+    # Перебор по номеру для adapter: xarid_probe (см. ProbeConfig)
+    probe: Optional[ProbeConfig] = None
     # Keep a previously fetched specification across repeat list-crawls. Opt-in
     # because reading JSONB for every ordinary source would add payload and can
     # accidentally preserve stale free text.

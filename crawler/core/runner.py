@@ -536,3 +536,11 @@ def _register_all_adapters() -> None:
         register_adapter(AdapterType.JSONRPC, JsonRpcAdapter)
     except ImportError:
         logger.debug("JSON-RPC adapter not available")
+
+    # Старые аукционы UZEX: перебор лотов по номеру (20.10.2026)
+    try:
+        from crawler.adapters.xarid_probe import XaridProbeAdapter
+
+        register_adapter(AdapterType.XARID_PROBE, XaridProbeAdapter)
+    except ImportError:
+        logger.debug("Xarid probe adapter not available")
