@@ -121,7 +121,7 @@ async def _run_corpus(entries, use_ai):
     from crawler.scripts.replay import replay_tenders
 
     tenders = [_to_tender(e) for e in entries]
-    frozen = dict((e["external_id"], e.get("frozen_now")) for e in entries)
+    frozen = dict(((e.get("source") or "", e["external_id"]), e.get("frozen_now")) for e in entries)
     verdicts = await replay_tenders(tenders, use_ai=use_ai, as_of="collected_at",
                                     mutes=set(), collected_at=frozen)
     return list(zip(entries, verdicts))

@@ -125,6 +125,21 @@ def test_verdict_shape_is_stable():
         assert hasattr(v, f), f
 
 
+def test_collected_at_is_keyed_by_source_and_id():
+    """14.10: один номер ETender живёт в «Обсуждениях» и в «UZEX» с разными датами
+    сбора. По голому external_id оба лота брали один момент — 16 ложных
+    «deadline_expired» в регресс-прогоне. Каждый берёт свой."""
+    disc = _mk(source="ETender Обсуждения", external_id="2612", deadline="2026-05-01")
+    uzex = _mk(source="ETender UZEX", external_id="2612", deadline="2026-05-20")
+    out = _run([disc, uzex], as_of="collected_at", collected_at={
+        ("ETender Обсуждения", "2612"): "2026-04-27T04:00:00+00:00",
+        ("ETender UZEX", "2612"): "2026-05-04T10:00:00+00:00",
+    })
+    assert [v.passed_prefilter for v in out] == [True, True], [v.dropped_at_stage for v in out]
+    old_style = _run([disc], as_of="collected_at", collected_at={"2612": "2026-05-04T10:00:00+00:00"})
+    assert old_style[0].dropped_at_stage == "deadline_expired", old_style[0].dropped_at_stage
+
+
 # ── row conversion ────────────────────────────────────────────────────────────
 
 def test_row_to_raw_tender_coerces_jsonb_types():
