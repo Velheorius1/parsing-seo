@@ -551,6 +551,10 @@ sources:
       title: "a"
       deadline: "time"
       link: "a@href"
+      # 20.10: id — весь slug. По умолчанию бралось первое число ссылки, и
+      # «…-rental-services-0», «…-hackathon-4» получали id «0» и «4»: следующий
+      # лот с тем же хвостом считался старым и не алертил (класс Airways, #109).
+      external_id_regex: 'tenders/([^/?#]+)'
     field_map:
       title: title
       organization: "OSCE Uzbekistan"
