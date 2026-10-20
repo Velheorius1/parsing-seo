@@ -54,3 +54,42 @@ def test_souvenir_rfi_passes_the_dictionary():
     page = PAGE.replace("Закупка устройств", "Сувенирная продукция «Welcome box» для сотрудников", 1)
     t = _items(page)[0]
     assert _find_matching_keyword(t, ["сувенир", "полиграф"]) == "сувенир"
+
+
+# ── срок со страницы RFI (21.10, ревью) ──────────────────────────────────────
+
+def _with_detail(pages):
+    import asyncio
+    raw = yaml.safe_load(open(os.path.join(_REPO, "crawler", "config", "sources.yaml"), encoding="utf-8"))
+    cfg = [s for s in raw["sources"] if s["id"] == "mobiuz-rfi"][0]
+    a = HtmlAdapter(SourceConfig(**cfg))
+    a.last_error = None
+
+    async def fake_fetch(client, url):
+        return PAGE if url == URL else pages.get(url)
+
+    a._fetch_page = fake_fetch
+    return dict((t.external_id, t.deadline) for t in asyncio.run(a._fetch_items()))
+
+
+def _page(text):
+    return "<html><body><div>4. %s 5. Предложения необходимо направлять</div></body></html>" % text
+
+
+def test_rfi_deadline_with_hour_and_month_name():
+    got = _with_detail({"https://company.mobi.uz/ru/purchase/2026/106516/": _page(
+        "Срок окончания приема предложений – до 16 часов 00 мин (местное время) 28 октября 2026 г.")})
+    assert got["106516"] == "2026-10-28T16:00:00+05:00", got["106516"]
+
+
+def test_rfi_deadline_with_spaced_dots():
+    got = _with_detail({"https://company.mobi.uz/ru/purchase/2026/106516/": _page(
+        "Срок окончания приема предложений – 26 .10. 2026г.")})
+    assert got["106516"] == "26.10.2026", got["106516"]
+
+
+def test_impossible_date_is_not_written_as_iso():
+    from crawler.adapters.html import _tashkent_deadline_to_iso, _loose_date_to_numeric
+    assert _tashkent_deadline_to_iso("31.11.2026, 10:00") == "31.11.2026, 10:00"
+    assert _loose_date_to_numeric("5 декабря 2026") == "5.12.2026"
+    assert _loose_date_to_numeric("без срока") == "без срока"

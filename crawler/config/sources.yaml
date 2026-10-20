@@ -2320,6 +2320,11 @@ sources:
       deadline: "div.news-line__date"
       deadline_is_publication_date: true
       link: "h2.news-line__name a@href"
+      # 21.10 (ревью): без срока RFI жил вечно. Срок — со страницы лота, два
+      # вида: «Срок окончания приема предложений – до 16 часов 00 мин (местное
+      # время) 28 октября 2026 г.» и «… – 26 .10. 2026г.».
+      detail_deadline_regex: 'Срок окончания при[её]ма предложений\s*[–—-]\s*(?:до\s+(?P<hh>\d{1,2})\s*час\w*\s*(?P<mm>\d{2})\s*мин\w*[^0-9]{0,40})?(?P<date>\d{1,2}\s*\.?\s*(?:\d{1,2}|[а-яё]+)\s*\.?\s*\d{4})'
+      detail_max: 20
     field_map:
       title: title
       deadline: deadline
