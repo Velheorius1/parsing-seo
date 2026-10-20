@@ -1358,6 +1358,31 @@ sources:
       source_url_template: "https://xarid.uzex.uz/auction/detail/{id}"
     keywords_fields: [categoryName]
 
+  - id: xarid-auctions
+    name: "Xarid Аукционы"
+    adapter: xarid_probe
+    enabled: true
+    # 20.10.2026: старая система аукционов UZEX (xarid.uzex.uz/auction). Список
+    # закрыт RSA-токеном, лот по номеру — открыт: перебор вперёд, см.
+    # adapters/xarid_probe.py. С VPS отвечает без прокси. Независимая сверка
+    # нашла здесь 629 открытых лотов за три недели и ни одного в нашей базе:
+    # печать книг КГУ 283 млн, НУУз 127,6 млн, плакаты 132 и 75 млн.
+    url: "https://xarid-api-auction.uzex.uz/Common/GetLot/{id}"
+    headers:
+      # Короткий UA → 500 «Missing User-Agent header»
+      User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    rate_limit: 5
+    timeout: 20
+    id_prefix: "xarid-auc"
+    probe:
+      state_key: "probe_state_xarid_auctions"
+      start_id: 418200   # ~12.10: торги идут ~7 дней; 418265 (плакаты 132 млн) ещё ждёт торгов
+      max_per_run: 500
+      max_misses: 25
+      pending_days: 14
+    field_map:
+      source_url_template: "https://xarid.uzex.uz/auction/detail/{id}"
+
   - id: uzex-prequest
     name: "UZEX Предквалификации"
     adapter: api
