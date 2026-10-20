@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import logging
 import re
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
@@ -108,10 +109,38 @@ def _tashkent_deadline_to_iso(text):
     непонятно, какая срок. Не тот формат — строка возвращается как была.
     """
     m = _NUM_DEADLINE_TIME_RE.fullmatch(text)
-    if not m or int(m.group(4)) > 23 or int(m.group(5)) > 59:
+    if not m or not _real_moment(m.group(3), m.group(2), m.group(1), m.group(4), m.group(5)):
         return text
     return "%s-%02d-%02dT%02d:%s:00+05:00" % (
         m.group(3), int(m.group(2)), int(m.group(1)), int(m.group(4)), m.group(5))
+
+
+def _real_moment(year, month, day, hh="0", mm="0"):
+    # type: (str, str, str, str, str) -> bool
+    """Такой момент существует: «31.11» или «25:00» в ISO не пишем — разборщик
+    сроков такую строку не прочтёт, и лот остался бы без срока навсегда."""
+    try:
+        datetime(int(year), int(month), int(day), int(hh), int(mm))
+        return True
+    except ValueError:
+        return False
+
+
+_RU_MONTHS = {"янв": 1, "фев": 2, "мар": 3, "апр": 4, "мая": 5, "май": 5, "июн": 6,
+              "июл": 7, "авг": 8, "сен": 9, "окт": 10, "ноя": 11, "дек": 12}
+_LOOSE_DATE_RE = re.compile(r"^(\d{1,2})\s*\.?\s*([а-яё]+|\d{1,2})\s*\.?\s*(\d{4})", re.I)
+
+
+def _loose_date_to_numeric(text):
+    # type: (str) -> str
+    """«26 .10. 2026», «28 октября 2026» → «26.10.2026» (21.10, страницы RFI Mobiuz).
+    Не дата — строка как была."""
+    m = _LOOSE_DATE_RE.match(text.strip())
+    if not m:
+        return text
+    mon = m.group(2).lower()
+    month = int(mon) if mon.isdigit() else _RU_MONTHS.get(mon[:3])
+    return "%d.%d.%s" % (int(m.group(1)), month, m.group(3)) if month else text
 
 
 class HtmlAdapter(BaseAdapter):
@@ -223,7 +252,9 @@ class HtmlAdapter(BaseAdapter):
             m = rx.search(text)
             if not m:
                 continue
-            found = m.group(1).strip()
+            # Группа date — если есть: у Mobiuz час стоит ПЕРЕД датой
+            # («до 16 часов 00 мин … 28 октября 2026»), и group(1) был бы часом.
+            found = _loose_date_to_numeric((m.groupdict().get("date") or m.group(1)).strip())
             # «5.10.2026» → «05.10.2026»: разборщик сроков ждёт две цифры.
             dm = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", found)
             if dm:
@@ -233,7 +264,7 @@ class HtmlAdapter(BaseAdapter):
             # закрывает лот в этот час (#83), а не в конце дня. Нет групп или
             # час не настоящий — остаётся одна дата, как было.
             hh, mm = m.groupdict().get("hh"), m.groupdict().get("mm")
-            if dm and hh and mm and int(hh) < 24 and int(mm) < 60:
+            if dm and hh and mm and _real_moment(dm.group(3), dm.group(2), dm.group(1), hh, mm):
                 found = "%s-%02d-%02dT%02d:%s:00+05:00" % (
                     dm.group(3), int(dm.group(2)), int(dm.group(1)), int(hh), mm)
             t.deadline = found
