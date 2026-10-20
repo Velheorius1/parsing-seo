@@ -2271,6 +2271,34 @@ sources:
       source_url_template: "https://company.mobi.uz{link}"
     keywords_fields: [title]
 
+  - id: mobiuz-rfi
+    name: "Mobiuz RFI"   # HTML-адаптер ставит имя источника заказчиком
+    adapter: html
+    enabled: true
+    # 20.10.2026: у Mobiuz две ленты. /ru/purchase/ — отборы (ОНП), её собирает
+    # `mobiuz`; запросы информации (RFI) живут только в /ru/purchase/rfi/, и их
+    # не было в базе ни одного — мимо прошёл «Сувенирная продукция Welcome box»
+    # (RFI 105763, 17–25.09). Разметка та же, дата карточки — публикация.
+    url: "https://company.mobi.uz/ru/purchase/rfi/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (compatible; TenderMonitor/1.0)"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "mobiuzrfi"
+    html_selectors:
+      external_id_regex: "(\\d+)/?$"
+      container: "div.news-item"
+      title: "h2.news-line__name a"
+      deadline: "div.news-line__date"
+      deadline_is_publication_date: true
+      link: "h2.news-line__name a@href"
+    field_map:
+      title: title
+      deadline: deadline
+      source_url_template: "https://company.mobi.uz{link}"
+    keywords_fields: [title]
+
   - id: ucell
     name: "Ucell (COSCOM)"
     adapter: api
