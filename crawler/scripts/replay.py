@@ -99,7 +99,10 @@ async def replay_tenders(
     mutes defaults to an EMPTY set — deliberately not get_active_mutes(), which
     writes a cache file; the caller injects live mutes if the question is
     "would it push through today's mutes" rather than "is the tender catchable".
-    collected_at: optional {external_id: iso_ts} for as_of="collected_at".
+    collected_at: optional {(source, external_id): iso_ts} for as_of="collected_at".
+      Ключ — пара: один номер ETender живёт в «Обсуждениях» и в «UZEX» с разными
+      датами сбора, и по голому external_id момент брался чужой (14.10: 16 ложных
+      «deadline_expired» в регресс-прогоне). Голый external_id — ещё понимается.
     vip_index: ⭐-полоса топ-100 (core/vip_lane) — как в send_alerts при режиме не off.
     """
     from crawler.core.notifier import (
@@ -122,7 +125,10 @@ async def replay_tenders(
             client = httpx.AsyncClient(timeout=25)
 
         for t in tenders:
-            now = _as_of_value(as_of, collected_at.get(t.external_id))
+            ts = collected_at.get((t.source, t.external_id))
+            if ts is None:
+                ts = collected_at.get(t.external_id)
+            now = _as_of_value(as_of, ts)
             pf = prefilter([t], keywords, tnved_scope=tnved_scope, now=now, vip_index=vip_index)
             v = pf.verdicts[0]
             rv = ReplayVerdict(
@@ -209,8 +215,8 @@ def main():
         sys.exit(2)
 
     tenders = [row_to_raw_tender(r) for r in rows]
-    ts_map = dict((str(r.get("external_id")), r.get("collected_at"))
-                  for r in rows if r.get("collected_at"))
+    ts_map = dict(((t.source, t.external_id), r.get("collected_at"))
+                  for t, r in zip(tenders, rows) if r.get("collected_at"))
     out = asyncio.run(replay_tenders(tenders, use_ai=a.ai, as_of=a.as_of,
                                      collected_at=ts_map))
     for v in out:
