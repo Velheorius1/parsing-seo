@@ -57,7 +57,7 @@ def test_only_site_requests_not_portal_duplicates():
 
 def test_deadline_and_link():
     t = _items()[0]
-    assert t.deadline == "20.10.2026, 16:00", t.deadline
+    assert t.deadline == "2026-10-20T16:00:00+05:00", t.deadline
     assert t.source_url == URL, t.source_url
     assert t.organization == "Ucell сайт (COSCOM)", t.organization
 
@@ -73,12 +73,22 @@ def test_id_is_stable_distinct_and_not_from_archive_link():
     assert len(set(ids) | set(t.external_id for t in _items(page2))) == 3
 
 
-def test_deadline_passes_prefilter_until_the_day():
+def test_deadline_closes_at_its_tashkent_hour():
+    # 20.10: час срока терялся, лот со сроком 16:00 жил до конца дня.
     from datetime import datetime
     from crawler.core.notifier import _is_deadline_expired
     t = _items()[0]
     assert _is_deadline_expired(t, now=datetime(2026, 10, 19, 9, 0)) is False
-    assert _is_deadline_expired(t, now=datetime(2026, 10, 22, 9, 0)) is True
+    assert _is_deadline_expired(t, now=datetime(2026, 10, 20, 10, 30)) is False  # 15:30 Ташкент
+    assert _is_deadline_expired(t, now=datetime(2026, 10, 20, 11, 30)) is True   # 16:30 Ташкент
+
+
+def test_tashkent_time_only_for_a_lone_date_with_time():
+    from crawler.adapters.html import _tashkent_deadline_to_iso as f
+    assert f("28.10.2026, 14:00") == "2026-10-28T14:00:00+05:00"
+    assert f("1.11.2026 9:05") == "2026-11-01T09:05:00+05:00"
+    for raw in ("28.10.2026", "с 01.10.2026 до 28.10.2026, 14:00", "28.10.2026, 25:00"):
+        assert f(raw) == raw, raw
 
 
 if __name__ == "__main__":

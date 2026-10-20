@@ -96,6 +96,24 @@ def _english_deadline_to_iso(text):
     return out
 
 
+_NUM_DEADLINE_TIME_RE = re.compile(
+    r"\s*(\d{1,2})\.(\d{1,2})\.(\d{4}),?\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*")
+
+
+def _tashkent_deadline_to_iso(text):
+    # type: (str) -> str
+    """«20.10.2026, 16:00» → «2026-10-20T16:00:00+05:00» (Ucell сайт).
+
+    Только когда поле целиком — одна дата со временем: в строке с двумя датами
+    непонятно, какая срок. Не тот формат — строка возвращается как была.
+    """
+    m = _NUM_DEADLINE_TIME_RE.fullmatch(text)
+    if not m or int(m.group(4)) > 23 or int(m.group(5)) > 59:
+        return text
+    return "%s-%02d-%02dT%02d:%s:00+05:00" % (
+        m.group(3), int(m.group(2)), int(m.group(1)), int(m.group(4)), m.group(5))
+
+
 class HtmlAdapter(BaseAdapter):
     """Adapter for HTML scraping sources (httpx + BeautifulSoup)."""
 
@@ -343,6 +361,8 @@ class HtmlAdapter(BaseAdapter):
             deadline = None
         if deadline:
             deadline = _english_deadline_to_iso(deadline)
+            if selectors.deadline_tashkent_time:
+                deadline = _tashkent_deadline_to_iso(deadline)
 
         # Дата публикации не должна попадать в срок подачи — см. HtmlSelectors.
         published = None  # type: Optional[str]

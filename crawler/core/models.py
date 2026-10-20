@@ -55,6 +55,10 @@ class HtmlSelectors(BaseModel):
     # С флагом дата уезжает в date_start, а deadline остаётся пустым — честное
     # «срок неизвестен», которое префильтр пропускает (пин в test_prefilter_parity).
     deadline_is_publication_date: bool = False
+    # Срок карточки «ДД.ММ.ГГГГ, ЧЧ:ММ» — время по Ташкенту (20.10.2026, Ucell
+    # сайт). Без флага час терялся: разборщик знает время только в ISO, и лот
+    # со сроком 16:00 жил до конца дня. С флагом срок пишется ISO с +05:00.
+    deadline_tashkent_time: bool = False
     link: Optional[str] = None
     next_page: Optional[str] = None
     # Opt-in regex для извлечения external_id из href (group(1)). Нужен когда
