@@ -117,3 +117,17 @@ def test_ids_pushed_out_of_the_window_go_under_the_floor():
         assert state["seen_floor"] == 1 and state["seen_ids"] == [2, 3, 5], state
         late, _ = _run([2, 3, 4, 5], state)  # 4 выше пола и не обработан
     assert late == [4], late
+
+
+def test_failing_detail_goes_last_and_is_given_up_after_a_cap():
+    # Ревью 20.10: лот, который никогда не отдаёт detail, повторялся каждый
+    # прогон без предела и стоял первым в бюджете.
+    state = {"max_seen_id": 100, "seen_floor": 50, "seen_ids": [], "fail_counts": {"60": 1}}
+    fetched, state = _run([60, 70], state, fail={60}, budget=1)
+    assert fetched == [70], fetched  # падавший — после свежего, бюджет 1
+    assert state["fail_counts"] == {"60": 1}, state
+    for _ in range(A._MAX_DETAIL_FAILS - 1):
+        fetched, state = _run([60, 70], state, fail={60})
+    assert 60 in state["seen_ids"] and state["fail_counts"] == {}, state
+    after, _ = _run([60, 70], state, fail={60})
+    assert after == [], after
