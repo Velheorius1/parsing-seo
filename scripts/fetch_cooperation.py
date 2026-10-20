@@ -25,6 +25,7 @@ import os
 import json
 import re
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -831,14 +832,22 @@ def fetch_and_transform_auction_contracts(max_pages=10, page_size=500):
     return rows
 
 
-def upsert_to_supabase(rows):
-    # type: (List[Dict[str, Any]]) -> int
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        logger.error('SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set')
-        return 0
+def upsert_rows(rows, client=None, retries=1, pause=5.0):
+    # type: (List[Dict[str, Any]], Any, int, float) -> Set[Tuple[Any, Any]]
+    """Записать строки; вернуть ключи (external_id, source), которые точно в БД.
 
-    from supabase import create_client
-    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    R04 (ревью 02.10, 20.10.2026): раньше возвращалось только число, ошибка
+    батча проглатывалась, а алерты слались по всем «новым» строкам — в том числе
+    по тем, что не записались. 02.10 15:42 UTC «Server disconnected»: Контракты
+    0 / 234. Теперь батч повторяется `retries` раз, а алертить можно только
+    вернувшиеся ключи; незаписанное остаётся «новым» и уйдёт следующим прогоном.
+    """
+    if client is None:
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            logger.error('SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set')
+            return set()
+        from supabase import create_client
+        client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     # Deduplicate by (external_id, source), keeping the last occurrence — the same
     # thing crawler/core/db.py does before its upsert. Postgres aborts the WHOLE
@@ -853,20 +862,26 @@ def upsert_to_supabase(rows):
         logger.info('[Upsert] Deduplicated %d -> %d rows', len(rows), len(seen))
     rows = list(seen.values())
 
-    upserted = 0
+    persisted = set()  # type: Set[Tuple[Any, Any]]
     batch_size = 500
 
     for i in range(0, len(rows), batch_size):
         batch = rows[i:i + batch_size]
-        try:
-            client.table('tenders').upsert(
-                batch, on_conflict='external_id,source'
-            ).execute()
-            upserted += len(batch)
-        except Exception as exc:
-            logger.error('Upsert batch %d failed: %s', i, str(exc))
+        for attempt in range(retries + 1):
+            try:
+                client.table('tenders').upsert(
+                    batch, on_conflict='external_id,source'
+                ).execute()
+                persisted.update((r.get('external_id'), r.get('source')) for r in batch)
+                break
+            except Exception as exc:
+                if attempt < retries:
+                    logger.warning('Upsert batch %d failed (retry in %.0fs): %s', i, pause, str(exc)[:160])
+                    time.sleep(pause)
+                    continue
+                logger.error('Upsert batch %d failed: %s', i, str(exc))
 
-    return upserted
+    return persisted
 
 
 _REJECT_TITLES = [
@@ -1243,9 +1258,17 @@ def process_source(rows, source_name, label, dry_run=False, is_plans=False, gate
     else:
         alert_rows = new_rows
 
-    # Upsert all
-    upserted = upsert_to_supabase(rows)
+    # Upsert all. Алертим только записанное (R04): несохранённая строка осталась
+    # «новой» для БД и уйдёт следующим прогоном, а не потеряется после алерта.
+    persisted = upsert_rows(rows)
+    upserted = len(persisted)
     logger.info('[%s] Upserted: %d / %d', label, upserted, len(rows))
+    held = [r for r in alert_rows if (r.get('external_id'), r.get('source')) not in persisted]
+    if held:
+        logger.error('[%s] PARTIAL WRITE: %d alert candidates not persisted — held until next run',
+                     label, len(held))
+        alert_rows = [r for r in alert_rows if (r.get('external_id'), r.get('source')) in persisted]
+    new_rows = [r for r in new_rows if (r.get('external_id'), r.get('source')) in persisted]
 
     alerts = 0
     comp_alerts = 0
