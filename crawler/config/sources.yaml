@@ -2321,6 +2321,7 @@ sources:
       container: 'div.h-full.rounded-2xl:not(:has(a[href*="tender.ucell.uz"]))'
       title: "a.text-xl:not(.mt-1)"
       deadline: "p.text-brandSecondary-1"
+      deadline_tashkent_time: true   # «20.10.2026, 16:00» — час по Ташкенту
     field_map:
       title: title
       source_url_template: "https://ucell.uz/ru/partners"
