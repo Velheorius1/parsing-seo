@@ -92,11 +92,14 @@ def test_old_state_without_floor_does_not_refetch_the_archive():
     assert late == [102], late
 
 
-def test_failed_detail_is_retried_next_run():
-    fetched, state = _run([70, 101], {"max_seen_id": 100, "seen_floor": 50, "seen_ids": [100]}, fail={70})
-    assert fetched == [70] and state is None, (fetched, state)
-    retry, state = _run([70, 101], {"max_seen_id": 100, "seen_floor": 50, "seen_ids": [100]})
-    assert retry == [70, 101] and 70 in state["seen_ids"], (retry, state)
+def test_failed_detail_is_retried_next_run_and_does_not_block_newer_lots():
+    # 20.10: detail 520753 отдавал пустое тело, и break оставлял без спецификации
+    # все более новые лоты etender — с 12:00 до фикса.
+    fetched, state = _run([70, 101, 102], {"max_seen_id": 100, "seen_floor": 50, "seen_ids": [100]}, fail={70})
+    assert fetched == [70, 101, 102], fetched
+    assert state["seen_ids"] == [100, 101, 102], state
+    retry, state = _run([70, 101, 102], state)
+    assert retry == [70] and 70 in state["seen_ids"], (retry, state)
 
 
 def test_newest_bootstrap_does_not_pull_the_archive_tail():
