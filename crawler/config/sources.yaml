@@ -549,7 +549,10 @@ sources:
     html_selectors:
       container: "article.node"
       title: "a"
-      deadline: "time"
+      # 20.10: в карточке две даты — «Launch date» (dd > div > time) и
+      # «Deadline» (dd > time). Голый «time» брал первую, публикацию: срок
+      # лота равнялся дню его появления (класс Airways). datetime — UTC ISO с часом.
+      deadline: "dd > time@datetime"
       link: "a@href"
       # 20.10: id — весь slug. По умолчанию бралось первое число ссылки, и
       # «…-rental-services-0», «…-hackathon-4» получали id «0» и «4»: следующий
