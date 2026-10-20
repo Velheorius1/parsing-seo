@@ -97,7 +97,8 @@ def test_published_lot_becomes_a_tender():
     assert t.organization == "КГУ им Бердаха" and t.price == 283334000.0, t
     assert t.deadline == "2026-10-26T10:13:30", t.deadline
     assert t.source_url == "https://xarid.uzex.uz/auction/detail/419080", t.source_url
-    assert "korektor" in t.search_text and t.extra_info["Номер"] == "26111007419080", t.extra_info
+    assert "korektor" in t.extra_info["Описание"] and t.extra_info["Номер"] == "26111007419080", t.extra_info
+    assert "korektor" not in t.search_text, t.search_text  # описание — в карточку, не в поиск
     assert state["next_id"] == 419081, state
 
 

@@ -168,7 +168,6 @@ class XaridProbeAdapter(BaseAdapter):
         category = _str(lot.get("category_name"))
         title = category + (": " + "; ".join(names[:3]) if names else "")
         description = _str(lot.get("description"))
-        spec = " ".join(_str(d.get("description")) for d in details[:10])
         organization = _str(lot.get("customer_name"))
         tpl = cfg.field_map.source_url_template or "https://xarid.uzex.uz/auction/detail/{id}"
         end = _date(lot.get("end_date"))
@@ -186,6 +185,10 @@ class XaridProbeAdapter(BaseAdapter):
             deadline=end, date_start=_date(lot.get("start_date")), date_end=end,
             region=_str(lot.get("region_name")), source=cfg.name,
             source_url=tpl.replace("{id}", lot_id),
-            search_text=" ".join(x for x in (title, organization, description, spec) if x)[:2000],
+            # Ищем по категории и названиям ВСЕХ позиций. Описания лота и позиций —
+            # только в карточку: там требования к поставке («в коробке», «qadoq»),
+            # и на 627 открытых лотах 20.10 словарь пропускал 135 вместо 42 — все
+            # книги и плакаты из сверки остаются и без описаний.
+            search_text=" ".join([category] + names + [organization])[:2000],
             bid_count=lot.get("pcp_count"), extra_info=extra,
         )
