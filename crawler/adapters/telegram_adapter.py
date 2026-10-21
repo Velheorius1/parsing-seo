@@ -3,8 +3,8 @@
 import logging
 import re
 import time as _time
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, List, Optional
 
 from crawler.adapters.base import BaseAdapter
 from crawler.config.settings import settings
@@ -253,8 +253,48 @@ deadline: ...
 /no_think"""
 
 
-def _ai_extract_fields(text, openrouter_key, model, prompt_template=None, few_shot=""):
-    # type: (str, str, str, Optional[str], str) -> dict
+def _tashkent_day(message=None):
+    # type: (Any) -> date
+    """День сообщения по Ташкенту (UTC+5); нет даты — сегодня."""
+    when = getattr(message, "date", None) or datetime.now(timezone.utc)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return (when + timedelta(hours=5)).date()
+
+
+def _fix_lead_deadline(raw, day):
+    # type: (Optional[str], date) -> Optional[str]
+    """Срок лида из разбора нейросетью — без прошлого года.
+
+    Года в тексте лида обычно нет («к 1 октября»), и модель подставляла его из
+    своих данных — прошлый. Аудит 21.10: «Футболки 200 шт к 1 октября» → срок
+    01.10.2025, «Брендированные мини-плитки шоколада» от 02.10.2026 → 15.04.2025;
+    такие лиды отбрасывались как просроченные. Срок раньше дня сообщения —
+    ошибка разбора: тот же день и месяц в ближайшие полгода, иначе срока нет.
+    """
+    if not raw:
+        return raw
+    m = re.match(r"^\s*(\d{1,2})\.(\d{1,2})\.(\d{4})\s*$", raw)
+    if not m:
+        return raw
+    d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    try:
+        if date(y, mo, d) >= day - timedelta(days=1):
+            return raw
+    except ValueError:
+        return None
+    for year in (day.year, day.year + 1):
+        try:
+            cand = date(year, mo, d)
+        except ValueError:
+            continue
+        if day - timedelta(days=1) <= cand <= day + timedelta(days=183):
+            return cand.strftime("%d.%m.%Y")
+    return None
+
+
+def _ai_extract_fields(text, openrouter_key, model, prompt_template=None, few_shot="", today=None):
+    # type: (str, str, str, Optional[str], str, Optional[date]) -> dict
     """Use Qwen to extract fields from unstructured text."""
     if not openrouter_key:
         return {}
@@ -268,6 +308,10 @@ def _ai_extract_fields(text, openrouter_key, model, prompt_template=None, few_sh
     except KeyError:
         # Template without {few_shot} placeholder (e.g. _AI_TENDER_PROMPT)
         prompt_text = template.format(text=text[:500])
+    if today is not None:
+        # Без даты модель достраивала срок прошлым годом (аудит 21.10).
+        prompt_text = ("Сегодня %s (Ташкент). Срок без года — ближайшая будущая дата "
+                       "с этим днём и месяцем.\n\n%s" % (today.strftime("%d.%m.%Y"), prompt_text))
     try:
         resp = _httpx.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -651,11 +695,13 @@ class TelegramAdapter(BaseAdapter):
         ai_title = ""
         product_keywords = ""
 
+        day = _tashkent_day(message)
         ai_fields = _ai_extract_fields(
             text,
             settings.openrouter_api_key or "",
             settings.ai_relevance_model_fast or settings.ai_relevance_model,
             few_shot=few_shot,
+            today=day,
         )
         if ai_fields:
             # AI intent verification — last defense against ads
@@ -678,7 +724,7 @@ class TelegramAdapter(BaseAdapter):
             if ai_fields.get("currency") and ai_fields["currency"] in ("USD", "EUR"):
                 currency = ai_fields["currency"]
             if ai_fields.get("deadline"):
-                deadline = ai_fields["deadline"]
+                deadline = _fix_lead_deadline(ai_fields["deadline"], day)
             if ai_fields.get("product_keywords"):
                 product_keywords = ai_fields["product_keywords"]
 
@@ -730,6 +776,7 @@ class TelegramAdapter(BaseAdapter):
                 settings.openrouter_api_key or "",
                 settings.ai_relevance_model_fast or settings.ai_relevance_model,
                 prompt_template=_AI_TENDER_PROMPT,
+                today=_tashkent_day(message),
             )
             if ai_fields:
                 if not organization and ai_fields.get("organization"):
