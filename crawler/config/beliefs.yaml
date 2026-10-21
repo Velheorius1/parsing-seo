@@ -1,0 +1,126 @@
+# Реестр «аксиом» — убеждений, из-за которых мы чего-то НЕ собираем или НЕ делаем.
+#
+# Зачем (аудит 21.10.2026): старые аукционы UZEX три месяца не собирались, потому
+# что 27.07 по выборке маленьких номеров их записали в «legacy», а 20.10 повторили
+# запись 11.06 «список закрыт токеном» — оба раза без перепроверки. Аудит нашёл
+# ещё 9 таких «фактов». Правило: любое «нельзя / мёртвый / закрыто / нет данных /
+# не наш профиль по устройству» живёт здесь — с датой, источником, пробой и сроком
+# перепроверки. Без записи это гипотеза, а не основание выключить источник.
+#
+# Как работает: crawler/scripts/belief_probe.py раз в неделю гоняет пробы (с VPS)
+# и пишет logs/beliefs_state.json; healthcheck (beliefs.<id>) шлёт FAIL, если
+# аксиома перестала быть верной («пересмотреть решение»), и WARN — если проба
+# давно не запускалась или подошёл срок ручной перепроверки (review_by).
+#
+# Новая запись — после ДВУХ независимых проверок (другой IP, другой способ или
+# другой день; одна выборка — не проверка), обе — в recorded.
+#
+# Поля: claim — что считаем верным; because — что из-за этого НЕ делаем;
+# recorded — когда и откуда; blind — чего проба по устройству не видит;
+# probe — HTTP-проба и ожидание (expect):
+#   unreachable: true      — с VPS нет соединения (гео-блок, мёртвый DNS)
+#   status_in: [403, 404]  — код ответа из списка
+#   json_list_min: N       — ответ — непустой список (или по json_path) длиной ≥ N
+#   json_keys_absent: [..] — у первого элемента списка нет этих полей
+# Без probe — review_by: дата ручной перепроверки.
+
+beliefs:
+  # ── Гео-блок: VPS (Hetzner) не достаёт до площадок — нужен прокси/relay ──
+  - id: coop-geo-block
+    claim: "Cooperation.uz не отвечает VPS (обрыв на TCP)"
+    because: "Cooperation собирается через платный резидентный прокси (план — узбекский relay)"
+    recorded: "21.10.2026, аудит: curl с VPS — таймаут, с узбекского IP — 200"
+    recheck_days: 7
+    blind: "открыт ли с VPS сам API (проба — главная страница)"
+    probe: {method: GET, url: "https://new.cooperation.uz/", timeout: 15, expect: {unreachable: true}}
+  - id: auctionx-geo-block
+    claim: "auctionX UZEX (обратные аукционы) не отвечает VPS"
+    because: "uzex-auctions идёт через прокси"
+    recorded: "21.10.2026, аудит A: таймаут 20 с с VPS"
+    recheck_days: 7
+    blind: "доступность с других зарубежных IP"
+    probe: {method: POST, url: "https://xarid-api-auctionx.uzex.uz/api/Lot/GetList", json: {from: 0, to: 1}, timeout: 15, expect: {unreachable: true}}
+  - id: prequest-geo-block
+    claim: "Предквалификации UZEX не отвечают VPS"
+    because: "uzex-prequest идёт через прокси"
+    recorded: "21.10.2026, аудит A"
+    recheck_days: 7
+    blind: "доступность с других зарубежных IP"
+    probe: {method: POST, url: "https://xarid-api-prequest.uzex.uz/api/Public/GetLots", json: {from: 0, to: 1}, timeout: 15, expect: {unreachable: true}}
+
+  # ── Открыто: на этом стоит сбор; переворот = источник сломается ──
+  - id: xarid-auction-list-open
+    claim: "Список старых аукционов UZEX открыт без токена"
+    because: "xarid-auctions берёт номера из списка (перебор — запасной путь)"
+    recorded: "21.10.2026, проба: 621 лот, с VPS тоже; 11.06 требовал токен"
+    recheck_days: 7
+    blind: "полноту списка (что в нём все активные лоты), только что он отдаётся"
+    probe: {method: POST, url: "https://xarid-api-auction.uzex.uz/Common/GetMinimizedLotsList", json: {from: 1, to: 20}, timeout: 20, expect: {json_list_min: 1}}
+
+  # ── Закрыто защитой / мёртвый адрес: не собираем ──
+  - id: kapitalbank-cloudflare
+    claim: "Закупки Капиталбанка закрыты Cloudflare (403)"
+    because: "kapitalbank не собирается (лоты банка видим через etender)"
+    recorded: "21.10.2026, аудит B: 403 «Just a moment…» с узбекского IP"
+    recheck_days: 30
+    blind: "открытые API или RSS банка в обход страницы"
+    probe: {method: GET, url: "https://www.kapitalbank.uz/ru/zakupki/konkursy/vse-konkursy/", timeout: 20, expect: {status_in: [403, 503]}}
+  - id: adb-cloudflare
+    claim: "ADB tenders закрыты Cloudflare"
+    because: "ADB не собирается"
+    recorded: "21.10.2026, аудит B: /projects/tenders → 403"
+    recheck_days: 30
+    blind: "другие ленты ADB (RSS, data.adb.org)"
+    probe: {method: GET, url: "https://www.adb.org/projects/tenders", timeout: 20, expect: {status_in: [403, 503]}}
+  - id: ebirja-auth-401
+    claim: "Кабинетные ленты ebirja (release-sale) требуют E-IMZO"
+    because: "ebirja-auth-* выключены (и это биржевая продажа, не спрос)"
+    recorded: "21.10.2026, аудит B: 401"
+    recheck_days: 30
+    blind: "открыты ли другие ленты кабинета"
+    probe: {method: GET, url: "https://xarid-api.ebirja.uz/release-sale/get-trade-products", timeout: 20, expect: {status_in: [401, 403]}}
+  - id: uzbekenergo-dns
+    claim: "Сайт закупок Узбекэнерго мёртв (DNS)"
+    because: "источник выключен"
+    recorded: "21.10.2026, аудит B: DNS не резолвится"
+    recheck_days: 30
+    blind: "переезд закупок на другой домен"
+    probe: {method: GET, url: "http://uzbekenergo.uz/", timeout: 15, expect: {unreachable: true}}
+  - id: prom-uz-dead
+    claim: "zakupki.prom.uz мёртв (502)"
+    because: "источник выключен"
+    recorded: "21.10.2026, аудит B: 502, TG последний пост 06.01.2022"
+    recheck_days: 30
+    blind: "переезд площадки на другой домен"
+    probe: {method: GET, url: "https://zakupki.prom.uz/", timeout: 15, expect: {status_in: [502, 503, 504, 404]}}
+
+  # ── По устройству не спрос: проба — по форме данных ──
+  - id: ebirja-shop-seller-catalog
+    claim: "Ebirja э-магазин — витрина продавцов (заказчика нет)"
+    because: "Ebirja Электронный/Национальный магазин — только дайджест"
+    recorded: "21.10.2026: announce-list — цена за единицу, мин./макс. заказ, страна, «в корзину»"
+    recheck_days: 30
+    blind: "заказчика под другим именем поля; проверяется только первая запись"
+    probe: {method: GET, url: "https://xarid-api.ebirja.uz/shop/product/announce-list?currentPage=0&perPage=5&platform_display=e-shop", timeout: 20, json_path: "result.data", expect: {json_keys_absent: [customer, customer_name, buyer, organization, customer_tin]}}
+
+  # ── Решения и наблюдения без автоматической пробы ──
+  - id: uzex-eshop-seller-catalog
+    claim: "Э-магазины UZEX (/home/shop/detail) — оферты продавцов, подать нельзя"
+    because: "все UZEX э-магазины выключены из алертов (решение Данияра 22.08); сбор — ценовой бенчмарк"
+    recorded: "22.08.2026, 9 крупнейших алертов прокликаны в браузере"
+    review_by: "2027-02-22"
+  - id: xt-xarid-eshop-seller-catalog
+    claim: "Э-магазин XT-Xarid — оферты продавцов; заказ покупателя виден только после договора"
+    because: "XT-Xarid э-магазин — без пуша"
+    recorded: "21.10.2026, аудит B: все 100 записей ref_online_shop_public — оферты"
+    review_by: "2027-01-21"
+  - id: xt-hayot-same-backend
+    claim: "XT-Xarid и Hayotbirja — один бэкенд (общие id), лимит 1 запрос/мин с VPS"
+    because: "дубли Hayotbirja выключены, запросы XT-Xarid — через host_budget"
+    recorded: "10.10.2026 замер; 21.10.2026 аудит B: 100/100 общих id"
+    review_by: "2027-01-21"
+  - id: coop-eshop-is-demand
+    claim: "Лоты э-магазина Cooperation — спрос (заказчик выбрал товар, торги 48 ч)"
+    because: "пуш, а не дайджест (решение Данияра 21.10)"
+    recorded: "21.10.2026, аудит C"
+    review_by: "2027-01-21"
