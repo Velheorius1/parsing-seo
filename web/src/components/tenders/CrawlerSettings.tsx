@@ -246,10 +246,6 @@ export function CrawlerSettings() {
     return settings[key] === 'true';
   }
 
-  function getNumber(key: string): number {
-    return Number(settings[key]) || 0;
-  }
-
   // Loading state
   if (loading) {
     return (
@@ -285,14 +281,20 @@ export function CrawlerSettings() {
         </div>
       )}
 
-      {/* Alert Keywords */}
+      {/* Фильтры алертов — только справка (21.10.2026). Поля alert_keywords и
+          min_price в crawler_settings краулер не читает (аудит D): правка здесь
+          ничего не меняла, а показанные 10 млн и 15 слов расходились с боевыми. */}
       <section className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-        <ChipInput
-          label="Ключевые слова алертов"
-          chips={getChips('alert_keywords')}
-          onChange={(chips) => saveSetting('alert_keywords', JSON.stringify(chips))}
-          saving={saving}
-        />
+        <span className="text-sm font-medium text-gray-400 block mb-2">
+          Фильтры алертов
+        </span>
+        <p className="text-sm text-gray-300">
+          Порог суммы — 5 000 000 UZS (ниже — не алерт; кроме лидов из Telegram и цен не в сумах).
+          Словарь ключевых слов — в коде краулера, меняется коммитом.
+        </p>
+        <p className="text-xs text-gray-500 mt-2">
+          Источник: crawler/core/notifier.py (MIN_PRICE) и crawler/config/settings.py (alert_keywords).
+        </p>
       </section>
 
       {/* Competitor Keywords */}
@@ -303,33 +305,6 @@ export function CrawlerSettings() {
           onChange={(chips) => saveSetting('competitor_keywords', JSON.stringify(chips))}
           saving={saving}
         />
-      </section>
-
-      {/* Min Price */}
-      <section className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-        <div className="space-y-3">
-          <span className="text-sm font-medium text-gray-400">
-            Минимальная цена тендера (UZS)
-          </span>
-          <div className="flex gap-2 items-center">
-            <input
-              type="number"
-              value={getNumber('min_price')}
-              onChange={(e) => {
-                const val = e.target.value;
-                setSettings((prev) => ({ ...prev, min_price: val }));
-              }}
-              onBlur={() => saveSetting('min_price', settings['min_price'] || '0')}
-              disabled={saving}
-              className="w-48 px-4 py-2 border rounded-lg bg-gray-800 border-gray-700 text-gray-200 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 text-sm disabled:opacity-50"
-            />
-            <span className="text-xs text-gray-500">
-              {getNumber('min_price') > 0
-                ? new Intl.NumberFormat('ru-RU').format(getNumber('min_price')) + ' UZS'
-                : 'Не установлен'}
-            </span>
-          </div>
-        </div>
       </section>
 
       {/* Feature Toggles */}

@@ -55,6 +55,7 @@ class CrawlRunLogger:
         self.total_deferred = 0
         self.total_failed_upserts = 0
         self.total_new = 0
+        self.new_unmapped = 0
         self.enriched_count = 0
         self.ai_calls = 0
         self.alerts_sent = 0
@@ -84,6 +85,22 @@ class CrawlRunLogger:
         self.total_new = new_count
         self.total_deferred = deferred_count
         self.total_failed_upserts = failed_count
+
+    def log_new_by_source(self, new_tenders, source_ids):
+        # type: (List, Dict[str, str]) -> None
+        """Разложить впервые записанные строки по источникам (поле source → id).
+
+        До 21.10 source_details[*].new был 0 у каждого источника в каждом прогоне:
+        поле объявлено, но никто его не заполнял (аудит D) — высох источник или
+        нет, по нему было не понять. Строка с неизвестным именем источника
+        считается в new_unmapped, а не теряется молча."""
+        for t in new_tenders:
+            sid = source_ids.get(getattr(t, "source", None))
+            stats = self._source_stats.get(sid) if sid else None
+            if stats is None:
+                self.new_unmapped += 1
+            else:
+                stats.new += 1
 
     def log_enrichment(self, enriched, ai_calls=0):
         # type: (int, int) -> None
@@ -125,6 +142,7 @@ class CrawlRunLogger:
             "duration_seconds": round(duration, 1),
             "total_fetched": total_fetched,
             "total_new": self.total_new,
+            "new_unmapped": self.new_unmapped,
             "total_upserted": self.total_upserted,
             "total_deferred": self.total_deferred,
             "total_failed_upserts": self.total_failed_upserts,
