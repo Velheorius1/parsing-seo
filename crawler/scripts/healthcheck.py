@@ -1195,10 +1195,13 @@ class HealthCheck:
             return
 
         now = datetime.now(timezone.utc)
-        # cooperation logs in via the separate /opt/eimzo/coop_login.py (not in
-        # PLATFORMS) — it was invisible here, so its token died 01-05.07 with
-        # ZERO alerts while collection silently stopped. Check it explicitly.
-        for platform_id in list(PLATFORMS.keys()) + ["cooperation"]:
+        # cooperation здесь больше НЕ проверяется (21.10). Его вход E-IMZO
+        # (/opt/eimzo/coop_login.py через резидентный прокси с verify=False)
+        # снят из cron по решению Данияра: токен не читает ни один источник и
+        # скрипт (аудит 21.10). Прежняя запись «токен умер 01–05.07, и сбор
+        # молча встал» путала причину: 01–05.07 был 402 прокси — через него
+        # ходили и вход, и сбор. Сбор Cooperation сторожат проверки сбора.
+        for platform_id in list(PLATFORMS.keys()):
             comp = "token.%s" % platform_id
             try:
                 # Use session_store's internal reader to get stored metadata.
