@@ -190,6 +190,14 @@ def _price_bucket(price) -> str:
 
 
 _PREQUAL_SOURCE = "UZEX Предквалификации"  # = prequal_detail.PREQUAL_SOURCE
+# Заголовок у этих источников — рубрика площадки, а не предмет: Hayotbirja
+# «Отбор», xarid «Услуги издательские: Книги печатные». Без суммы в ключе разные
+# закупки одного заказчика склеиваются ДО AI (аудит 21.10). Сумму в ключ — как у
+# предквалификаций с 09.10; у источников с настоящими названиями — нет.
+_RUBRIC_TITLE_SOURCES = frozenset({
+    _PREQUAL_SOURCE, "Hayotbirja отбор", "Xarid Аукционы", "Xarid Конкурсы",
+    "Xarid Прямые закупки", "UZEX Обратные аукционы",
+})
 
 
 def _exact_price(price) -> str:
@@ -211,7 +219,7 @@ def _logical_key(source, org, title, price, deadline) -> Tuple[str, str, str]:
     words = _extract_significant_words(title or "")
     if norm_org and words:
         core = " ".join(sorted(words))
-        if source == _PREQUAL_SOURCE:
+        if source in _RUBRIC_TITLE_SOURCES:
             # Заголовок предквалификации — рубрика площадки («Одежда»), и без
             # суммы разные закупки одного заказчика в одной рубрике склеивались
             # ДО AI (09.10: 67 закупок за 60 дней, бланки на 121 млн под
