@@ -1696,18 +1696,10 @@ def _format_alert(
         if db_id:
             parts.append("Архив: %s/%s" % (_DETAIL_PAGE_BASE, db_id))
 
-    # Cooperation.uz: страховочный поиск по первому слову названия. С августа
-    # `supplier/lots?lotId=` отдаёт 404 уже И НА ДЕСКТОПЕ (проверено кликом
-    # 24.08 — запись от 05.08 про «инертный параметр» устарела), а на телефоне
-    # любая coop-ссылка редиректится на заглушку мобильного приложения, поэтому
-    # поиск честно помечен.
-    if tender.source.startswith("Cooperation.uz") and tender.title:
-        try:
-            from urllib.parse import quote
-            q = quote(tender.title.split()[0])
-            parts.append("Поиск (с десктопа): https://new.cooperation.uz/supplier/all?productName=%s" % q)
-        except Exception:
-            pass
+    # Страховочный «Поиск (с десктопа)» по /supplier/all убран 21.10: маршрута
+    # /supplier в SPA площадки больше нет — «Sahifa topilmadi» в браузере, нет и в
+    # роутере (аудит C). Поиска по номеру лота у площадки нет (реестр
+    # /active-trades без фильтра) — карточка на Vercel остаётся главной ссылкой.
 
     # «Куда подать КП» — главное для пользователя
     try:

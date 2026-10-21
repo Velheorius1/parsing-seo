@@ -588,6 +588,25 @@ def fetch_and_transform_auction_lots():
 
 # ── Source: E-Shop Active Lots (buyer selected product → trade started) ──
 
+_ESHOP_BASE = 'https://new.cooperation.uz/e-shop'
+
+
+def _eshop_offer_id(offer_number):
+    # type: (str) -> Optional[int]
+    """Номер оферты лота э-магазина → id для /e-shop/{id}: M1203477 → 203477.
+
+    У лота (ML…) своей страницы нет; /e-shop/{id} — карточка оферты, которую
+    выбрал заказчик, и маршрут ждёт её числовой id (05.08 по id лота 2 из 3 ушли
+    на главную). id = номер без «M» минус 1 000 000: сверено 21.10 на 152
+    офертах api/offer/public/offers (0 расхождений) и рендером 3 из 3. Перед
+    пушем id берётся из самой оферты (_enrich_eshop_row)."""
+    m = re.match(r'^M(\d{7,})$', offer_number or '')
+    if not m:
+        return None
+    offer_id = int(m.group(1)) - 1000000
+    return offer_id if offer_id > 0 else None
+
+
 def fetch_and_transform_eshop_lots():
     # type: () -> List[Dict[str, Any]]
     """Fetch active e-shop lots — these are BUYER-selected products now in trade."""
@@ -621,6 +640,8 @@ def fetch_and_transform_eshop_lots():
         qty_info = ''
         if qty and measure:
             qty_info = '%s %s' % (qty, measure)
+        offer_num = item.get('offerNumber') or ''
+        offer_id = _eshop_offer_id(offer_num)
 
         rows.append({
             'external_id': 'coop-eshop-%s' % lot_num,
@@ -632,9 +653,11 @@ def fetch_and_transform_eshop_lots():
             'date_start': begin_date[:10] if begin_date else None,
             'date_end': end_date[:10] if end_date else None,
             'source': 'Cooperation.uz Э-магазин лоты',
-            'source_url': 'https://new.cooperation.uz/supplier/eshop/%s' % lot_num,
+            'source_url': '%s/%s' % (_ESHOP_BASE, offer_id) if offer_id else _ESHOP_BASE,
             'status': 'active',
             'search_text': search_text[:1000],
+            'extra_info': {k: v for k, v in [('quantity', qty), ('measure', measure), ('offer', offer_num)]
+                           if v is not None and v != ''},
             'collected_at': now,
         })
 
@@ -1055,13 +1078,54 @@ def _enrich_lot_row(row):
             row['price'] = float(_lei['unit_price']) * float(_lei['quantity'])
     except (TypeError, ValueError):
         pass
+    _persist_fields(row, {'extra_info': _lei, 'price': row.get('price')})
+
+
+def _persist_fields(row, fields):
+    # type: (Dict[str, Any], Dict[str, Any]) -> None
+    """Дописать обогащение в уже записанную строку: upsert прошёл ДО алертов, и
+    без этого карточка на Vercel не видит цену/фото (корень пустых карточек 05.07)."""
     try:
         from supabase import create_client as _cc
-        _cc(SUPABASE_URL, SUPABASE_KEY).table('tenders').update(
-            {'extra_info': _lei, 'price': row.get('price')}
-        ).eq('external_id', row.get('external_id', '')).eq('source', row['source']).execute()
+        _cc(SUPABASE_URL, SUPABASE_KEY).table('tenders').update(fields).eq(
+            'external_id', row.get('external_id', '')).eq('source', row['source']).execute()
     except Exception as _pexc:
         logger.warning('[OfferEnrich] persist failed: %s', str(_pexc)[:80])
+
+
+def _enrich_eshop_row(row):
+    # type: (Dict[str, Any]) -> None
+    """Лот э-магазина перед пушем: цена оферты × количество и id оферты из самой
+    оферты (публичный api/offer/public/offers, поиск по номеру — ровно одна).
+
+    Без цены лот э-магазина шёл в оценку без суммы и проходил порог MIN_PRICE
+    любым: 1 чел. на курсы за 1 млн и 30 тысяч пакетов выглядели одинаково.
+    Сбой — без цены, как раньше: обогащение не должно ронять пуш."""
+    lei = row.get('extra_info') or {}
+    if row.get('source') != 'Cooperation.uz Э-магазин лоты' or not lei.get('offer') or lei.get('unit_price'):
+        return
+    try:
+        with httpx.Client(timeout=20) as client:
+            r = client.get('https://cabinet.cooperation.uz/api/offer/public/offers',
+                           params={'NameOrNumber': lei['offer']}, headers=HEADERS)
+            o = _pick_offer((r.json() or {}).get('data') if r.status_code == 200 else None, lei['offer'])
+    except Exception as exc:
+        logger.warning('[EshopOffer] %s: %s', lei['offer'], str(exc)[:80])
+        return
+    if o is None:
+        logger.warning('[EshopOffer] %s: оферта не найдена', lei['offer'])
+        return
+    if o.get('price') is not None:
+        lei['unit_price'] = o['price']
+    row['extra_info'] = lei
+    if o.get('id'):
+        row['source_url'] = '%s/%s' % (_ESHOP_BASE, o['id'])
+    try:
+        if not row.get('price') and lei.get('unit_price') and lei.get('quantity'):
+            row['price'] = float(lei['unit_price']) * float(lei['quantity'])
+    except (TypeError, ValueError):
+        pass
+    _persist_fields(row, {'extra_info': lei, 'price': row.get('price'), 'source_url': row.get('source_url')})
 
 
 def _row_to_raw_tender(row):
@@ -1161,6 +1225,10 @@ def send_alerts_unified(new_rows, source_label):
             # keyword-gate the enrichment HTTP cost, as the legacy loop implicitly did
             if _find_matching_keyword(r.get('title', ''), r.get('search_text', ''), keywords):
                 _enrich_lot_row(r)
+    elif source_label == 'EshopLots':
+        # пушатся все лоты э-магазина (решение 21.10), а новых за прогон — десятки
+        for r in rows:
+            _enrich_eshop_row(r)
     try:
         import asyncio
         from crawler.core.notifier import send_alerts as _shared_send
