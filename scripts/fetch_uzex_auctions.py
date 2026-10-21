@@ -249,7 +249,7 @@ def to_tender_row(item, source_name, id_prefix):
         # proposal-request/detail/{id} opens the real lot anonymously
         # (83758 -> "Услуги профессиональные, научные и технические").
         # Mirrors the sources.yaml uzex-prequest fix that this script bypassed.
-        'source_url': 'https://xarid.uzex.uz/auction/detail/%s' % ext_id if id_prefix == 'uzex-auc' else 'https://new-xarid.uzex.uz/home/purchase/proposal-request/detail/%s' % ext_id,
+        'source_url': 'https://xarid.uzex.uz/new-auction/detail/%s' % ext_id if id_prefix == 'uzex-auc' else 'https://new-xarid.uzex.uz/home/purchase/proposal-request/detail/%s' % ext_id,
         'status': 'active',
         'search_text': ' '.join(filter(None, [
             item.get('categoryName', ''),
