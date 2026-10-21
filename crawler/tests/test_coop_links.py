@@ -74,10 +74,12 @@ def test_push_lot_never_links_the_dead_route():
     assert "%s/U-2" % _VERCEL in txt
 
 
-def test_push_search_link_is_labeled_desktop_only():
+def test_push_has_no_dead_supplier_search():
+    """21.10: «Поиск (с десктопа)» вёл на /supplier/all — маршрута /supplier
+    в SPA больше нет («Sahifa topilmadi»). Мёртвую ссылку не шлём."""
     t = _t("Cooperation.uz Лоты", "https://new.cooperation.uz/supplier/lots?lotId=SL1")
     txt = N._format_alert(t, "печать", alert_seq=3, db_id="U-3")
-    assert "Поиск (с десктопа):" in txt
+    assert "Поиск (с десктопа):" not in txt and "supplier/all" not in txt
 
 
 def test_push_ordinary_source_keeps_platform_first():

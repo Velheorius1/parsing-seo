@@ -32,17 +32,19 @@ def test_verified_auction_source_is_not_broken():
     assert not is_broken_spa("Cooperation.uz Аукционы")
 
 
+def test_verified_eshop_source_is_not_broken():
+    """21.10: /e-shop/{id оферты} — рендер 3 из 3 открыл именно ту оферту."""
+    assert not is_broken_spa("Cooperation.uz Э-магазин лоты")
+
+
 def test_rest_of_cooperation_stays_broken():
     """Исключения точечные — остальная площадка остаётся под правилом.
 
-    Все проверены рендером 05.08 и отклонены: у `Лоты` и `Оферты` карточка
-    открывается модалкой без смены URL (в DOM нет <a href> на карточку),
-    у `Э-магазин лоты` маршрут /e-shop/:id адресует товар каталога
-    (id ~180898), а не лот в торгах (id ~13744).
+    Проверены рендером 05.08 и отклонены: у `Лоты` и `Оферты` карточка
+    открывается модалкой без смены URL (в DOM нет <a href> на карточку).
     """
     for src in ("Cooperation.uz Лоты", "Cooperation.uz Оферты",
-                "Cooperation.uz Контракты", "Cooperation.uz Э-магазин лоты",
-                "Cooperation.uz Закупочные планы"):
+                "Cooperation.uz Контракты", "Cooperation.uz Закупочные планы"):
         assert is_broken_spa(src), src
 
 
