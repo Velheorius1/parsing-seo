@@ -177,6 +177,11 @@ COOP_RUNS_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "logs", "coop_runs.jsonl")
 COOP_DEMAND_SECTIONS = ("Lots", "EshopLots", "AuctionLots")
 COOP_STALE_H = 13
+# Реестр «аксиом» и итог их еженедельной перепроверки (belief_probe, 21.10.2026).
+BELIEFS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "crawler", "config", "beliefs.yaml")
+BELIEFS_STATE = os.path.join(os.path.dirname(COOP_RUNS_LOG), "beliefs_state.json")
+BELIEFS_GRACE_DAYS = 2
 
 # Supabase FAIL collapses the alert body; these components are treated as
 # UNKNOWN (not FAIL) in the rendered body so the alert signature stays stable.
@@ -990,6 +995,66 @@ class HealthCheck:
                 self._add(comp, OK, "%s: взяли %s из %s, новых %s, алертов %s (%.1f ч назад)" % (
                     name, ev.get("fetched"), ev.get("total"), ev.get("new", "—"),
                     ev.get("alerts", "—"), age_h))
+
+    def check_beliefs(self, now=None, beliefs_path=None, state_path=None):
+        # type: (Optional[datetime], Optional[str], Optional[str]) -> None
+        """«Аксиомы» из crawler/config/beliefs.yaml — то, из-за чего мы НЕ собираем.
+
+        Аудит 21.10: старые аукционы UZEX три месяца не собирались по записи
+        «legacy / список закрыт токеном», которую никто не перепроверял. Здесь:
+        аксиома перестала быть верной (по пробе belief_probe) — FAIL «пересмотреть
+        решение»; проба не запускалась дольше recheck_days (+2 дня) или подошёл
+        срок ручной перепроверки (review_by) — WARN. Всё в порядке — одна строка.
+        """
+        t = datetime.now(timezone.utc) if now is None else now
+        try:
+            import yaml
+            with open(beliefs_path or BELIEFS_PATH, "r", encoding="utf-8") as fh:
+                beliefs = (yaml.safe_load(fh) or {}).get("beliefs") or []
+        except Exception as exc:
+            self._add("beliefs", FAIL, "реестр аксиом не читается: %s" % str(exc)[:80])
+            return
+        try:
+            with open(state_path or BELIEFS_STATE, "r", encoding="utf-8") as fh:
+                state = json.load(fh)
+        except (OSError, ValueError):
+            state = {}
+        ok, manual = 0, 0
+        for b in beliefs:
+            bid = b.get("id") or "?"
+            comp = "beliefs.%s" % bid
+            if not b.get("probe"):
+                try:
+                    due = datetime.strptime(str(b.get("review_by")), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                except ValueError:
+                    self._add(comp, WARN, "нет ни пробы, ни даты review_by: %s" % b.get("claim"))
+                    continue
+                if t >= due:
+                    self._add(comp, WARN, "срок ручной перепроверки %s: «%s» (из-за неё: %s)" % (
+                        b["review_by"], b.get("claim"), b.get("because")))
+                else:
+                    manual += 1
+                continue
+            st = state.get(bid)
+            if not st:
+                self._add(comp, WARN, "проба ещё не запускалась: «%s»" % b.get("claim"))
+                continue
+            if not st.get("holds"):
+                self._add(comp, FAIL, "аксиома больше не верна — пересмотреть решение: «%s» "
+                                      "(видим: %s; из-за неё: %s)" % (
+                                          b.get("claim"), st.get("observed"), b.get("because")))
+                continue
+            try:
+                age_d = (t - datetime.fromisoformat(st["checked_at"])).total_seconds() / 86400
+            except (KeyError, TypeError, ValueError):
+                age_d = None
+            limit = float(b.get("recheck_days") or 7) + BELIEFS_GRACE_DAYS
+            if age_d is None or age_d > limit:
+                self._add(comp, WARN, "проба не запускалась %s: «%s»" % (
+                    "давно" if age_d is None else "%.0f дн." % age_d, b.get("claim")))
+                continue
+            ok += 1
+        self._add("beliefs", OK, "аксиом подтверждено пробой: %d, на ручной перепроверке: %d" % (ok, manual))
 
     # ── Check 11b: тяжёлые источники ──
 
@@ -1834,6 +1899,7 @@ def main():
     hc.check_zombie_processes()
     hc.check_geo_sources()
     hc.check_coop_runs()
+    hc.check_beliefs()
     hc.check_heavy_sources()
     hc.check_scripted_sources()
     hc.check_openrouter_balance()
