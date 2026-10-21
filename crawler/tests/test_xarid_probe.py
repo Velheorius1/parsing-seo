@@ -15,6 +15,7 @@ Run: .venv/bin/python3 -m pytest crawler/tests/test_xarid_probe.py -q
 import asyncio
 import copy
 import json
+import json as _json
 import os
 from unittest.mock import AsyncMock, patch
 
@@ -43,9 +44,15 @@ def _cfg(**probe):
     return SourceConfig(**cfg)
 
 
-def _run(lots, state, errors=(), **probe):
-    """lots: {id: dict}. Нет в lots — ORA-01403. Возвращает (тендеры, state, запрошенные id)."""
+def _run(lots, state, errors=(), listing=None, **probe):
+    """lots: {id: dict}. Нет в lots — ORA-01403. Возвращает (тендеры, state, запрошенные id).
+
+    listing: None — без списка (запасной путь, перебор); список номеров — ответ
+    `list_url` окнами; int — HTTP-код ошибки списка."""
     asked = []
+    posts = []
+    if listing is None:
+        probe.setdefault("list_url", None)
 
     class _Resp(object):
         def __init__(self, code, body):
@@ -64,6 +71,14 @@ def _run(lots, state, errors=(), **probe):
         async def __aexit__(self, *_a):
             return False
 
+        async def post(self, url, json=None):
+            posts.append((json or {}).get("from"))
+            if isinstance(listing, int):
+                return _Resp(listing, "Internal Server Error")
+            lo, hi = json["from"], json["to"]
+            page = [{"id": i, "total_count": len(listing)} for i in listing[lo - 1:hi]]
+            return _Resp(200, _json.dumps(page))
+
         async def get(self, url):
             lot_id = int(url.rsplit("/", 1)[1])
             asked.append(lot_id)
@@ -80,6 +95,7 @@ def _run(lots, state, errors=(), **probe):
             patch("crawler.adapters.xarid_probe.httpx.AsyncClient", _Client):
         out = asyncio.run(adapter._fetch_items())
     _run.last_error = adapter.last_error
+    _run.posts = posts
     return out, put.call_args[0][1], asked
 
 
@@ -182,3 +198,51 @@ def test_network_trouble_is_reported_to_crawl_runs():
 def test_gap_threshold_is_above_the_longest_seen_gap():
     # 20.10: самая длинная дыра в номерах — 19 подряд; на 25 запас был мал.
     assert _cfg().probe.max_misses >= 50 and _cfg().probe.pending_days >= 30
+
+
+# ── 21.10: список активных лотов открыт ─────────────────────────────────────
+# Аудит 21.10: `GetMinimizedLotsList` отвечает без токена (и с VPS). Перебор с
+# start_id 418200 не видел активных лотов ниже старта — 417947 потерян.
+
+def test_list_finds_active_lot_below_the_probe_position():
+    lots = {418180: _lot(419080, id=418180), 419080: _lot(419080)}
+    out, state, asked = _run(lots, {"next_id": 419000}, listing=[419080, 418180])
+    assert sorted(t.external_id for t in out) == ["418180", "419080"], out
+    assert state["next_id"] == 419081 and state["pending"] == {}, state
+    assert asked == [418180, 419080], asked  # перебора вперёд нет
+
+
+def test_listed_lot_is_not_fetched_again_and_closed_one_is_forgotten():
+    lots = {100: _lot(419080, id=100), 101: _lot(419080, id=101)}
+    _, state, _ = _run(lots, {"next_id": 1}, listing=[100, 101])
+    assert state["listed"] == ["100", "101"], state
+    out, state2, asked = _run(lots, dict(state, last_published=[]), listing=[101, 102])
+    assert asked == [102] and out == [], (asked, out)  # 101 уже был, 102 — нет лота
+    assert state2["listed"] == ["101"], state2  # 100 закрыт и ушёл из памяти
+
+
+def test_list_pages_by_window_of_twenty():
+    ids = list(range(1000, 1045))
+    _, _, _ = _run({}, {"next_id": 1}, listing=ids)
+    assert _run.posts == [1, 21, 41], _run.posts
+
+
+def test_unpublished_lot_from_list_is_retried_next_run():
+    lots = {418779: _lot(418779)}  # «Одобрен Казной» — ещё не торги
+    out, state, _ = _run(lots, {"next_id": 1}, listing=[418779])
+    assert out == [] and state["listed"] == [], state
+
+
+def test_list_failure_falls_back_to_probe_and_is_reported():
+    out, state, asked = _run({100: _lot(419080, id=100)}, {"next_id": 100}, listing=500, max_misses=2)
+    assert [t.external_id for t in out] == ["100"] and asked[:1] == [100], (out, asked)
+    assert _run.last_error and "list failed" in _run.last_error, _run.last_error
+
+
+def test_empty_list_is_a_failure_not_a_quiet_day():
+    _run({}, {"next_id": 100}, listing=[], max_misses=1)
+    assert _run.last_error and "list failed (empty)" in _run.last_error, _run.last_error
+
+
+def test_source_reads_the_list():
+    assert _cfg().probe.list_url.endswith("/Common/GetMinimizedLotsList")
