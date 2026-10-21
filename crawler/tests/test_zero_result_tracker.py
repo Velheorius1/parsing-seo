@@ -766,11 +766,12 @@ class TestExcusedSilence:
         cfg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(zrt.__file__))),
                            "config", "sources.yaml")
         ids = excused_source_ids(cfg)
-        assert len(ids) >= 15, "перевод имён в id перестал находить источники"
+        assert len(ids) >= 14, "перевод имён в id перестал находить источники"
         # hamkorbank, ungm, isdb, tenderweek сняты из реестра 10.10 (источники
-        # починены) — примеры заменены.
+        # починены) — примеры заменены. 21.10 снят живой ebirja-auctions-active
+        # (стоял «тихим зеркалом» при 50 строках за 30 дней): порог 15 → 14.
         assert {"osce-uz", "ipoteka-bank"} <= ids
-        for sid in ("hamkorbank", "ungm", "isdb", "tenderweek"):
+        for sid in ("hamkorbank", "ungm", "isdb", "tenderweek", "ebirja-auctions-active"):
             assert sid not in ids, sid
         assert len(DEAD_SOURCES_WHITELIST) >= 30
 

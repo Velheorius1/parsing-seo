@@ -101,7 +101,9 @@ _RELEVANCE_PROMPT = """Наша компания — ТИПОГРАФИЯ и У�
 - Полиграфия (каталоги, брошюры, блокноты, визитки, буклеты)
 - Выставочные стенды, информационные таблички/указатели, бейджи, бланки строгого учёта
 - Издательские и типографские услуги (печать книг, документов, периодических изданий)
-- Пакеты (полиэтилен, крафт)
+- Пакеты (полиэтилен, крафт) — в том числе простые, без логотипа и печати
+- Одежда и униформа с логотипом или нанесением (футболки, худи, кепки, жилеты,
+  спецодежда с логотипом)
 - Постеры, плакаты, интерьерная печать (bosma, pechat)
 - Сувенирная продукция (ручки, флешки, ежедневники, кружки)
 - Печать на футболках, флагах, лентах, ткани (DTF, сублимация)
@@ -420,6 +422,37 @@ def _parse_relevance_payload(payload: dict) -> Optional[RelevanceResult]:
     )
 
 
+def _source_note(source):
+    # type: (Optional[str]) -> str
+    """Контекст источника для промпта релевантности.
+
+    Э-магазин = объявления ПОСТАВЩИКОВ (предложение товара), не запрос
+    покупателя. Без этого контекста AI фантазирует связи («печать этикеток
+    для ампул» на объявление лекарства Epinephrine, score 95 — FP первого
+    краула 2026-06-10) и триггерится на «ИД упаковки» в фарм-описаниях.
+    Исключение — лоты э-магазина Cooperation: это спрос (решение 21.10).
+    """
+    if source in _DEMAND_ESHOP_SOURCES:
+        return (
+            "\nКОНТЕКСТ ИСТОЧНИКА: лот э-магазина Cooperation — ЗАКАЗЧИК выбрал "
+            "товар и запустил торги на 48 часов, это реальный спрос. Оцени, наш ли "
+            "это товар по профилю выше; количество — в скобках после названия.\n"
+        )
+    elif "э-магазин" in (source or "").lower():
+        return (
+            "\nКОНТЕКСТ ИСТОЧНИКА: это ОБЪЯВЛЕНИЕ ПОСТАВЩИКА в э-магазине "
+            "(предложение товара), а не запрос покупателя. Оцени САМ ТОВАР: "
+            "наш ТОЛЬКО если товар — полиграфическая/бумажно-картонная "
+            "продукция или выставочные стенды/таблички/бейджи, т.е. то, что "
+            "типография могла бы изготовить и предложить таким же объявлением. "
+            "Лекарства, техника, продукты питания, растения, одежда = "
+            "irrelevant (score 0-20), ДАЖЕ если в характеристиках товара "
+            "упоминается упаковка/этикетка («ИД упаковки», «ампулы №10 в "
+            "упаковке») — упаковка чужого товара != заказ на печать.\n"
+        )
+    return ""
+
+
 async def _ai_call_one(
     tender: RawTender,
     client: httpx.AsyncClient,
@@ -440,23 +473,7 @@ async def _ai_call_one(
     # multi-item lots (e.g. Hayotbirja "Отбор" where title="Отбор" but the
     # body lists "Книги печатные"). Drop the raw good_maps JSON blob.
     _details = (tender.search_text or "").split("{", 1)[0].strip()[:320]
-    # Э-магазин = объявления ПОСТАВЩИКОВ (предложение товара), не запрос
-    # покупателя. Без этого контекста AI фантазирует связи («печать этикеток
-    # для ампул» на объявление лекарства Epinephrine, score 95 — FP первого
-    # краула 2026-06-10) и триггерится на «ИД упаковки» в фарм-описаниях.
-    _src_note = ""
-    if "э-магазин" in (tender.source or "").lower():
-        _src_note = (
-            "\nКОНТЕКСТ ИСТОЧНИКА: это ОБЪЯВЛЕНИЕ ПОСТАВЩИКА в э-магазине "
-            "(предложение товара), а не запрос покупателя. Оцени САМ ТОВАР: "
-            "наш ТОЛЬКО если товар — полиграфическая/бумажно-картонная "
-            "продукция или выставочные стенды/таблички/бейджи, т.е. то, что "
-            "типография могла бы изготовить и предложить таким же объявлением. "
-            "Лекарства, техника, продукты питания, растения, одежда = "
-            "irrelevant (score 0-20), ДАЖЕ если в характеристиках товара "
-            "упоминается упаковка/этикетка («ИД упаковки», «ампулы №10 в "
-            "упаковке») — упаковка чужого товара != заказ на печать.\n"
-        )
+    _src_note = _source_note(tender.source)
     prompt = _RELEVANCE_PROMPT.format(
         title=tender.title[:300],
         organization=tender.organization or "",
@@ -1018,6 +1035,18 @@ _REVERSE_AUCTION_SOURCES = {
 # the big-ticket override. Digest-only — deliberately NOT in _NO_PUSH_SOURCES (that
 # drops items entirely; we want digest visibility).
 _SUPPLIER_CATALOG_MARKERS = ("э-магазин", "оферт")
+
+# 21.10.2026 (решение Данияра): лоты э-магазина Cooperation — НЕ витрина
+# продавцов. Заказчик выбрал товар, идут торги 48 ч — это спрос, его пушим.
+# Слово «э-магазин» в имени их больше не делает каталогом.
+_DEMAND_ESHOP_SOURCES = frozenset({"Cooperation.uz Э-магазин лоты"})
+
+
+def _is_supplier_catalog(source):
+    # type: (Optional[str]) -> bool
+    if source in _DEMAND_ESHOP_SOURCES:
+        return False
+    return any(m in (source or "").lower() for m in _SUPPLIER_CATALOG_MARKERS)
 
 # Supplier-catalog / off-profile sources dropped from PUSH (deep-think 2026-07-01):
 # e-shops are sell-side (sellers list offers) — no buyer, no demand signal (bid field
@@ -1613,7 +1642,7 @@ def _format_alert(
         # E-shop sources map organization to producer COUNTRY (УЗБЕКИСТАН/КИТАЙ),
         # not a buyer — «Заказчик: КИТАЙ» misled (2026-07-03). Label honestly.
         _org_label = ("Производство" if "э-магазин" in (tender.source or "").lower()
-                      else "Заказчик")
+                      and tender.source not in _DEMAND_ESHOP_SOURCES else "Заказчик")
         parts.append("%s: %s" % (_org_label, _escape_md(tender.organization)))
     if tender.price:
         parts.append("Сумма: %s %s" % ("{:,.0f}".format(tender.price), tender.currency))
@@ -1760,12 +1789,14 @@ def _is_high_signal(t: RawTender) -> bool:
     """True → per-alert push; False → digest."""
     if _is_tg_lead(t):
         return True  # hot lead: a client asking to buy NOW
-    if any(m in (t.source or "").lower() for m in _SUPPLIER_CATALOG_MARKERS):
+    if _is_supplier_catalog(t.source):
         # Supplier-catalog listings NEVER earn a push (Daniyar's locked decision:
         # e-shop → только по старту аукциона). The big-ticket override leaked
         # them back (#5005 298M / #5006 100M, 2026-07-03) — a supplier's asking
         # price is not demand. Digest-only, no overrides.
         return False
+    if t.source in _DEMAND_ESHOP_SOURCES:
+        return True  # торги 48 ч уже идут — пуш (решение Данияра 21.10)
     if t.source in _REVERSE_AUCTION_SOURCES and (t.bid_count or 0) > 0:
         return True  # live reverse auction with real bidders
     if t.price and t.price >= _PUSH_PRICE_FLOOR:
