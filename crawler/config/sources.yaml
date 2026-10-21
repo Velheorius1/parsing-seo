@@ -3370,12 +3370,10 @@ sources:
 
   # ===== EBIRJA.UZ — публичные REST endpoints =====
 
-  # ОТКЛЮЧЁН 2026-06-11: api.ebirja.uz/fond-api/* отдаёт 401 "Full authentication
-  # is required" на ВСЕ external/* эндпоинты (fond-api закрыт авторизацией,
-  # проверено 11.06 — доступ убран намеренно с переходом на нового оператора
-  # xarid.ebirja.uz/ТТСБ ~окт 2025). Источник делал тихие пустые прогоны.
-  # Реанимация: либо E-IMZO авторизация app.ebirja.uz, либо discovery нового
-  # оператора xarid-api.ebirja.uz (роуты не найдены, отвечает 404).
+  # ВЫКЛЮЧЕН — не наш профиль (beliefs.yaml: ebirja-fond-not-profile). Запись
+  # 11.06 «401 на все external/*, нужен E-IMZO» устарела: 21.10 external/* отдают
+  # 200 анонимно (аудит B с узбекского IP, повтор с VPS). Внутри — биржевое сырьё:
+  # contract/all 7586 договоров, по профилю 0 (два «гипсокартона»).
   - id: ebirja-ext-products
     name: "E-Birja товары на продажу"
     adapter: api
@@ -3411,12 +3409,10 @@ sources:
       max_pages: 20
       page_start: 0
 
-  # ОТКЛЮЧЁН 2026-06-11: api.ebirja.uz/fond-api/* отдаёт 401 "Full authentication
-  # is required" на ВСЕ external/* эндпоинты (fond-api закрыт авторизацией,
-  # проверено 11.06 — доступ убран намеренно с переходом на нового оператора
-  # xarid.ebirja.uz/ТТСБ ~окт 2025). Источник делал тихие пустые прогоны.
-  # Реанимация: либо E-IMZO авторизация app.ebirja.uz, либо discovery нового
-  # оператора xarid-api.ebirja.uz (роуты не найдены, отвечает 404).
+  # ВЫКЛЮЧЕН — не наш профиль (beliefs.yaml: ebirja-fond-not-profile). Запись
+  # 11.06 «401 на все external/*, нужен E-IMZO» устарела: 21.10 external/* отдают
+  # 200 анонимно (аудит B с узбекского IP, повтор с VPS). Внутри — биржевое сырьё:
+  # contract/all 7586 договоров, по профилю 0 (два «гипсокартона»).
   - id: ebirja-ext-contracts
     name: "E-Birja завершённые сделки"
     adapter: api
@@ -3671,12 +3667,9 @@ sources:
   # Field_map follows the public fond-api shape (productDetailNameRu, ptNameRu,
   # mainPrice, id) — same Java backend serves public and authed endpoints.
 
-  # ОТКЛЮЧЁН 2026-06-11: api.ebirja.uz/fond-api/* отдаёт 401 "Full authentication
-  # is required" на ВСЕ external/* эндпоинты (fond-api закрыт + источник никогда не давал строк,
-  # проверено 11.06 — доступ убран намеренно с переходом на нового оператора
-  # xarid.ebirja.uz/ТТСБ ~окт 2025). Источник делал тихие пустые прогоны.
-  # Реанимация: либо E-IMZO авторизация app.ebirja.uz, либо discovery нового
-  # оператора xarid-api.ebirja.uz (роуты не найдены, отвечает 404).
+  # ВЫКЛЮЧЕН: ручка под авторизацией — 401 (11.06; перепроверено 21.10 с VPS,
+  # проба beliefs.yaml: ebirja-auth-401), и это биржевая продажа, не спрос.
+  # Остальной fond-api (external/*) с 21.10 открыт, но тоже не профиль.
   - id: ebirja-auth-release-sale
     name: "E-Birja торговые продукты (авторизованный)"
     adapter: api
@@ -3705,12 +3698,9 @@ sources:
       max_pages: 20
       page_start: 0
 
-  # ОТКЛЮЧЁН 2026-06-11: api.ebirja.uz/fond-api/* отдаёт 401 "Full authentication
-  # is required" на ВСЕ external/* эндпоинты (fond-api закрыт + источник никогда не давал строк,
-  # проверено 11.06 — доступ убран намеренно с переходом на нового оператора
-  # xarid.ebirja.uz/ТТСБ ~окт 2025). Источник делал тихие пустые прогоны.
-  # Реанимация: либо E-IMZO авторизация app.ebirja.uz, либо discovery нового
-  # оператора xarid-api.ebirja.uz (роуты не найдены, отвечает 404).
+  # ВЫКЛЮЧЕН: ручка под авторизацией — 401 (11.06; перепроверено 21.10 с VPS,
+  # проба beliefs.yaml: ebirja-auth-401), и это биржевая продажа, не спрос.
+  # Остальной fond-api (external/*) с 21.10 открыт, но тоже не профиль.
   - id: ebirja-auth-seller-products
     name: "E-Birja аукционные товары (авторизованный)"
     adapter: api

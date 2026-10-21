@@ -119,6 +119,11 @@ beliefs:
     because: "дубли Hayotbirja выключены, запросы XT-Xarid — через host_budget"
     recorded: "10.10.2026 замер; 21.10.2026 аудит B: 100/100 общих id"
     review_by: "2027-01-21"
+  - id: ebirja-fond-not-profile
+    claim: "Ebirja fond-api (external/*) — биржевое сырьё, наших позиций нет"
+    because: "ebirja-ext-products и ebirja-ext-contracts выключены"
+    recorded: "21.10.2026, аудит B: открыт анонимно (11.06 был 401), contract/all 7586 договоров — по профилю 0; повтор с VPS 21.10: 200"
+    review_by: "2027-01-21"
   - id: coop-eshop-is-demand
     claim: "Лоты э-магазина Cooperation — спрос (заказчик выбрал товар, торги 48 ч)"
     because: "пуш, а не дайджест (решение Данияра 21.10)"
