@@ -267,6 +267,7 @@ async def _run_pipeline(
         upserted, total, len(new_tenders), deferred_count, failed_count,
     )
     crawl_log.log_upsert(upserted, len(new_tenders), deferred_count, failed_count)
+    crawl_log.log_new_by_source(new_tenders, {a.config.name: a.config.id for a in all_adapters})
 
     # Предмет лота у предквалификаций — ДО гейтов (22.08). Список GetLots
     # отдаёт только категорию, поэтому и ключевой гейт, и AI до сих пор судили
