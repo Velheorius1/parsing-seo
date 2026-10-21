@@ -68,6 +68,107 @@ HEADERS = {
     'Accept': 'application/json',
 }
 
+# ── Надёжность запросов (21.10.2026) ─────────────────────────────
+# Аудит 21.10: каждый раздел ходил на площадку ОДНОЙ попыткой и на ошибке выходил
+# из цикла — «Got 0» проходил тихо, а прогон завершался с кодом 0 (через
+# резидентный прокси ~2% запросов — таймауты TLS, 504, SSL EOF). Теперь каждый
+# запрос — 3 попытки; сбой или неполный снимок раздела пишется в журнал прогона
+# (logs/coop_runs.jsonl — его читает healthcheck) и в код выхода.
+_RETRY_PAUSES = (5, 20)  # паузы перед 2-й и 3-й попыткой, с
+_RUNS_LOG = os.path.join(_REPO_ROOT, 'logs', 'coop_runs.jsonl')
+_RUN = {}  # type: Dict[str, Dict[str, Any]]
+_LABEL_SOURCES = {
+    'Plans': 'Cooperation.uz Закупочные планы',
+    'Offers': 'Cooperation.uz Оферты',
+    'Lots': 'Cooperation.uz Лоты',
+    'AuctionLots': 'Cooperation.uz Аукционы',
+    'EshopLots': 'Cooperation.uz Э-магазин лоты',
+    'AucContracts': 'Cooperation.uz Контракты',
+}
+
+
+class FetchFailed(Exception):
+    """Площадка не ответила после всех попыток."""
+
+
+def _section(label):
+    # type: (str) -> Dict[str, Any]
+    """Итог раздела в этом прогоне: status ok | partial | failed."""
+    return _RUN.setdefault(label, {'status': 'ok', 'fetched': 0, 'total': None, 'error': ''})
+
+
+def _mark(label, status, error):
+    # type: (str, str, str) -> None
+    """partial — взяли меньше, чем есть на площадке; failed — не взяли или не записали."""
+    sec = _section(label)
+    if sec['status'] != 'failed':
+        sec['status'] = status
+    sec['error'] = ('%s; %s' % (sec['error'], error) if sec['error'] else error)[:300]
+
+
+def _get_json(client, url, params, label, headers=None):
+    # type: (httpx.Client, str, Dict[str, Any], str, Optional[Dict[str, str]]) -> Any
+    """GET → JSON с повторами; после всех попыток — FetchFailed."""
+    last = None  # type: Optional[Exception]
+    pauses = (0,) + tuple(_RETRY_PAUSES)
+    for attempt, pause in enumerate(pauses):
+        if pause:
+            time.sleep(pause)
+        try:
+            resp = client.get(url, params=params, headers=headers or HEADERS)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            last = exc
+            logger.warning('[%s] attempt %d/%d: %s', label, attempt + 1, len(pauses), str(exc)[:120])
+    raise FetchFailed('%s: %s' % (type(last).__name__, str(last)[:120]))
+
+
+def _fetch_cabinet_paged(url, label, page_size=50, max_pages=40):
+    # type: (str, str, int, int) -> List[Dict[str, Any]]
+    """cabinet.cooperation.uz: pageIndex/pageSize (не больше 50), итог — в pagination.
+
+    skip/take этот API МОЛЧА игнорирует и отдаёт первые 10: э-магазин собирался
+    на 10 из 302 (аудит 21.10). Листаем до hasNext=false и сверяем уникальные id
+    с total. Список живой (за 10 с чтения 303 → 301): закрытие посреди листания
+    сдвигает соседа через границу страницы — тогда одно полное перечитывание.
+    """
+    items = {}  # type: Dict[Any, Dict[str, Any]]
+    total = None  # type: Optional[int]
+    for snapshot in (1, 2):
+        items, total = {}, None
+        with httpx.Client(timeout=30) as client:
+            for page in range(1, max_pages + 1):
+                try:
+                    data = _get_json(client, url, {'pageIndex': page, 'pageSize': page_size}, label)
+                except FetchFailed as exc:
+                    _mark(label, 'failed', 'page %d: %s' % (page, exc))
+                    _section(label).update(fetched=len(items), total=total)
+                    return list(items.values())
+                batch = data.get('data') if isinstance(data, dict) else data
+                if not isinstance(batch, list):
+                    _mark(label, 'failed', 'page %d: unexpected %s' % (page, type(batch).__name__))
+                    _section(label).update(fetched=len(items), total=total)
+                    return list(items.values())
+                for item in batch:
+                    if isinstance(item, dict):
+                        items[item.get('id') or item.get('lotNumber')] = item
+                pg = (data.get('pagination') if isinstance(data, dict) else None) or {}
+                count = pg.get('totalItems', pg.get('totalCount'))
+                if isinstance(count, int):
+                    total = count
+                if not batch or not pg.get('hasNext'):
+                    break
+        if total is None or len(items) >= total:
+            break
+        if snapshot == 1:
+            logger.warning('[%s] snapshot %d of %d — re-reading once', label, len(items), total)
+    _section(label).update(fetched=len(items), total=total)
+    if total is not None and len(items) < total:
+        _mark(label, 'partial', 'took %d of %d' % (len(items), total))
+    logger.info('[%s] Got %d items from API (total %s)', label, len(items), total)
+    return list(items.values())
+
 ALERT_KEYWORDS = (
     'упаковка,полиграфия,гофра,коробка,печать,этикетка,типография,'
     'книга,книж,каталог,брошюр,блокнот,календар,пакет,конверт,папка,'
@@ -206,9 +307,13 @@ def _extract_ru(obj):
 
 # ── Generic API fetcher ─────────────────────────────────────────
 
-def fetch_api(url, page_size, max_pages, response_path='result.data', total_path='result.total'):
-    # type: (str, int, int, str, str) -> Tuple[List[Dict[str, Any]], int]
-    """Fetch paginated API. Returns (items, total_count)."""
+def fetch_api(url, page_size, max_pages, response_path='result.data', total_path='result.total',
+              label='API', complete=False):
+    # type: (str, int, int, str, str, str, bool) -> Tuple[List[Dict[str, Any]], int]
+    """Fetch paginated API. Returns (items, total_count).
+
+    complete=True — раздел обязан прийти целиком (Лоты): взяли меньше total —
+    partial. Оферты и планы берут только свежие страницы по замыслу."""
     all_items = []  # type: List[Dict[str, Any]]
     total_count = 0
 
@@ -218,13 +323,7 @@ def fetch_api(url, page_size, max_pages, response_path='result.data', total_path
             logger.info('  Fetching page %d (Skip=%d, Take=%d)...', page + 1, skip, page_size)
 
             try:
-                resp = client.get(
-                    url,
-                    params={'Skip': skip, 'Take': page_size},
-                    headers=HEADERS,
-                )
-                resp.raise_for_status()
-                data = resp.json()
+                data = _get_json(client, url, {'Skip': skip, 'Take': page_size}, label)
 
                 # Navigate response path
                 items = data
@@ -257,8 +356,12 @@ def fetch_api(url, page_size, max_pages, response_path='result.data', total_path
 
             except Exception as exc:
                 logger.error('  Error on page %d: %s', page + 1, str(exc))
+                _mark(label, 'failed', 'page %d: %s' % (page + 1, str(exc)[:160]))
                 break
 
+    _section(label).update(fetched=len(all_items), total=total_count or None)
+    if complete and total_count and len(all_items) < total_count:
+        _mark(label, 'partial', 'took %d of %d' % (len(all_items), total_count))
     return all_items, total_count
 
 
@@ -270,7 +373,7 @@ def fetch_and_transform_plans(max_pages=3):
     logger.info('[Plans] Fetching procurement plans...')
     items, total = fetch_api(
         'https://new.cooperation.uz/ocelot/api-client/Client/GetAllPlanSchedule',
-        page_size=500, max_pages=max_pages,
+        page_size=500, max_pages=max_pages, label='Plans',
     )
     if not items:
         return []
@@ -317,7 +420,7 @@ def fetch_and_transform_offers(max_pages=5):
     logger.info('[Offers] Fetching supplier offers...')
     items, total = fetch_api(
         'https://new.cooperation.uz/ocelot/api-client/Client/GetAllOffer',
-        page_size=200, max_pages=max_pages,
+        page_size=200, max_pages=max_pages, label='Offers',
     )
     if not items:
         return []
@@ -377,6 +480,7 @@ def fetch_and_transform_lots():
         'https://new.cooperation.uz/ocelot/api-shop/LotRequest/GetLotsInTrade',
         page_size=2500, max_pages=1,
         response_path='result.result', total_path='result.count',
+        label='Lots', complete=True,
     )
     if not items:
         return []
@@ -428,27 +532,7 @@ def fetch_and_transform_auction_lots():
     # type: () -> List[Dict[str, Any]]
     """Fetch active auction lots from cabinet API — these are BUYER-initiated reverse auctions."""
     logger.info('[AuctionLots] Fetching active auction lots...')
-    all_items = []  # type: List[Dict[str, Any]]
-
-    with httpx.Client(timeout=30) as client:
-        try:
-            resp = client.get(
-                'https://cabinet.cooperation.uz/api/auction/public/lots',
-                params={'skip': 0, 'take': 500},
-                headers=HEADERS,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            # Response format: {code: 200, message: "OK", data: [...]}
-            if isinstance(data, dict):
-                items = data.get('data', [])
-                if isinstance(items, list):
-                    all_items = items
-            elif isinstance(data, list):
-                all_items = data
-            logger.info('[AuctionLots] Got %d items from API', len(all_items))
-        except Exception as exc:
-            logger.error('[AuctionLots] Error: %s', str(exc))
+    all_items = _fetch_cabinet_paged('https://cabinet.cooperation.uz/api/auction/public/lots', 'AuctionLots')
 
     if not all_items:
         logger.info('[AuctionLots] No items found')
@@ -508,27 +592,7 @@ def fetch_and_transform_eshop_lots():
     # type: () -> List[Dict[str, Any]]
     """Fetch active e-shop lots — these are BUYER-selected products now in trade."""
     logger.info('[EshopLots] Fetching active e-shop lots...')
-    all_items = []  # type: List[Dict[str, Any]]
-
-    with httpx.Client(timeout=30) as client:
-        try:
-            resp = client.get(
-                'https://cabinet.cooperation.uz/api/eshop/lots/active',
-                params={'skip': 0, 'take': 500},
-                headers=HEADERS,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            # Response format: {code: 200, message: "OK", data: [...]}
-            if isinstance(data, dict):
-                items = data.get('data', [])
-                if isinstance(items, list):
-                    all_items = items
-            elif isinstance(data, list):
-                all_items = data
-            logger.info('[EshopLots] Got %d items from API', len(all_items))
-        except Exception as exc:
-            logger.error('[EshopLots] Error: %s', str(exc))
+    all_items = _fetch_cabinet_paged('https://cabinet.cooperation.uz/api/eshop/lots/active', 'EshopLots')
 
     if not all_items:
         logger.info('[EshopLots] No items found')
@@ -721,14 +785,11 @@ def fetch_and_transform_auction_contracts(max_pages=10, page_size=500):
     with httpx.Client(timeout=30) as client:
         for page in range(max_pages):
             try:
-                resp = client.get(
-                    'https://stat-new.cooperation.uz/gateway/api-stat/auction-contracts',
-                    params={'skip': page * page_size, 'take': page_size},
-                    headers={**HEADERS, 'Referer': 'https://stat-new.cooperation.uz/'},
-                )
-                resp.raise_for_status()
-                data = resp.json()
+                data = _get_json(client, 'https://stat-new.cooperation.uz/gateway/api-stat/auction-contracts',
+                                 {'skip': page * page_size, 'take': page_size}, 'AucContracts',
+                                 headers={**HEADERS, 'Referer': 'https://stat-new.cooperation.uz/'})
                 if not isinstance(data, dict):
+                    _mark('AucContracts', 'failed', 'page %d: unexpected %s' % (page, type(data).__name__))
                     break
                 if page == 0:
                     total = int(data.get('total') or 0)
@@ -741,8 +802,12 @@ def fetch_and_transform_auction_contracts(max_pages=10, page_size=500):
                     break
             except Exception as exc:
                 logger.error('[AucContracts] Page %d error: %s', page, str(exc))
+                _mark('AucContracts', 'failed', 'page %d: %s' % (page, str(exc)[:160]))
                 break
 
+    _section('AucContracts').update(fetched=len(all_items), total=total or None)
+    if total and len(all_items) < total:
+        _mark('AucContracts', 'partial', 'took %d of %d' % (len(all_items), total))
     logger.info('[AucContracts] Got %d items', len(all_items))
     if not all_items:
         return []
@@ -1228,6 +1293,8 @@ def process_source(rows, source_name, label, dry_run=False, is_plans=False, gate
     """Upsert rows and send alerts. Returns (upserted, new_count, alerts, competitor_alerts, lead_alerts).
     tender_alerts=False keeps upsert + competitor/lead intel but skips generic tender
     alerting (plans: runner's cooperation-plans-filtered owns those alerts — T0-a)."""
+    sec = _section(label)
+    sec['source'] = source_name
     if not rows:
         return 0, 0, 0, 0, 0
 
@@ -1263,6 +1330,9 @@ def process_source(rows, source_name, label, dry_run=False, is_plans=False, gate
     persisted = upsert_rows(rows)
     upserted = len(persisted)
     logger.info('[%s] Upserted: %d / %d', label, upserted, len(rows))
+    keys = set((r.get('external_id'), r.get('source')) for r in rows)
+    if len(persisted) < len(keys):
+        _mark(label, 'partial' if persisted else 'failed', 'wrote %d of %d' % (len(persisted), len(keys)))
     held = [r for r in alert_rows if (r.get('external_id'), r.get('source')) not in persisted]
     if held:
         logger.error('[%s] PARTIAL WRITE: %d alert candidates not persisted — held until next run',
@@ -1281,13 +1351,16 @@ def process_source(rows, source_name, label, dry_run=False, is_plans=False, gate
         if is_plans:
             lead_alerts = send_lead_alerts(new_rows, label)
 
-    return upserted, len(alert_rows), alerts, comp_alerts, lead_alerts
+    # «new» — впервые записанные строки. До 21.10 сюда шло len(alert_rows), то
+    # есть хвост ещё не алертнутых: «new ~1100» каждый прогон при 0 новых ночью.
+    sec.update(new=len(new_rows), upserted=upserted, candidates=len(alert_rows), alerts=alerts)
+    return upserted, len(new_rows), alerts, comp_alerts, lead_alerts
 
 
 # ── Main ─────────────────────────────────────────────────────────
 
 def main():
-    # type: () -> None
+    # type: () -> int
     parser = argparse.ArgumentParser(description='Fetch cooperation.uz data')
     parser.add_argument('--dry-run', action='store_true', help='Fetch only, no DB')
     parser.add_argument('--pages', type=int, default=3, help='Max pages for plans (default: 3)')
@@ -1371,7 +1444,34 @@ def main():
         '=== DONE: upserted %d, new %d, alerts %d, competitor %d, leads %d ===',
         total_upserted, total_new, total_alerts, total_competitor, total_leads,
     )
+    return _finish(dry_run=args.dry_run)
+
+
+def _finish(dry_run=False):
+    # type: (bool) -> int
+    """Событие на каждый раздел — в logs/coop_runs.jsonl; код выхода 1, если
+    хоть один раздел не взят целиком или не записан (обёртка пишет «FAILED»)."""
+    ts = datetime.now(timezone.utc).isoformat()
+    bad = []
+    lines = []
+    for label, sec in sorted(_RUN.items()):
+        rec = {'ts': ts, 'section': label, 'source': sec.get('source') or _LABEL_SOURCES.get(label, label)}
+        rec.update({k: v for k, v in sec.items() if k != 'source'})
+        lines.append(json.dumps(rec, ensure_ascii=False))
+        if sec['status'] != 'ok':
+            bad.append('%s=%s (%s)' % (label, sec['status'], sec['error']))
+    if bad:
+        logger.error('=== SECTIONS NOT OK: %s ===', '; '.join(bad))
+    if not dry_run and lines:
+        try:
+            os.makedirs(os.path.dirname(_RUNS_LOG), exist_ok=True)
+            with open(_RUNS_LOG, 'a', encoding='utf-8') as fh:
+                fh.write('\n'.join(lines) + '\n')
+        except OSError as exc:
+            logger.error('[runs] cannot write %s: %s', _RUNS_LOG, exc)
+            return 1
+    return 1 if bad else 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
