@@ -48,6 +48,9 @@ sources:
       url_template: "https://apietender.uzex.uz/api/common/GetTrade/{id}/0"
       state_key: "detail_state_etender"
       max_per_run: 250
+      # TradeList — только живые лоты; лоты после «Обсуждений» (2611…) приходят
+      # с номером ниже уже обработанных — без этого флага деталь им не качалась.
+      active_list: true
       timeout: 30
       retries: 1
       text_fields:

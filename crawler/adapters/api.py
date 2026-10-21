@@ -656,7 +656,11 @@ class ApiAdapter(BaseAdapter):
         if restored:
             logger.info("[%s] restored %d cached detail payloads", cfg.name, restored)
 
-        fresh = [it for it in items if _iid(it) > floor and _iid(it) not in seen]
+        if dcfg.active_list:
+            fresh = [it for it in items
+                     if _iid(it) and _iid(it) not in seen and not it.get("_detail_text")]
+        else:
+            fresh = [it for it in items if _iid(it) > floor and _iid(it) not in seen]
         if max_seen == 0 and floor == 0 and not seen and dcfg.bootstrap == "newest":
             # Архивный list: берём срез новейших, хвост не дотягиваем by design
             candidates = sorted(fresh, key=_iid, reverse=True)[: dcfg.max_per_run]
@@ -752,11 +756,17 @@ class ApiAdapter(BaseAdapter):
             ", %d failed (retry next run)" % failed if failed else "",
             max_seen, processed_max,
         )
-        if len(seen) > _SEEN_KEEP:
-            ordered = sorted(seen)
-            floor = max(floor, ordered[-_SEEN_KEEP - 1])  # ниже пола — «обработано»
-            seen = set(ordered[-_SEEN_KEEP:])
-        fails = dict((k, v) for k, v in fails.items() if k > floor and k not in seen)
+        if dcfg.active_list:
+            # Ушедший из живой выдачи лот в неё не возвращается — помнить нечего.
+            live = set(_iid(it) for it in items)
+            seen = set(x for x in seen if x in live)
+            fails = dict((k, v) for k, v in fails.items() if k in live and k not in seen)
+        else:
+            if len(seen) > _SEEN_KEEP:
+                ordered = sorted(seen)
+                floor = max(floor, ordered[-_SEEN_KEEP - 1])  # ниже пола — «обработано»
+                seen = set(ordered[-_SEEN_KEEP:])
+            fails = dict((k, v) for k, v in fails.items() if k > floor and k not in seen)
         if processed_max > max_seen or floor != start_floor or seen != start_seen or fails != start_fails:
             try:
                 from datetime import datetime, timezone
