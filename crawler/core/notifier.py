@@ -438,7 +438,7 @@ def _source_note(source):
             "товар и запустил торги на 48 часов, это реальный спрос. Оцени, наш ли "
             "это товар по профилю выше; количество — в скобках после названия.\n"
         )
-    elif "э-магазин" in (source or "").lower():
+    elif any(m in (source or "").lower() for m in ("э-магазин", "электронный магазин", "национальный магазин")):
         return (
             "\nКОНТЕКСТ ИСТОЧНИКА: это ОБЪЯВЛЕНИЕ ПОСТАВЩИКА в э-магазине "
             "(предложение товара), а не запрос покупателя. Оцени САМ ТОВАР: "
@@ -1034,7 +1034,10 @@ _REVERSE_AUCTION_SOURCES = {
 # shared pipeline with the coop unification (2026-07-22) and would otherwise push via
 # the big-ticket override. Digest-only — deliberately NOT in _NO_PUSH_SOURCES (that
 # drops items entirely; we want digest visibility).
-_SUPPLIER_CATALOG_MARKERS = ("э-магазин", "оферт")
+_SUPPLIER_CATALOG_MARKERS = ("э-магазин", "оферт", "электронный магазин", "национальный магазин")
+# 21.10: «Ebirja Электронный/Национальный магазин» — тоже витрина продавцов
+# (announce-list: цена за единицу, мин./макс. заказ, страна, фото, «в корзину»,
+# заказчика нет), но маркер «э-магазин» их не ловил: 14 алертов из 540 подряд.
 
 # 21.10.2026 (решение Данияра): лоты э-магазина Cooperation — НЕ витрина
 # продавцов. Заказчик выбрал товар, идут торги 48 ч — это спрос, его пушим.
@@ -1385,7 +1388,11 @@ def prefilter(
     nxt = []
     for i in alive:
         t = new_tenders[i]
-        if t.price is None or t.price >= MIN_PRICE:
+        # 21.10: порог — в сумах и не для чатовых лидов. «Цену» лида модель
+        # вынимает из текста («визитки 1000 шт» → 1 200 сум), а 5 000 USD/EUR
+        # меньше «5 млн» только как число (аудит: ~300 валютных лотов за 30 дн.).
+        if (t.price is None or t.price >= MIN_PRICE or _is_tg_lead(t)
+                or (t.currency or "UZS").upper() != "UZS"):
             nxt.append(i)
         else:
             verdicts[i].dropped_at = DropStage.MIN_PRICE
