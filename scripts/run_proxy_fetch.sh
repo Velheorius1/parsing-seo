@@ -54,7 +54,12 @@ echo "=== $(date +%Y-%m-%d\ %H:%M:%S) START proxy fetch ===" >> "$LOG"
 # Public endpoint with full customer+producer+prices — replaces blocked E-IMZO path.
 ( .venv/bin/python3 scripts/fetch_cooperation.py --source contracts || echo 'contracts FAILED' ) >> "$LOG" 2>&1
 
-# UZEX auctions + prequalifications
-( .venv/bin/python3 scripts/fetch_uzex_auctions.py || echo 'uzex FAILED' ) >> "$LOG" 2>&1
+# UZEX auctions + prequalifications — ВЫКЛЮЧЕНО 21.10: оба раздела собирает
+# основной краулер (`uzex-auctions`, `uzex-prequest`, через тот же прокси, каждые
+# 2 ч), а этот скрипт писал вторую копию каждого лота под `uzex-auc-N`/`uzex-prq-N`.
+# Копии без позиций уходили в recheck и алертились повторно: 21 двойной алерт
+# предквалификаций за 60 дней, в W43 — 35 из 99 алертов (подписка на газеты,
+# см. recheck.drop_subscription_prequals). И вдвое больше платного трафика.
+# ( .venv/bin/python3 scripts/fetch_uzex_auctions.py || echo 'uzex FAILED' ) >> "$LOG" 2>&1
 
 echo "=== $(date +%Y-%m-%d\ %H:%M:%S) END proxy fetch ===" >> "$LOG"
