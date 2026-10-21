@@ -171,6 +171,13 @@ def split_crawl_errors(messages, errors_count, today, known=None, run_hour=None)
         unknown.append(sid or str(msg)[:40])
     unknown.extend("?" for _ in range(max(0, errors_count - len(messages))))
     return known_ids, unknown, expired
+# Журнал прогонов scripts/fetch_cooperation.py (21.10.2026). Прогоны в 03:30,
+# 09:30 и 15:30 UTC: самый длинный штатный разрыв — 12 ч.
+COOP_RUNS_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "logs", "coop_runs.jsonl")
+COOP_DEMAND_SECTIONS = ("Lots", "EshopLots", "AuctionLots")
+COOP_STALE_H = 13
+
 # Supabase FAIL collapses the alert body; these components are treated as
 # UNKNOWN (not FAIL) in the rendered body so the alert signature stays stable.
 SUPABASE_DEPENDENT_COMPONENTS = (
@@ -928,6 +935,61 @@ class HealthCheck:
                               "%s data >12h stale — check crawler" % name)
         except Exception as exc:
             self._add("geo_sources", WARN, "Could not check: %s" % str(exc)[:60])
+
+    def check_coop_runs(self, now=None, path=None):
+        # type: (Optional[datetime], Optional[str]) -> None
+        """Cooperation по журналу прогонов fetch_cooperation (logs/coop_runs.jsonl).
+
+        Аудит 21.10: 60 из 181 прогона за 60 дней не довели лоты до базы, а
+        geo.cooperationuz (свежесть ВСЕХ источников Cooperation разом, и только
+        WARN — в Telegram не доходит) весь период показывал OK. Здесь каждый
+        раздел спроса отдельно: стойкий сбой, неполный снимок (взяли меньше, чем
+        есть на площадке) и тишина дольше COOP_STALE_H — FAIL. Оферты, контракты
+        и планы — WARN: это не спрос. Нет журнала — FAIL: сборщик не пишет.
+        """
+        path = path or COOP_RUNS_LOG
+        t = datetime.now(timezone.utc) if now is None else now
+        latest = {}  # type: Dict[str, Dict[str, Any]]
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        ev = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(ev, dict) and ev.get("section"):
+                        latest[ev["section"]] = ev  # журнал хронологический
+        except FileNotFoundError:
+            self._add("coop.runs", FAIL, "нет журнала прогонов Cooperation (%s): сборщик "
+                                         "не запускался или не пишет" % path)
+            return
+        except OSError as exc:
+            self._add("coop.runs", WARN, "не смог прочитать журнал Cooperation: %s" % str(exc)[:60])
+            return
+        for sec in COOP_DEMAND_SECTIONS + tuple(sorted(set(latest) - set(COOP_DEMAND_SECTIONS))):
+            demand = sec in COOP_DEMAND_SECTIONS
+            bad = FAIL if demand else WARN
+            comp = "coop.%s" % sec
+            ev = latest.get(sec)
+            if ev is None:
+                self._add(comp, FAIL, "раздел ни разу не попал в журнал прогонов")
+                continue
+            name = ev.get("source") or sec
+            try:
+                age_h = (t - datetime.fromisoformat(ev["ts"])).total_seconds() / 3600
+            except (KeyError, TypeError, ValueError):
+                self._add(comp, bad, "%s: битая отметка времени в журнале" % name)
+                continue
+            if age_h > COOP_STALE_H:
+                self._add(comp, bad, "%s: последний прогон %.1f ч назад" % (name, age_h))
+            elif ev.get("status") == "failed":
+                self._add(comp, bad, "%s: сбой — %s" % (name, ev.get("error") or "?"))
+            elif ev.get("status") == "partial":
+                self._add(comp, bad, "%s: неполный снимок — %s" % (name, ev.get("error") or "?"))
+            else:
+                self._add(comp, OK, "%s: взяли %s из %s, новых %s, алертов %s (%.1f ч назад)" % (
+                    name, ev.get("fetched"), ev.get("total"), ev.get("new", "—"),
+                    ev.get("alerts", "—"), age_h))
 
     # ── Check 11b: тяжёлые источники ──
 
@@ -1771,6 +1833,7 @@ def main():
     hc.check_disk()
     hc.check_zombie_processes()
     hc.check_geo_sources()
+    hc.check_coop_runs()
     hc.check_heavy_sources()
     hc.check_scripted_sources()
     hc.check_openrouter_balance()

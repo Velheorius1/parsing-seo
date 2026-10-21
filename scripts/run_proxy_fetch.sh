@@ -24,6 +24,14 @@ if [ "$__pc" != "200" ]; then sleep 5; __pc=$(__probe https://api.ipify.org); __
 if [ "$__pc" != "200" ]; then __pc2=$(__probe https://icanhazip.com); __pc2=${__pc2:-000}; else __pc2=200; fi
 if [ "$__pc" != "200" ] && [ "$__pc2" != "200" ]; then
   echo "=== $(date +%Y-%m-%d\ %H:%M:%S) SKIP proxy fetch: proxy HTTP $__pc/$__pc2 (both targets down) ===" >> "$LOG"
+  # 21.10: пропуск — это сбой разделов спроса, а не тихий выход. healthcheck
+  # (coop.<раздел>) читает журнал и шлёт FAIL сразу, а не через 13 ч тишины.
+  mkdir -p "$DIR/logs"
+  __ts=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)
+  for __s in Lots EshopLots AuctionLots; do
+    printf '{"ts": "%s", "section": "%s", "status": "failed", "error": "proxy down: HTTP %s/%s, run skipped"}\n' \
+      "$__ts" "$__s" "$__pc" "$__pc2" >> "$DIR/logs/coop_runs.jsonl"
+  done
   exit 0
 fi
 
