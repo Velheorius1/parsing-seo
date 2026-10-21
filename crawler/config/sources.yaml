@@ -710,6 +710,39 @@ sources:
       external_id: ""
     keywords_fields: [title]
 
+  - id: humo-tenders
+    name: "HUMO (АО «НМПЦ»)"
+    adapter: html
+    enabled: true
+    # 21.10.2026 (решение Данияра). Аудит: «новых площадок нет (27.07)» — артефакт
+    # промпта разведчика (только .uz, без «сайтов одной организации»). У HUMO
+    # открытый RSS: 10 тендеров за 30 дней, мимо прошли мерч для марафона (450 шт.,
+    # 05.10), брендирование pop-up зоны (08.10), новогодняя кампания (12.10).
+    url: "https://humocard.uz/ru/about/tender/rss/"
+    method: GET
+    headers:
+      User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+      Accept: "application/rss+xml,application/xml,text/xml"
+    rate_limit: 0.5
+    timeout: 20
+    id_prefix: "humo"
+    html_selectors:
+      container: "item"
+      title: "title"
+      description: "description"
+      link: "rsslink"
+      # slug целиком: в нём бывают числа («…-2026-…»), первое число склеило бы лоты
+      external_id_regex: 'tender/([^/?#]+)'
+      # «Срок подачи … до 26 октября 2026 года», «Срок подачи …: 12 октября 2026
+      # года до 18:00» — со страницы тендера (в RSS срока отдельным полем нет)
+      detail_deadline_regex: 'срок[^.]{0,160}?(?:до\s+|:\s*)(?P<date>\d{1,2}(?:\s+[а-яё]+\s+|\s*\.\s*\d{1,2}\s*\.\s*)\d{4})(?:\s+года)?(?:\s+до\s+(?P<hh>\d{1,2}):(?P<mm>\d{2}))?'
+      detail_max: 10
+    field_map:
+      title: title
+      currency: ""
+      external_id: ""
+    keywords_fields: [title]
+
   - id: ungm
     name: "UN Global Marketplace"
     adapter: html

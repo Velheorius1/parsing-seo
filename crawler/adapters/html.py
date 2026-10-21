@@ -331,6 +331,10 @@ class HtmlAdapter(BaseAdapter):
         if selectors is None:
             return []
 
+        if html.lstrip()[:200].startswith("<?xml") or "<rss" in html[:500]:
+            # RSS: html.parser считает <link> пустым тегом, и адрес уходит в
+            # соседний текст (21.10, HUMO). Переименованный тег читается как есть.
+            html = re.sub(r"<(/?)link>", r"<\1rsslink>", html)
         soup = BeautifulSoup(html, "html.parser")
         containers = soup.select(selectors.container)
 
