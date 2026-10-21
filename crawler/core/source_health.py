@@ -61,16 +61,15 @@ DEAD_SOURCES_WHITELIST = {
     'TG: Узбекистон Темир Йуллари': _LEGACY,
     'TG: Хамкорбанк': _LEGACY,
     'TG: Мин ИТ': _LEGACY,
-    # Cooperation legacy (заменены на cooperation-plans-filtered)
+    # Cooperation legacy (заменены на cooperation-plans-filtered). «Аукционы» и
+    # «Э-магазин лоты» здесь стояли по ошибке: оба живые разделы спроса (аудит
+    # 21.10: 14 и 301 активный лот), их сторожит coop.<раздел> в healthcheck.
     'Cooperation.uz Брошюры/Буклеты': _LEGACY,
-    'Cooperation.uz Аукционы': _LEGACY,
     'Cooperation.uz Закупочные планы': _LEGACY,
-    'Cooperation.uz Э-магазин лоты': _LEGACY,
     'Cooperation.uz Bosma (узб.)': _LEGACY,
     # Прочие тихие зеркала
     'Узбекистон Темир Йуллари': _LEGACY,
     'Минстрой (tender.mc.uz)': _LEGACY,
-    'E-Birja активные аукционы (xarid)': _LEGACY,
 
     # --- Разбор 11.08: семь источников, на которые сторож звенел ежедневно.
     # Общая причина не чинить: пять из шести не дали НИ ОДНОГО алерта за всю
@@ -452,7 +451,10 @@ RETIRED_SOURCES = frozenset({
     "Cooperation.uz Стикеры/Наклейки", "Cooperation.uz Календари",
     "Cooperation.uz Этикетки", "Cooperation.uz Печать",
     "Cooperation.uz Брошюры/Буклеты", "Cooperation.uz Bosma (узб.)",
-    "Минстрой (tender.mc.uz)", "E-Birja активные аукционы (xarid)",
+    # «E-Birja активные аукционы (xarid)» здесь стоял по ошибке: источник включён
+    # и живой (аудит 21.10: 50 строк за 30 дней) — выведенным его молчание
+    # считалось бы решением, а не поломкой.
+    "Минстрой (tender.mc.uz)",
     # 05.08: фетчер отключён — эндпоинт ocelot GetAllPlanSchedule заморожен
     # площадкой с 03.02.2026 (все 1500 верхних id уже у нас, НОВЫХ 0).
     # Планы закупок собирает живой близнец «… (filtered)» на cabinet-API.

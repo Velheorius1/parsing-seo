@@ -147,7 +147,9 @@ def test_supplier_catalog_never_pushes():
     # leak them back (e-shop leak 2026-07-03; Оферты joined the pipeline 2026-07-22).
     far = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
     assert not _is_high_signal(_mk(source="Cooperation.uz Оферты", price=298_000_000, deadline=far))
-    assert not _is_high_signal(_mk(source="Cooperation.uz Э-магазин лоты", price=200_000_000, deadline=far))
+    # 21.10: «Cooperation.uz Э-магазин лоты» — спрос (решение Данияра), см.
+    # test_decisions_2110; витрина продавцов — XT-Xarid э-магазин.
+    assert not _is_high_signal(_mk(source="XT-Xarid э-магазин", price=200_000_000, deadline=far))
 
 
 
@@ -175,7 +177,7 @@ def test_supplier_catalog_without_price_still_never_pushes():
     Данияра: e-shop только по старту аукциона)."""
     assert not _is_high_signal(_mk(source="Cooperation.uz Оферты",
                                    relevance_score=95, price=None, deadline=None))
-    assert not _is_high_signal(_mk(source="Cooperation.uz Э-магазин лоты",
+    assert not _is_high_signal(_mk(source="XT-Xarid э-магазин",
                                    relevance_score=95, price=None, deadline=None))
 
 
