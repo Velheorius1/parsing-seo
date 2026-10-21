@@ -589,6 +589,9 @@ def fetch_and_transform_auction_lots():
 # ── Source: E-Shop Active Lots (buyer selected product → trade started) ──
 
 _ESHOP_BASE = 'https://new.cooperation.uz/e-shop'
+# Реестр активных лотов э-магазина (новые сверху, ML… виден в таблице) — для лота,
+# чья оферта уже снята: /e-shop/{id} у такой — «Sahifa topilmadi» (35 из 294 на 21.10).
+_ESHOP_TRADES = 'https://new.cooperation.uz/active-trades?tab=eShop'
 
 
 def _eshop_offer_id(offer_number):
@@ -653,7 +656,7 @@ def fetch_and_transform_eshop_lots():
             'date_start': begin_date[:10] if begin_date else None,
             'date_end': end_date[:10] if end_date else None,
             'source': 'Cooperation.uz Э-магазин лоты',
-            'source_url': '%s/%s' % (_ESHOP_BASE, offer_id) if offer_id else _ESHOP_BASE,
+            'source_url': '%s/%s' % (_ESHOP_BASE, offer_id) if offer_id else _ESHOP_TRADES,
             'status': 'active',
             'search_text': search_text[:1000],
             'extra_info': {k: v for k, v in [('quantity', qty), ('measure', measure), ('offer', offer_num)]
@@ -1100,7 +1103,8 @@ def _enrich_eshop_row(row):
 
     Без цены лот э-магазина шёл в оценку без суммы и проходил порог MIN_PRICE
     любым: 1 чел. на курсы за 1 млн и 30 тысяч пакетов выглядели одинаково.
-    Сбой — без цены, как раньше: обогащение не должно ронять пуш."""
+    Оферты нет (снята) — ссылка на реестр активных лотов; сбой сети — строка
+    как была: обогащение не должно ронять пуш."""
     lei = row.get('extra_info') or {}
     if row.get('source') != 'Cooperation.uz Э-магазин лоты' or not lei.get('offer') or lei.get('unit_price'):
         return
@@ -1113,7 +1117,12 @@ def _enrich_eshop_row(row):
         logger.warning('[EshopOffer] %s: %s', lei['offer'], str(exc)[:80])
         return
     if o is None:
-        logger.warning('[EshopOffer] %s: оферта не найдена', lei['offer'])
+        if r.status_code == 200:
+            logger.info('[EshopOffer] %s: оферта снята — ссылка на реестр', lei['offer'])
+            row['source_url'] = _ESHOP_TRADES
+            _persist_fields(row, {'source_url': _ESHOP_TRADES})
+        else:
+            logger.warning('[EshopOffer] %s: HTTP %s', lei['offer'], r.status_code)
         return
     if o.get('price') is not None:
         lei['unit_price'] = o['price']

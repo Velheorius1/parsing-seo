@@ -9,8 +9,8 @@
 - в каждом пуше Cooperation стояла «Поиск (с десктопа)» на тот же мёртвый /supplier.
 
 Здесь держится: ссылка — /e-shop/{id оферты} (M1203477 → 203477; перед пушем id
-берётся из самой оферты), сумма = цена оферты × количество, сбой обогащения —
-лот без цены, как раньше; в пуше нет ссылок на /supplier.
+берётся из самой оферты), оферта снята — реестр /active-trades?tab=eShop; сумма =
+цена оферты × количество; сбой сети — лот без цены, как раньше; в пуше нет /supplier.
 
 Run: .venv/bin/python3 -m pytest crawler/tests/test_coop_eshop_link.py -q
 """
@@ -54,9 +54,9 @@ def test_row_links_the_offer_not_the_dead_supplier_route(monkeypatch):
     assert row["extra_info"] == {"quantity": 4, "measure": "чел.", "offer": "M1203477"}
 
 
-def test_row_without_offer_number_links_the_shop_not_a_dead_page(monkeypatch):
+def test_row_without_offer_number_links_the_trades_registry(monkeypatch):
     row = _transform([_item(offer="")], monkeypatch)[0]
-    assert row["source_url"] == "https://new.cooperation.uz/e-shop"
+    assert row["source_url"] == "https://new.cooperation.uz/active-trades?tab=eShop"
     assert "offer" not in row["extra_info"]
 
 
@@ -102,10 +102,19 @@ def test_enrich_prefers_the_real_offer_id(monkeypatch):
     assert row["source_url"] == "https://new.cooperation.uz/e-shop/999"
 
 
+def test_withdrawn_offer_links_the_trades_registry(monkeypatch):
+    """35 из 294 живых лотов 21.10: оферта снята, /e-shop/{id} — «Sahifa topilmadi»."""
+    row = _row(monkeypatch)
+    saved = _enrich(row, lambda r: httpx.Response(200, json={"data": []}), monkeypatch)
+    assert row["source_url"] == "https://new.cooperation.uz/active-trades?tab=eShop"
+    assert saved == [{"source_url": "https://new.cooperation.uz/active-trades?tab=eShop"}]
+    assert row["price"] is None
+
+
 def test_enrich_failure_leaves_row_as_before(monkeypatch):
     def boom(request):
         raise httpx.ConnectTimeout("t", request=request)
-    for handler in (boom, lambda r: httpx.Response(500), lambda r: httpx.Response(200, json={"data": []})):
+    for handler in (boom, lambda r: httpx.Response(500)):
         row = _row(monkeypatch)
         before = dict(row, extra_info=dict(row["extra_info"]))
         assert _enrich(row, handler, monkeypatch) == []
