@@ -78,7 +78,7 @@ beliefs:
     recorded: "21.10.2026, аудит B: 401"
     recheck_days: 30
     blind: "открыты ли другие ленты кабинета"
-    probe: {method: GET, url: "https://xarid-api.ebirja.uz/release-sale/get-trade-products", timeout: 20, expect: {status_in: [401, 403]}}
+    probe: {method: GET, url: "https://api.ebirja.uz/fond-api/api/release-sale/get-trade-products", timeout: 20, expect: {status_in: [401, 403]}}
   - id: uzbekenergo-dns
     claim: "Сайт закупок Узбекэнерго мёртв (DNS)"
     because: "источник выключен"
