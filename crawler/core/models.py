@@ -131,12 +131,13 @@ class DetailFetchConfig(BaseModel):
 
 
 class ProbeConfig(BaseModel):
-    """Перебор лотов по номеру (20.10.2026, старые аукционы UZEX).
+    """Лоты по номеру (20.10.2026, старые аукционы UZEX).
 
-    У xarid.uzex.uz/auction список закрыт RSA-токеном, а лот по номеру
-    (`Common/GetLot/{id}`) отдаётся без входа. Номера идут подряд (~100 в день):
-    адаптер идёт вперёд от `next_id` до `max_misses` «нет лота» подряд, лоты до
-    публикации держит в очереди и перепроверяет не дольше `pending_days`.
+    Лот по номеру (`Common/GetLot/{id}`) отдаётся без входа. Есть `list_url` —
+    номера активных лотов берутся из списка, и подробности качаются только для
+    новых. Список не ответил — запасной путь: перебор вперёд от `next_id` до
+    `max_misses` «нет лота» подряд (номера идут подряд, ~100 в день), лоты до
+    публикации — в очереди не дольше `pending_days`.
     """
 
     state_key: str  # ключ в crawler_settings
@@ -144,6 +145,8 @@ class ProbeConfig(BaseModel):
     max_per_run: int = 300  # запросов на прогон: очередь + вперёд
     max_misses: int = 25  # подряд «нет лота» — дальше номеров ещё нет
     pending_days: int = 14
+    list_url: Optional[str] = None  # POST {"from","to"} → активные лоты с total_count
+    list_window: int = 20  # больше 21 сервер отвечает 500
 
 
 class SourceConfig(BaseModel):
