@@ -89,7 +89,7 @@ SEED = [
 # (error-log 06-29).
 # 2026-08-02: pro → flash-0731 вместе со всем конвейером. Замером НЕ покрыт:
 # веб-разведка новых площадок — рассуждение, а не классификация лота.
-DISCOVER_MODEL = "deepseek/deepseek-v4-flash-0731"
+DISCOVER_MODEL = "deepseek/deepseek-v4.1-flash-1017"
 DISCOVER_META_KEY = "source_discover_v1"   # last run / cost / counts — so a dead pass is visible
 MAX_DISCOVER = 8
 DISCOVER_STALE_DAYS = 10

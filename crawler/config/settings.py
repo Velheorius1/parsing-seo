@@ -159,7 +159,15 @@ class Settings(BaseSettings):
     # другой: прежняя пара резала один НАШ лот, новая пропускает один чужой.
     # Разброс между прогонами не нулевой и известен — та же прежняя конфигурация
     # дала 10.0 (29.07) и 9.9 (02.08), поэтому 0.1 разницы ничего не доказывает.
-    ai_relevance_model: str = "deepseek/deepseek-v4-flash-0731"
+    #
+    # 2026-10-21: → deepseek/deepseek-v4.1-flash-1017 (решение Данияра). Цена
+    # $0.15/$0.60 за M против $0.44/$1.32 у 0731 (тариф OpenRouter 21.10). По
+    # умолчанию модель ДУМАЕТ (441 reasoning-токен на пробном вызове) — с
+    # reasoning.enabled=false, как везде в конвейере, 0 токенов и ~$0.00006/вызов.
+    # Замер на корпусе v2.4 (87 записей, один день, VPS): 0731 — 9.6 (recall
+    # 92.5%, precision 97.9%), 1017 — 9.9 и 9.9 (recall 97.5%, precision 100%).
+    # Откат без передеплоя: в .env AI_RELEVANCE_MODEL=deepseek/deepseek-v4-flash-0731.
+    ai_relevance_model: str = "deepseek/deepseek-v4.1-flash-1017"
     # Structured AI output (migration 017): minimum score 0-100 to pass filter.
     # 70 = "вероятно наш". Lower = noisier alerts, higher = miss edge cases.
     ai_score_threshold: int = 70
@@ -170,7 +178,8 @@ class Settings(BaseSettings):
     # 2026-08-02: pro → flash-0731 вместе со всем конвейером. Замером НЕ покрыт:
     # корпус меряет гейт релевантности, а не связность суточного разбора.
     ai_eval_enabled: bool = True
-    ai_evaluator_model: str = "deepseek/deepseek-v4-flash-0731"
+    # 2026-10-21: → v4.1-flash-1017 вместе со всем конвейером (замером не покрыт).
+    ai_evaluator_model: str = "deepseek/deepseek-v4.1-flash-1017"
 
     # Crawler behaviour
     dry_run: bool = False
