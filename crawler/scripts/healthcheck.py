@@ -133,18 +133,35 @@ KNOWN_CRAWL_ERRORS = {
 }
 _ERROR_SOURCE_RE = re.compile(r"^\[([^\]]+)\]")
 
+# Сбои, известные только в своём окне (21.10, решение Данияра). Сайт Mobiuz
+# ночью не отвечает: с 01.10 ConnectTimeout в 11 из 21 ночных прогонов
+# (старт 20/22/00/02 UTC) и ни разу в 04–18 UTC. Каждую такую ночь был FAIL
+# в Telegram (31 отправка с 10.10). В окне и с этим текстом — известная (WARN);
+# днём или с другой ошибкой — FAIL, как раньше.
+# Ключ — id источника, значение — (фрагмент текста ошибки, часы старта прогона UTC).
+_NIGHT_HOURS_UTC = frozenset((20, 21, 22, 23, 0, 1, 2))
+WINDOWED_CRAWL_ERRORS = {
+    "mobiuz": ("ConnectTimeout", _NIGHT_HOURS_UTC),
+    "mobiuz-rfi": ("ConnectTimeout", _NIGHT_HOURS_UTC),
+}
 
-def split_crawl_errors(messages, errors_count, today, known=None):
-    # type: (List[Any], int, str, Optional[Dict[str, Tuple[str, str]]]) -> Tuple[List[str], List[str], List[str]]
+
+def split_crawl_errors(messages, errors_count, today, known=None, run_hour=None):
+    # type: (List[Any], int, str, Optional[Dict[str, Tuple[str, str]]], Optional[int]) -> Tuple[List[str], List[str], List[str]]
     """id источников из ошибок прогона: (известные, неизвестные, с истёкшей записью).
 
     Неразобранное сообщение и ошибки сверх списка сообщений — неизвестные.
+    run_hour — час старта прогона UTC: для сбоев из WINDOWED_CRAWL_ERRORS.
     """
     table = KNOWN_CRAWL_ERRORS if known is None else known
     known_ids, unknown, expired = [], [], []  # type: List[str], List[str], List[str]
     for msg in messages:
         m = _ERROR_SOURCE_RE.match(str(msg))
         sid = m.group(1) if m else None
+        window = WINDOWED_CRAWL_ERRORS.get(sid) if sid and known is None else None
+        if window and run_hour in window[1] and window[0] in str(msg):
+            known_ids.append(sid)
+            continue
         entry = table.get(sid) if sid else None
         if entry and today <= entry[0]:
             known_ids.append(sid)
@@ -458,12 +475,17 @@ class HealthCheck:
             return
         errors = int(latest.get("errors_count") or 0)
         day = today or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        try:
+            run_hour = int(started[11:13])
+        except ValueError:
+            run_hour = None
         known_ids, unknown, expired = split_crawl_errors(
-            latest.get("error_messages") or [], errors, day)
+            latest.get("error_messages") or [], errors, day, run_hour=run_hour)
         known_note = ""
         if known_ids:
             known_note = "; известные: %s" % ", ".join(
-                "%s (до %s)" % (sid, KNOWN_CRAWL_ERRORS[sid][0]) for sid in known_ids)
+                "%s (до %s)" % (sid, KNOWN_CRAWL_ERRORS[sid][0]) if sid in KNOWN_CRAWL_ERRORS
+                else "%s (ночной таймаут)" % sid for sid in known_ids)
         if unknown:
             expired_note = ""
             if expired:

@@ -107,3 +107,53 @@ def test_known_entries_point_at_real_enabled_sources_with_a_reason():
 
 def test_ungm_is_not_excused_it_was_fixed():
     assert "ungm" not in H.KNOWN_CRAWL_ERRORS
+
+
+# ── ночные таймауты Mobiuz (21.10, решение Данияра) ──────────────────────────
+
+MOBIUZ = "[mobiuz] ConnectTimeout: "
+MOBIUZ_RFI = "[mobiuz-rfi] ConnectTimeout: "
+
+
+def test_mobiuz_timeout_is_known_only_at_night():
+    known, unknown, _ = H.split_crawl_errors([MOBIUZ, MOBIUZ_RFI], 2, "2026-10-21", run_hour=20)
+    assert known == ["mobiuz", "mobiuz-rfi"] and unknown == [], (known, unknown)
+    known, unknown, _ = H.split_crawl_errors([MOBIUZ], 1, "2026-10-21", run_hour=14)
+    assert known == [] and unknown == ["mobiuz"], (known, unknown)
+
+
+def test_other_mobiuz_error_at_night_is_still_a_failure():
+    known, unknown, _ = H.split_crawl_errors(["[mobiuz] HTTPStatusError: 500"], 1, "2026-10-21", run_hour=22)
+    assert unknown == ["mobiuz"], unknown
+
+
+def _frozen(hour):
+    from datetime import datetime as _dt
+
+    class _Clock(_dt):
+        @classmethod
+        def now(cls, tz=None):
+            return _dt(2026, 10, 21, hour, 15, tzinfo=timezone.utc)
+    return _Clock
+
+
+def _check_at(hour, messages):
+    from unittest.mock import patch
+    run = _run(messages)
+    run["started_at"] = "2026-10-21T%02d:00:04+00:00" % hour
+    hc = H.HealthCheck()
+    with patch.object(H, "datetime", _frozen(hour)):
+        hc._check_full_api_freshness([run], today="2026-10-21")
+    [res] = [r for r in hc.results if r["component"] == "freshness.full_api"]
+    return res
+
+
+def test_night_run_with_mobiuz_timeouts_is_warn_not_fail():
+    # 20.10 20:15: «ended with 4 error(s): mobiuz, mobiuz-rfi» — FAIL в Telegram.
+    res = _check_at(20, [MOBIUZ, MOBIUZ_RFI, IPOTEKA])
+    assert res["status"] == H.WARN and "mobiuz (ночной таймаут)" in res["message"], res
+
+
+def test_day_run_with_mobiuz_timeout_is_fail():
+    res = _check_at(14, [MOBIUZ])
+    assert res["status"] == H.FAIL and "mobiuz" in res["message"], res
